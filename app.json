@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "SIARA",
+    "slug": "siara-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/logos/siara-logo.png",
+    "splash": {
+      "image": "./src/assets/logos/siara-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7A3DF0"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.siara.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "SIARA needs your location to show real-time road risk at your position."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./src/assets/logos/siara-logo.png",
+        "backgroundColor": "#7A3DF0"
+      },
+      "package": "com.siara.mobile",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCwwC7lp0np11wmccizGFN55-45Az8-2rQ"
+        }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SIARA needs your location to show real-time road risk at your position."
+        }
+      ]
+    ]
+  }
+}
