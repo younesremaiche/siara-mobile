@@ -1,0 +1,23 @@
+{
+  "features": [
+    "dissociative",
+    "anxious",
+    "risky",
+    "angry",
+    "high_velocity",
+    "distress_reduction",
+    "patient",
+    "careful",
+    "errors",
+    "violations",
+    "lapses"
+  ],
+  "ordered_labels": [
+    "very_low",
+    "low",
+    "moderate",
+    "elevated",
+    "high",
+    "extreme"
+  ]
+}
