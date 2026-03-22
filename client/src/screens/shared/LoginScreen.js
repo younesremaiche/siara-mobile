@@ -1,52 +1,117 @@
-import React, { useState, useContext } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  StyleSheet,
+  ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../../contexts/AuthContext';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
+import { checkApiHealth } from '../../services/api';
+import {
+  getAuthErrorMessage,
+  getPostAuthRoute,
+  normalizeEmail,
+  validateLoginForm,
+} from '../../utils/auth';
 
-export default function LoginScreen({ navigation }) {
-  const { login } = useContext(AuthContext);
-  const [identifier, setIdentifier] = useState('');
+export default function LoginScreen({ navigation, route }) {
+  const { login, signInWithGoogle } = useContext(AuthContext);
+  const [identifier, setIdentifier] = useState(route?.params?.email || '');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
+  const [backendError, setBackendError] = useState('');
+
+  useEffect(() => {
+    const nextEmail = route?.params?.email || '';
+    if (nextEmail) {
+      setIdentifier(nextEmail);
+    }
+  }, [route?.params?.email]);
+
+  useEffect(() => {
+    let active = true;
+
+    checkApiHealth()
+      .then(() => {
+        if (active) {
+          setBackendError('');
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBackendError(
+            'Backend unreachable. Make sure http://10.92.182.21:8000 is running and reachable from your phone.',
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleLogin() {
-    if (!identifier || !password) {
-      setError('Please enter your email and password.');
+    const validationErrors = validateLoginForm({
+      email: identifier,
+      password,
+    });
+
+    if (validationErrors.email || validationErrors.password) {
+      setError(validationErrors.email || validationErrors.password);
       return;
     }
+
     setLoading(true);
     setError('');
+
     try {
-      const user = await login(identifier, password, remember);
-      if (user.role === 'admin') {
-        navigation.reset({ index: 0, routes: [{ name: 'AdminPanel' }] });
+      const user = await login(normalizeEmail(identifier), password, remember);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: getPostAuthRoute(user) }],
+      });
+    } catch (loginError) {
+      const requiresVerification = loginError?.response?.data?.requiresEmailVerification === true;
+      if (requiresVerification) {
+        navigation.navigate('VerifyEmail', {
+          email: loginError?.response?.data?.email || normalizeEmail(identifier),
+          rememberMe: remember,
+        });
       } else {
-        navigation.reset({ index: 0, routes: [{ name: 'UserTabs' }] });
+        setError(getAuthErrorMessage(loginError, 'Authentication failed. Please check your credentials.'));
       }
-    } catch (e) {
-      setError('Authentication failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  function quickDemo(email, pw) {
-    setIdentifier(email);
-    setPassword(pw);
+  async function handleGoogleLogin() {
+    setGoogleLoading(true);
+    setError('');
+
+    try {
+      const user = await signInWithGoogle(remember);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: getPostAuthRoute(user) }],
+      });
+    } catch (googleError) {
+      setError(getAuthErrorMessage(googleError, 'Google sign-in failed. Please try again.'));
+    } finally {
+      setGoogleLoading(false);
+    }
   }
 
   return (
@@ -60,9 +125,7 @@ export default function LoginScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        {/* ── Gradient Hero Section ── */}
         <View style={styles.hero}>
-          {/* Decorative circles */}
           <View style={styles.heroCircleTopRight} />
           <View style={styles.heroCircleBottomLeft} />
 
@@ -91,7 +154,6 @@ export default function LoginScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── White Form Card ── */}
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>Log In</Text>
           <Text style={styles.formSubtitle}>
@@ -105,14 +167,23 @@ export default function LoginScreen({ navigation }) {
             </View>
           ) : null}
 
-          {/* Email / Phone */}
+          {backendError ? (
+            <View style={styles.backendBox}>
+              <Ionicons name="cloud-offline-outline" size={16} color={Colors.warning} />
+              <Text style={styles.backendText}>{backendError}</Text>
+            </View>
+          ) : null}
+
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email or Phone</Text>
+            <Text style={styles.inputLabel}>Email</Text>
             <View style={styles.inputRow}>
               <Ionicons name="mail-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={identifier}
-                onChangeText={(t) => { setIdentifier(t); setError(''); }}
+                onChangeText={(text) => {
+                  setIdentifier(text);
+                  setError('');
+                }}
                 placeholder="email@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -122,14 +193,16 @@ export default function LoginScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Password */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Password</Text>
             <View style={styles.inputRow}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={password}
-                onChangeText={(t) => { setPassword(t); setError(''); }}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setError('');
+                }}
                 placeholder="Enter your password"
                 secureTextEntry={!showPw}
                 style={styles.inputNoMargin}
@@ -149,62 +222,47 @@ export default function LoginScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Remember Me */}
           <TouchableOpacity
             style={styles.rememberRow}
             onPress={() => setRemember(!remember)}
             activeOpacity={0.7}
           >
             <View style={[styles.checkbox, remember && styles.checkboxChecked]}>
-              {remember && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+              {remember ? <Ionicons name="checkmark" size={14} color={Colors.white} /> : null}
             </View>
             <Text style={styles.rememberText}>Remember me</Text>
           </TouchableOpacity>
 
-          {/* Sign In Button */}
           <Button
             onPress={handleLogin}
-            disabled={loading}
+            disabled={loading || googleLoading}
+            loading={loading}
             style={styles.ctaBtn}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            Sign In
           </Button>
 
-          {/* ── Quick Demo Access ── */}
-          <View style={styles.demoSection}>
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Quick Demo Access</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.demoRow}>
-              <TouchableOpacity
-                style={styles.demoBtn}
-                onPress={() => quickDemo('admin@siara.dz', 'admin1234')}
-                activeOpacity={0.7}
-              >
-                <View style={styles.demoBtnIconWrap}>
-                  <Ionicons name="shield-half-outline" size={16} color={Colors.primary} />
-                </View>
-                <Text style={styles.demoBtnText}>Admin Panel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.demoBtn, styles.demoBtnBlue]}
-                onPress={() => quickDemo('user@siara.dz', 'user12345')}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.demoBtnIconWrap, styles.demoBtnIconBlue]}>
-                  <Ionicons name="person-outline" size={16} color={Colors.secondary} />
-                </View>
-                <Text style={[styles.demoBtnText, styles.demoBtnTextBlue]}>User Demo</Text>
-              </TouchableOpacity>
-            </View>
+          {/* ── Divider ── */}
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or continue with</Text>
+            <View style={styles.dividerLine} />
           </View>
 
-          {/* ── Footer Links ── */}
-          <View style={styles.footer}>
+          {/* ── Google Sign-In Button ── */}
+          <TouchableOpacity
+            style={[styles.googleBtn, googleLoading && styles.googleBtnDisabled]}
+            onPress={handleGoogleLogin}
+            disabled={loading || googleLoading}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="logo-google" size={20} color={Colors.primary} />
+            <Text style={styles.googleBtnText}>
+              {googleLoading ? 'Signing in...' : 'Continue with Google'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* ── Footer ── */}
             <TouchableOpacity
               onPress={() => navigation.navigate('About')}
               activeOpacity={0.6}
@@ -219,12 +277,12 @@ export default function LoginScreen({ navigation }) {
               activeOpacity={0.6}
             >
               <Text style={styles.footerLink}>
-                Don't have an account?{' '}
+                Don&apos;t have an account?{' '}
                 <Text style={styles.footerHighlight}>Sign Up</Text>
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -235,8 +293,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
   },
-
-  /* ── Hero ── */
   hero: {
     backgroundColor: Colors.primary,
     paddingTop: Platform.OS === 'ios' ? 64 : 52,
@@ -310,8 +366,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-
-  /* ── Form Card ── */
   formCard: {
     flex: 1,
     backgroundColor: Colors.white,
@@ -355,8 +409,23 @@ const styles = StyleSheet.create({
     flex: 1,
     fontWeight: '500',
   },
-
-  /* ── Input styling ── */
+  backendBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(244,162,97,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(244,162,97,0.24)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 18,
+  },
+  backendText: {
+    color: Colors.text,
+    fontSize: 13,
+    flex: 1,
+    fontWeight: '500',
+  },
   inputGroup: {
     marginBottom: 16,
   },
@@ -391,8 +460,6 @@ const styles = StyleSheet.create({
   eyeBtn: {
     padding: 4,
   },
-
-  /* ── Remember ── */
   rememberRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -419,8 +486,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-
-  /* ── CTA ── */
   ctaBtn: {
     width: '100%',
     paddingVertical: 15,
@@ -431,15 +496,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-
-  /* ── Demo Section ── */
-  demoSection: {
-    marginTop: 28,
-  },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 12,
+    marginVertical: 20,
   },
   dividerLine: {
     flex: 1,
@@ -448,54 +509,34 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     color: Colors.subtext,
-    fontSize: 12,
-    fontWeight: '600',
-    marginHorizontal: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  demoRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  demoBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.violetLight,
-    borderWidth: 1,
-    borderColor: Colors.violetBorder,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  demoBtnBlue: {
-    backgroundColor: Colors.blueLight,
-    borderColor: Colors.blueBorder,
-  },
-  demoBtnIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: 'rgba(124,58,237,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  demoBtnIconBlue: {
-    backgroundColor: 'rgba(59,130,246,0.12)',
-  },
-  demoBtnText: {
-    color: Colors.primary,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '500',
   },
-  demoBtnTextBlue: {
-    color: Colors.secondary,
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
-
-  /* ── Footer ── */
+  googleBtnDisabled: {
+    opacity: 0.6,
+  },
+  googleBtnText: {
+    color: Colors.primary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',

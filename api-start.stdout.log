@@ -1,0 +1,11 @@
+[dotenv@17.3.1] injecting env (32) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.3.1] injecting env (32) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[db] pool_config {
+  host: 'localhost',
+  port: 5432,
+  database: 'siara',
+  user: 'siara_admin',
+  via: 'PG*',
+  ssl_mode: 'disable'
+}
+[email/weekly-summary] scheduler_started { cron: '0 18 * * 0', timezone: 'Africa/Algiers' }

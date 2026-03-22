@@ -14,7 +14,7 @@ const ML_SERVICE_BASE_URL =
   process.env.ML_SERVICE_BASE_URL ||
   (LEGACY_ML_SERVICE_URL
     ? LEGACY_ML_SERVICE_URL.replace(/\/predict\/?$/, "")
-    : "http://localhost:8000");
+    : "http://127.0.0.1:8001");
 
 const TIMEOUT_MS = Number(process.env.ML_SERVICE_TIMEOUT_MS || 15000);
 const WEATHER_TIMEOUT_MS = Number(process.env.WEATHER_TIMEOUT_MS || 8000);

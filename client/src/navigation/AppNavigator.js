@@ -10,6 +10,7 @@ import { Colors } from '../theme/colors';
 // Shared screens
 import LoginScreen from '../screens/shared/LoginScreen';
 import RegisterScreen from '../screens/shared/RegisterScreen';
+import VerifyEmailScreen from '../screens/shared/VerifyEmailScreen';
 import AboutScreen from '../screens/shared/AboutScreen';
 import DescriptionScreen from '../screens/shared/DescriptionScreen';
 
@@ -43,6 +44,7 @@ import DashboardScreen from '../screens/admin/DashboardScreen';
 
 // Admin drawer content
 import AdminDrawerContent from '../components/layout/AdminDrawerContent';
+import { getPostAuthRoute } from '../utils/auth';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -143,6 +145,7 @@ export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator
+        initialRouteName={user ? getPostAuthRoute(user) : 'Login'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: Colors.bg },
@@ -151,6 +154,7 @@ export default function AppNavigator() {
         {/* Auth screens (shown when not logged in, but also reachable) */}
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
 
         {/* Public user screens */}
         <Stack.Screen name="UserTabs" component={UserTabs} />

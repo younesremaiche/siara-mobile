@@ -4,6 +4,7 @@
     "slug": "siara-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "com.siara.mobile",
     "icon": "./src/assets/logos/siara-icon-square.png",
     "splash": {
       "image": "./src/assets/logos/siara-logo.png",
@@ -42,6 +43,9 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "apiBaseUrl": "http://127.0.0.1:8000"
+    }
   }
 }

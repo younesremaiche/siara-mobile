@@ -1,21 +1,28 @@
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  StyleSheet,
-  Alert,
+  ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AuthContext } from '../../contexts/AuthContext';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
+import {
+  buildVerificationNotice,
+  getAuthErrorMessage,
+  normalizeEmail,
+  validateRegisterForm,
+} from '../../utils/auth';
 
 export default function RegisterScreen({ navigation }) {
+  const { register } = useContext(AuthContext);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,28 +32,54 @@ export default function RegisterScreen({ navigation }) {
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState('');
 
   function validate() {
-    const errs = {};
-    if (!fullName.trim()) errs.fullName = 'Full name is required';
-    if (!email.trim()) errs.email = 'Email or phone is required';
-    if (password.length < 6) errs.password = 'Password must be at least 6 characters';
-    if (password !== confirm) errs.confirm = 'Passwords do not match';
-    if (!agreeTerms) errs.terms = 'You must agree to the terms';
-    return errs;
+    const validationErrors = validateRegisterForm({
+      fullName,
+      email,
+      password,
+      confirmPassword: confirm,
+      agreeTerms,
+    });
+
+    if (validationErrors.confirmPassword) {
+      validationErrors.confirm = validationErrors.confirmPassword;
+    }
+
+    delete validationErrors.confirmPassword;
+    return validationErrors;
   }
 
   async function handleRegister() {
-    const errs = validate();
-    setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    const validationErrors = validate();
+    setErrors(validationErrors);
+    setFormError('');
+
+    if (Object.keys(validationErrors).length > 0) {
+      return;
+    }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    Alert.alert('Success', 'Account created successfully!', [
-      { text: 'OK', onPress: () => navigation.navigate('Login') },
-    ]);
+    try {
+      const result = await register({
+        fullName,
+        email: normalizeEmail(email),
+        password,
+        rememberMe: false,
+      });
+
+      navigation.replace('VerifyEmail', {
+        email: result?.email || normalizeEmail(email),
+        rememberMe: false,
+        emailSent: result?.emailSent,
+        notice: buildVerificationNotice({ emailSent: result?.emailSent }),
+      });
+    } catch (registerError) {
+      setFormError(getAuthErrorMessage(registerError, 'Unable to create your account right now.'));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -60,7 +93,6 @@ export default function RegisterScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        {/* ── Gradient Hero Section ── */}
         <View style={styles.hero}>
           <View style={styles.heroCircleTopRight} />
           <View style={styles.heroCircleBottomLeft} />
@@ -86,21 +118,29 @@ export default function RegisterScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── White Form Card ── */}
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>Create an Account</Text>
           <Text style={styles.formSubtitle}>
             Sign up to access dashboards, risk maps, and driver analytics.
           </Text>
 
-          {/* Full Name */}
+          {formError ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle" size={16} color={Colors.error} />
+              <Text style={styles.errorText}>{formError}</Text>
+            </View>
+          ) : null}
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Full Name</Text>
             <View style={[styles.inputRow, errors.fullName && styles.inputRowError]}>
               <Ionicons name="person-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={fullName}
-                onChangeText={(t) => { setFullName(t); setErrors((e) => ({ ...e, fullName: '' })); }}
+                onChangeText={(text) => {
+                  setFullName(text);
+                  setErrors((current) => ({ ...current, fullName: '' }));
+                }}
                 placeholder="Enter your full name"
                 autoCapitalize="words"
                 style={styles.inputNoMargin}
@@ -110,14 +150,16 @@ export default function RegisterScreen({ navigation }) {
             {errors.fullName ? <Text style={styles.fieldError}>{errors.fullName}</Text> : null}
           </View>
 
-          {/* Email / Phone */}
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email or Phone</Text>
+            <Text style={styles.inputLabel}>Email</Text>
             <View style={[styles.inputRow, errors.email && styles.inputRowError]}>
               <Ionicons name="mail-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={email}
-                onChangeText={(t) => { setEmail(t); setErrors((e) => ({ ...e, email: '' })); }}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  setErrors((current) => ({ ...current, email: '' }));
+                }}
                 placeholder="email@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -128,15 +170,17 @@ export default function RegisterScreen({ navigation }) {
             {errors.email ? <Text style={styles.fieldError}>{errors.email}</Text> : null}
           </View>
 
-          {/* Password */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Password</Text>
             <View style={[styles.inputRow, errors.password && styles.inputRowError]}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={password}
-                onChangeText={(t) => { setPassword(t); setErrors((e) => ({ ...e, password: '' })); }}
-                placeholder="Min. 6 characters"
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setErrors((current) => ({ ...current, password: '' }));
+                }}
+                placeholder="Min. 8 characters"
                 secureTextEntry={!showPw}
                 style={styles.inputNoMargin}
                 inputStyle={styles.inputWithIcon}
@@ -156,14 +200,16 @@ export default function RegisterScreen({ navigation }) {
             {errors.password ? <Text style={styles.fieldError}>{errors.password}</Text> : null}
           </View>
 
-          {/* Confirm Password */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Confirm Password</Text>
             <View style={[styles.inputRow, errors.confirm && styles.inputRowError]}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.grey} style={styles.inputIcon} />
               <Input
                 value={confirm}
-                onChangeText={(t) => { setConfirm(t); setErrors((e) => ({ ...e, confirm: '' })); }}
+                onChangeText={(text) => {
+                  setConfirm(text);
+                  setErrors((current) => ({ ...current, confirm: '' }));
+                }}
                 placeholder="Re-enter your password"
                 secureTextEntry={!showConfirmPw}
                 style={styles.inputNoMargin}
@@ -184,10 +230,12 @@ export default function RegisterScreen({ navigation }) {
             {errors.confirm ? <Text style={styles.fieldError}>{errors.confirm}</Text> : null}
           </View>
 
-          {/* Terms Checkbox */}
           <TouchableOpacity
             style={styles.termsRow}
-            onPress={() => { setAgreeTerms(!agreeTerms); setErrors((e) => ({ ...e, terms: '' })); }}
+            onPress={() => {
+              setAgreeTerms(!agreeTerms);
+              setErrors((current) => ({ ...current, terms: '' }));
+            }}
             activeOpacity={0.7}
           >
             <View style={[
@@ -195,29 +243,28 @@ export default function RegisterScreen({ navigation }) {
               agreeTerms && styles.checkboxChecked,
               errors.terms && !agreeTerms && styles.checkboxError,
             ]}>
-              {agreeTerms && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+              {agreeTerms ? <Ionicons name="checkmark" size={14} color={Colors.white} /> : null}
             </View>
             <Text style={styles.termsText}>
-              I agree to the{' '}
-              <Text style={styles.termsLink}>Terms of Service</Text>
-              {' '}and{' '}
+              I agree to the <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
               <Text style={styles.termsLink}>Privacy Policy</Text>
             </Text>
           </TouchableOpacity>
-          {errors.terms ? <Text style={[styles.fieldError, { marginLeft: 32, marginTop: -2 }]}>{errors.terms}</Text> : null}
+          {errors.terms ? (
+            <Text style={[styles.fieldError, { marginLeft: 32, marginTop: -2 }]}>{errors.terms}</Text>
+          ) : null}
 
-          {/* Sign Up Button */}
           <Button
             onPress={handleRegister}
             disabled={loading}
+            loading={loading}
             style={styles.ctaBtn}
           >
-            {loading ? 'Creating account...' : 'Sign Up'}
+            Sign Up
           </Button>
 
-          {/* Footer */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Already registered?{' '}</Text>
+            <Text style={styles.footerText}>Already registered? </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate('Login')}
               activeOpacity={0.6}
@@ -236,8 +283,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
   },
-
-  /* ── Hero ── */
   hero: {
     backgroundColor: Colors.primary,
     paddingTop: Platform.OS === 'ios' ? 60 : 48,
@@ -311,8 +356,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-
-  /* ── Form Card ── */
   formCard: {
     flex: 1,
     backgroundColor: Colors.white,
@@ -339,8 +382,23 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 22,
   },
-
-  /* ── Input styling ── */
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(220,38,38,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(220,38,38,0.15)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 18,
+  },
+  errorText: {
+    color: Colors.error,
+    fontSize: 13,
+    flex: 1,
+    fontWeight: '500',
+  },
   inputGroup: {
     marginBottom: 14,
   },
@@ -385,8 +443,6 @@ const styles = StyleSheet.create({
     marginTop: 5,
     marginLeft: 4,
   },
-
-  /* ── Terms ── */
   termsRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -422,8 +478,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '600',
   },
-
-  /* ── CTA ── */
   ctaBtn: {
     width: '100%',
     paddingVertical: 15,
@@ -435,8 +489,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-
-  /* ── Footer ── */
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',

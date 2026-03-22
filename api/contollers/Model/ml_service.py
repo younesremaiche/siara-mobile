@@ -1068,11 +1068,11 @@ def risk_confidence():
 
 
 # Quick test snippet:
-# curl -X POST http://localhost:8000/risk/confidence \
+# curl -X POST http://localhost:8001/risk/confidence \
 #   -H "Content-Type: application/json" \
 #   -d "{\"row\":{\"Start_Lat\":36.75,\"Start_Lng\":3.06,\"Start_Time\":\"2026-03-04T10:15:00\",\"Distance(mi)\":0.5,\"Temperature(F)\":77,\"Humidity(%)\":45,\"Pressure(in)\":30.0,\"Wind_Speed(mph)\":8,\"Wind_Direction\":\"NW\",\"Precipitation(in)\":0.0}}"
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=8001)
 

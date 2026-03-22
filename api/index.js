@@ -39,13 +39,39 @@ const {
 const app = express();
 const httpServer = http.createServer(app);
 const allowedOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+const HOST = process.env.HOST || "0.0.0.0";
+const PORT = Number(process.env.PORT_NUM || 8000);
 
-app.use(cors({ origin: allowedOrigin, credentials: true }));
+function logRequest(label) {
+  return (req, res, next) => {
+    console.info("[request]", {
+      label,
+      method: req.method,
+      path: req.originalUrl,
+    });
+    next();
+  };
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    if (process.env.NODE_ENV !== "production" || !origin || origin === allowedOrigin) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(cookieParser());
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(express.json());
 
-app.use("/api/auth", authRoutes);
+app.get("/health", logRequest("health"), (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.use("/api/auth", logRequest("auth"), authRoutes);
 app.use("/api/admin", adminIncidentRoutes);
 app.use("/api/admin", adminOperationalAlertRoutes);
 app.use("/api/admin", adminOverviewRoutes);
@@ -142,7 +168,7 @@ app.use((err, req, res, next) => {
 });
 
 
-httpServer.listen(process.env.PORT_NUM || 5000, () => {
-  console.log("Backend server is running !!");
+httpServer.listen(PORT, HOST, () => {
+  console.log(`Backend server is running on http://${HOST}:${PORT}`);
 });
 
