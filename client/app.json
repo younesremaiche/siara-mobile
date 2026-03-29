@@ -24,6 +24,7 @@
         "backgroundColor": "#7A3DF0"
       },
       "package": "com.siara.mobile",
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyCwwC7lp0np11wmccizGFN55-45Az8-2rQ"
@@ -51,6 +52,11 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e896aea7-e4ab-4856-b708-b0d286778738"
+      }
+    }
   }
 }
