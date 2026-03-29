@@ -1,0 +1,37 @@
+
+# dependencies
+node_modules/
+client/node_modules/
+
+# expo / react native
+.expo/
+client/.expo/
+.expo-shared/
+
+# android
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/app/.cxx/
+
+# ios
+ios/build/
+client/ios/build/
+
+# misc
+*.log
+*.keystore
+*.jks
+.env
+.env.*
+!example.env
+
+# firebase secrets
+*firebase-adminsdk*.json
+# ML models / binaries
+*.joblib
+api/anomaly-detection/*.joblib
