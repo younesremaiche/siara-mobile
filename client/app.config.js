@@ -1,7 +1,6 @@
 const baseConfig = require('./app.json');
 
 const STATIC_EXPO_CONFIG = baseConfig.expo || {};
-const DEFAULT_EAS_PROJECT_ID = 'e896aea7-e4ab-4856-b708-b0d286778738';
 
 module.exports = ({ config } = {}) => {
   const resolvedConfig = config && typeof config === 'object' ? config : STATIC_EXPO_CONFIG;
@@ -15,7 +14,7 @@ module.exports = ({ config } = {}) => {
     process.env.EXPO_PUBLIC_EAS_PROJECT_ID
     || resolvedConfig?.extra?.eas?.projectId
     || STATIC_EXPO_CONFIG?.extra?.eas?.projectId
-    || DEFAULT_EAS_PROJECT_ID;
+    || null;
 
   return {
     ...resolvedConfig,

@@ -4,21 +4,21 @@ For Android push notification testing, use the LAN backend and a development bui
 
 ## Local LAN backend
 
-- PC/backend URL: `http://127.0.0.1:5000`
-- Health check: [http://127.0.0.1:5000/health](http://192.168.1.13:5000/health)
+- PC/backend URL: `http://YOUR_LAN_IP:5000`
+- Health check: `http://YOUR_LAN_IP:5000/health`
 - The phone must be on the same Wi-Fi as the PC.
 - Do not use `localhost` or `127.0.0.1` from the phone.
 
 Set local env in `client/.env.development`:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:5000
+EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:5000
 EXPO_PUBLIC_EAS_PROJECT_ID=your-eas-project-id
 ```
 
 ## Correct workflow for push testing
 
-1. Start the backend so it is reachable at `http://127.0.0.1:5000`.
+1. Start the backend so it is reachable at `http://YOUR_LAN_IP:5000`.
 2. Build/install the development client on Android:
    `npm run android`
 3. Start Metro for the dev client:

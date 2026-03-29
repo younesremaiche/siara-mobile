@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "944652922057",
+    "project_id": "siara-c375f",
+    "storage_bucket": "siara-c375f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:944652922057:android:98b5101d17b0d2c109b118",
+        "android_client_info": {
+          "package_name": "com.siara.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMklxIzkWGu0UK2uYoceYYzhTw8VynQJ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
