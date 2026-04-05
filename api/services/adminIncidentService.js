@@ -1,11 +1,14 @@
 const createError = require("http-errors");
 
 const pool = require("../db");
+const { refreshReporterTrustScore } = require("./reportSpamDetectionService");
 
 const DASHBOARD_TIMEZONE = "Africa/Algiers";
 const INCIDENT_FILTERS = Object.freeze({
   all: "all",
   pending: "pending",
+  suspicious: "suspicious",
+  "pending-review": "pending-review",
   "ai-flagged": "ai-flagged",
   community: "community",
   merged: "merged",
@@ -16,9 +19,11 @@ const SORT_FIELDS = Object.freeze({
   incidentType: "incidentType",
   location: "location",
   severity: "severity",
+  spamScore: "spamScore",
   confidence: "confidence",
   reporterScore: "reporterScore",
   createdAt: "createdAt",
+  classifiedAt: "classifiedAt",
   status: "status",
 });
 const SORT_DIRECTIONS = new Set(["asc", "desc"]);
@@ -79,6 +84,24 @@ function normalizeConfidenceScore(value) {
 
   const normalized = parsed <= 1.2 ? parsed * 100 : parsed;
   return Math.round(normalized);
+}
+
+function normalizeMlPercent(value, digits = 2) {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const multiplier = 10 ** digits;
+  return Math.round(parsed * multiplier) / multiplier;
+}
+
+function hasPendingSpamReview(row) {
+  return row?.latest_predicted_label === "spam" && !String(row?.review_verdict || "").trim();
 }
 
 function buildDisplayIncidentId(reportId) {
@@ -206,6 +229,10 @@ function buildIncidentFilterSql(filterKey) {
   switch (normalizeIncidentFilter(filterKey)) {
     case INCIDENT_FILTERS.pending:
       return `base.status = 'pending'`;
+    case INCIDENT_FILTERS.suspicious:
+      return `base.latest_predicted_label = 'spam'`;
+    case INCIDENT_FILTERS["pending-review"]:
+      return `base.latest_predicted_label = 'spam' AND coalesce(nullif(btrim(base.review_verdict), ''), '') = ''`;
     case INCIDENT_FILTERS.archived:
       return `base.status = 'archived'`;
     case INCIDENT_FILTERS.merged:
@@ -229,9 +256,11 @@ function buildOrderBy(sortField, sortDir) {
     incidentType: `base.incident_type ${direction}, base.created_at DESC`,
     location: `base.location ${direction}, base.created_at DESC`,
     severity: `base.severity_value ${direction}, base.created_at DESC`,
+    spamScore: `base.latest_spam_score ${direction} NULLS LAST, base.created_at DESC`,
     confidence: `base.sortable_confidence ${direction} NULLS LAST, base.created_at DESC`,
     reporterScore: `base.open_flag_count DESC, base.created_at DESC`,
     createdAt: `base.created_at ${direction}`,
+    classifiedAt: `base.latest_classified_at ${direction} NULLS LAST, base.created_at DESC`,
     status: `base.status ${direction}, base.created_at DESC`,
   };
 
@@ -250,6 +279,13 @@ function buildIncidentBaseCte() {
         ar.severity_hint,
         ar.created_at,
         ar.merged_into_report_id,
+        ar.ml_status,
+        ar.latest_predicted_label,
+        ar.latest_spam_score,
+        ar.latest_ml_confidence,
+        ar.latest_model_version,
+        ar.latest_classified_at,
+        ar.review_verdict,
         COALESCE(NULLIF(BTRIM(ar.location_label), ''), 'Unknown location') AS location,
         latest_assessment.predicted_severity AS ai_severity_value,
         CASE
@@ -309,6 +345,14 @@ function mapIncidentRow(row, now = new Date()) {
     severitySource: hasCompletedAssessment && row.ai_severity_value != null ? "ai" : "hint",
     confidence: hasCompletedAssessment ? normalizeConfidenceScore(row.sortable_confidence) : null,
     confidenceStatus,
+    mlStatus: row.ml_status || null,
+    predictedLabel: row.latest_predicted_label || null,
+    spamScore: normalizeMlPercent(row.latest_spam_score),
+    mlConfidence: normalizeMlPercent(row.latest_ml_confidence),
+    modelVersion: row.latest_model_version || null,
+    classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
+    reviewVerdict: row.review_verdict || null,
+    pendingSpamReview: hasPendingSpamReview(row),
     reporterScore: null,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
     ago: formatAgo(row.created_at, now),
@@ -330,6 +374,11 @@ async function fetchIncidentCounts(db = pool) {
           OR base.merged_into_report_id IS NOT NULL
       )::int AS merged_count,
       count(*) FILTER (WHERE base.open_flag_count > 0)::int AS community_count,
+      count(*) FILTER (WHERE base.latest_predicted_label = 'spam')::int AS suspicious_count,
+      count(*) FILTER (
+        WHERE base.latest_predicted_label = 'spam'
+          AND coalesce(nullif(btrim(base.review_verdict), ''), '') = ''
+      )::int AS pending_review_count,
       count(*) FILTER (
         WHERE base.confidence_status = 'completed'
           AND base.ai_severity_value >= 3
@@ -343,6 +392,8 @@ async function fetchIncidentCounts(db = pool) {
   return {
     all: Number(row.all_count || 0),
     pending: Number(row.pending_count || 0),
+    suspicious: Number(row.suspicious_count || 0),
+    "pending-review": Number(row.pending_review_count || 0),
     "ai-flagged": Number(row.ai_flagged_count || 0),
     community: Number(row.community_count || 0),
     merged: Number(row.merged_count || 0),
@@ -398,6 +449,13 @@ async function listAdminIncidents(
           base.location,
           base.status,
           base.severity_hint,
+          base.ml_status,
+          base.latest_predicted_label,
+          base.latest_spam_score,
+          base.latest_ml_confidence,
+          base.latest_model_version,
+          base.latest_classified_at,
+          base.review_verdict,
           base.ai_severity_value,
           base.confidence_status,
           base.sortable_confidence,
@@ -454,6 +512,16 @@ async function requireAdminIncidentRow(reportId, db = pool) {
         ar.merged_at,
         ar.merged_by,
         ar.merge_reason,
+        ar.ml_status,
+        ar.latest_predicted_label,
+        ar.latest_spam_score,
+        ar.latest_ml_confidence,
+        ar.latest_model_version,
+        ar.latest_classified_at,
+        ar.review_verdict,
+        ar.reviewed_by,
+        ar.reviewed_at,
+        ar.review_notes,
         ST_Y(ar.incident_location::geometry) AS lat,
         ST_X(ar.incident_location::geometry) AS lng,
         concat_ws(' ', reporter.first_name, reporter.last_name) AS reporter_name,
@@ -771,6 +839,14 @@ async function getAdminIncidentDetail(reportId, db = pool) {
     severitySource: hasCompletedAssessment && row.ai_severity_value != null ? "ai" : "hint",
     confidence: hasCompletedAssessment ? normalizeConfidenceScore(row.sortable_confidence) : null,
     confidenceStatus,
+    mlStatus: row.ml_status || null,
+    predictedLabel: row.latest_predicted_label || null,
+    spamScore: normalizeMlPercent(row.latest_spam_score),
+    mlConfidence: normalizeMlPercent(row.latest_ml_confidence),
+    modelVersion: row.latest_model_version || null,
+    classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
+    reviewVerdict: row.review_verdict || null,
+    pendingSpamReview: hasPendingSpamReview(row),
     reporterScore: null,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
     occurredAt: row.occurred_at ? new Date(row.occurred_at).toISOString() : null,
@@ -801,6 +877,19 @@ async function getAdminIncidentDetail(reportId, db = pool) {
           ? new Date(row.assessed_at).toISOString()
           : null,
       modelVersionId: row.model_version_id || null,
+    },
+    spamAnalysis: {
+      status: row.ml_status || null,
+      predictedLabel: row.latest_predicted_label || null,
+      spamScore: normalizeMlPercent(row.latest_spam_score),
+      confidence: normalizeMlPercent(row.latest_ml_confidence),
+      modelVersion: row.latest_model_version || null,
+      classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
+      reviewVerdict: row.review_verdict || null,
+      reviewedBy: row.reviewed_by || null,
+      reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : null,
+      reviewNotes: row.review_notes || "",
+      pendingReview: hasPendingSpamReview(row),
     },
     media,
     nearbyReports,
@@ -841,18 +930,22 @@ async function applyAdminIncidentAction(
 
     const currentRow = await requireAdminIncidentRow(reportId, client);
     const currentStatus = currentRow.status;
+    const reporterUserId = currentRow.reported_by;
     let nextStatus = currentStatus;
+    let nextReviewVerdict = currentRow.review_verdict || null;
     const updateClauses = [];
     const updateValues = [];
 
     if (normalizedAction === "verify") {
       nextStatus = "verified";
+      nextReviewVerdict = "confirmed_legit";
       updateClauses.push(`status = $${updateValues.length + 1}`);
       updateValues.push(nextStatus);
     }
 
     if (normalizedAction === "reject") {
       nextStatus = "rejected";
+      nextReviewVerdict = "confirmed_spam";
       updateClauses.push(`status = $${updateValues.length + 1}`);
       updateValues.push(nextStatus);
     }
@@ -872,6 +965,16 @@ async function applyAdminIncidentAction(
     if (normalizedAction === "change_severity") {
       updateClauses.push(`severity_hint = $${updateValues.length + 1}`);
       updateValues.push(normalizeSeverityHint(severity));
+    }
+
+    updateClauses.push(`review_verdict = $${updateValues.length + 1}`);
+    updateValues.push(nextReviewVerdict);
+    updateClauses.push(`reviewed_by = $${updateValues.length + 1}`);
+    updateValues.push(reviewerUserId);
+    updateClauses.push(`reviewed_at = now()`);
+    if (normalizedNote !== null) {
+      updateClauses.push(`review_notes = $${updateValues.length + 1}`);
+      updateValues.push(normalizedNote);
     }
 
     if (normalizedAction === "merge") {
@@ -958,6 +1061,8 @@ async function applyAdminIncidentAction(
       `,
       [reportId, normalizedAction, currentStatus, nextStatus, normalizedNote, reviewerUserId],
     );
+
+    await refreshReporterTrustScore(reporterUserId, client);
 
     const incident = await getAdminIncidentDetail(reportId, client);
 

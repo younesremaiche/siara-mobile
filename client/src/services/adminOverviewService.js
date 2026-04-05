@@ -3,6 +3,15 @@ import { request as apiRequest } from './api';
 const DEFAULT_RANGE = '24h';
 const ALLOWED_RANGES = new Set(['1h', '24h', '7d', '30d']);
 const DEFAULT_WEEKLY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const ALLOWED_CONFIDENCE_STATUSES = new Set(['completed', 'pending', 'failed']);
+const ALLOWED_ML_STATUSES = new Set([
+  'waiting_for_text',
+  'waiting_for_image',
+  'processing',
+  'completed',
+  'failed',
+]);
+const ALLOWED_PREDICTED_LABELS = new Set(['spam', 'real']);
 
 function normalizeApiError(error, fallbackMessage) {
   const nextError = new Error(
@@ -41,18 +50,47 @@ function ensureNullableNumber(value, digits = null) {
   return Number(numeric.toFixed(digits));
 }
 
+function ensureNullableText(value) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function normalizeConfidenceStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ALLOWED_CONFIDENCE_STATUSES.has(normalized) ? normalized : null;
+}
+
+function normalizeMlStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ALLOWED_ML_STATUSES.has(normalized) ? normalized : null;
+}
+
+function normalizePredictedLabel(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ALLOWED_PREDICTED_LABELS.has(normalized) ? normalized : null;
+}
+
 function normalizeReviewQueueItem(item) {
+  const predictedLabel = normalizePredictedLabel(item?.predictedLabel);
+  const reviewVerdict = ensureNullableText(item?.reviewVerdict);
+
   return {
     displayId: item?.displayId || 'Unknown',
     reportId: item?.reportId || '',
     location: item?.location || 'Unknown',
-    severity: ['high', 'medium', 'low'].includes(item?.severity) ? item.severity : 'unknown',
+    severity: ['high', 'medium', 'low'].includes(item?.severity) ? item.severity : 'low',
     confidence: ensureNullableNumber(item?.confidence, 0),
-    confidenceStatus: ['completed', 'pending', 'failed'].includes(item?.confidenceStatus)
-      ? item.confidenceStatus
-      : null,
-    status: item?.status ? String(item.status).toLowerCase() : 'unknown',
-    reporterScore: null,
+    confidenceStatus: normalizeConfidenceStatus(item?.confidenceStatus),
+    mlStatus: normalizeMlStatus(item?.mlStatus),
+    predictedLabel,
+    spamScore: ensureNullableNumber(item?.spamScore, 2),
+    mlConfidence: ensureNullableNumber(item?.mlConfidence, 2),
+    modelVersion: ensureNullableText(item?.modelVersion),
+    classifiedAt: item?.classifiedAt || null,
+    reviewVerdict,
+    pendingSpamReview: Boolean(item?.pendingSpamReview ?? (predictedLabel === 'spam' && !reviewVerdict)),
+    status: item?.status ? String(item.status).toLowerCase() : 'pending',
+    reporterScore: ensureNullableNumber(item?.reporterScore, 2),
     ago: item?.ago || 'Unknown',
     createdAt: item?.createdAt || null,
   };
@@ -70,9 +108,9 @@ function normalizeCriticalAlert(item) {
 
 function normalizeZone(item, index) {
   return {
-    zone: item?.zone || 'Unknown zone',
+    zone: item?.zone || `Zone ${index + 1}`,
     incidents: ensureNumber(item?.incidents, 0),
-    risk: ['high', 'medium'].includes(item?.risk) ? item.risk : 'unknown',
+    risk: ['high', 'medium'].includes(item?.risk) ? item.risk : 'medium',
   };
 }
 

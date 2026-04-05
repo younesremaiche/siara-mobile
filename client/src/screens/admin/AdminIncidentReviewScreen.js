@@ -1,94 +1,62 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AdminHeader from '../../components/layout/AdminHeader';
-import {
-  fetchAdminIncident,
-  submitAdminIncidentAction,
-} from '../../services/adminIncidentsService';
+import { fetchAdminIncident, submitAdminIncidentAction } from '../../services/adminIncidentsService';
 import { Colors } from '../../theme/colors';
 
 const ACTIONS = [
-  { key: 'verify', label: 'Verify', icon: 'checkmark-circle-outline', color: Colors.adminSuccess },
-  { key: 'reject', label: 'Reject', icon: 'close-circle-outline', color: Colors.adminDanger },
-  { key: 'archive', label: 'Archive', icon: 'archive-outline', color: Colors.grey },
-  { key: 'request_info', label: 'Request Info', icon: 'help-circle-outline', color: Colors.adminInfo },
+  ['verify', 'Verify', 'checkmark-circle-outline', Colors.adminSuccess],
+  ['reject', 'Reject', 'close-circle-outline', Colors.adminDanger],
+  ['archive', 'Archive', 'archive-outline', Colors.greyLight],
+  ['request_info', 'Request Info', 'help-circle-outline', Colors.adminInfo],
 ];
+const EMPTY_TEXT = '-';
 
 function formatLabel(value) {
-  return String(value || 'Unknown')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (match) => match.toUpperCase());
+  return String(value || 'Unknown').replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function formatDateTime(value) {
-  if (!value) {
-    return 'Unknown';
-  }
-
+  if (!value) return EMPTY_TEXT;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return 'Unknown';
-  }
-
-  return date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? EMPTY_TEXT : date.toLocaleString();
 }
 
-function getSeverityColor(severity) {
-  switch (severity) {
-    case 'high':
-      return Colors.severityHigh;
-    case 'medium':
-      return Colors.severityMedium;
-    default:
-      return Colors.severityLow;
-  }
+function formatPercent(value, digits = 2) {
+  return typeof value === 'number' ? `${value.toFixed(digits)}%` : EMPTY_TEXT;
+}
+
+function formatMlStatus(value) {
+  const text = String(value || '').trim();
+  if (!text) return 'Not started';
+  return text.replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatPredictedLabel(value) {
+  if (!value) return 'Unclassified';
+  return value === 'spam' ? 'Spam' : 'Real';
 }
 
 function getStatusColor(status) {
-  switch (status) {
-    case 'verified':
-      return Colors.adminSuccess;
-    case 'rejected':
-      return Colors.adminDanger;
-    case 'merged':
-      return Colors.adminInfo;
-    case 'archived':
-      return Colors.grey;
-    default:
-      return Colors.adminWarning;
+  switch (String(status || '').toLowerCase()) {
+    case 'verified': return Colors.adminSuccess;
+    case 'rejected': return Colors.adminDanger;
+    case 'merged': return Colors.adminInfo;
+    case 'archived': return Colors.greyLight;
+    default: return Colors.adminWarning;
   }
 }
 
-function getConfidenceLabel(incident) {
-  if (
-    typeof incident?.aiAssessment?.confidence === 'number'
-    && incident.aiAssessment.status === 'completed'
-  ) {
-    return `${incident.aiAssessment.confidence}%`;
-  }
-
-  if (incident?.aiAssessment?.status === 'pending') {
-    return 'Pending AI';
-  }
-
-  if (incident?.aiAssessment?.status === 'failed') {
-    return 'AI failed';
-  }
-
-  return 'Unknown';
+function metric(label, value) {
+  return (
+    <View style={styles.metricCard} key={label}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value || EMPTY_TEXT}</Text>
+    </View>
+  );
 }
 
 export default function AdminIncidentReviewScreen() {
@@ -109,43 +77,33 @@ export default function AdminIncidentReviewScreen() {
       setError(new Error('Missing report id'));
       return undefined;
     }
-
     const controller = new AbortController();
-    let isMounted = true;
-
-    async function loadIncident() {
+    async function load() {
       setLoading(true);
       setError(null);
-
       try {
         const payload = await fetchAdminIncident(reportId, { signal: controller.signal });
-        if (isMounted && !controller.signal.aborted) {
-          setIncident(payload);
-        }
+        if (!controller.signal.aborted) setIncident(payload);
       } catch (requestError) {
-        if (isMounted && !controller.signal.aborted) {
-          setError(requestError);
-        }
+        if (!controller.signal.aborted) setError(requestError);
       } finally {
-        if (isMounted && !controller.signal.aborted) {
+        if (!controller.signal.aborted) {
           setLoading(false);
           setRefreshing(false);
         }
       }
     }
-
-    loadIncident();
-    return () => {
-      isMounted = false;
-      controller.abort();
-    };
+    load();
+    return () => controller.abort();
   }, [reportId]);
 
-  async function refreshIncident() {
-    if (!reportId) {
-      return;
-    }
+  const hasCoordinates = useMemo(
+    () => typeof incident?.coordinates?.lat === 'number' && typeof incident?.coordinates?.lng === 'number',
+    [incident]
+  );
 
+  async function refreshIncident() {
+    if (!reportId) return;
     setRefreshing(true);
     setError(null);
     try {
@@ -158,42 +116,30 @@ export default function AdminIncidentReviewScreen() {
     }
   }
 
-  async function handleAction(action) {
-    if (!incident || submitting) {
-      return;
-    }
-
-    Alert.alert(
-      formatLabel(action),
-      `Apply "${formatLabel(action)}" to ${incident.displayId}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: async () => {
-            setSubmitting(true);
-            setError(null);
-            try {
-              const updatedIncident = await submitAdminIncidentAction(incident.reportId, {
-                action,
-              });
-              setIncident(updatedIncident);
-            } catch (requestError) {
-              setError(requestError);
-            } finally {
-              setSubmitting(false);
-            }
-          },
+  function handleAction(action) {
+    if (!incident || submitting) return;
+    Alert.alert(formatLabel(action), `Apply "${formatLabel(action)}" to ${incident.displayId}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Confirm',
+        onPress: async () => {
+          setSubmitting(true);
+          setError(null);
+          try {
+            const updatedIncident = await submitAdminIncidentAction(incident.reportId, { action });
+            setIncident(updatedIncident);
+          } catch (requestError) {
+            setError(requestError);
+          } finally {
+            setSubmitting(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   }
 
   async function addNote() {
-    if (!incident || !internalNote.trim() || noteSubmitting) {
-      return;
-    }
-
+    if (!incident || !internalNote.trim() || noteSubmitting) return;
     setNoteSubmitting(true);
     setError(null);
     try {
@@ -210,35 +156,13 @@ export default function AdminIncidentReviewScreen() {
     }
   }
 
-  const hasCoordinates = useMemo(
-    () =>
-      typeof incident?.coordinates?.lat === 'number'
-      && typeof incident?.coordinates?.lng === 'number',
-    [incident]
-  );
-
-  function renderState(icon, title, description, retry = false) {
-    return (
-      <View style={styles.stateCard}>
-        <Ionicons name={icon} size={30} color={retry ? Colors.adminDanger : Colors.grey} />
-        <Text style={styles.stateTitle}>{title}</Text>
-        <Text style={styles.stateText}>{description}</Text>
-        {retry ? (
-          <TouchableOpacity style={styles.retryButton} onPress={refreshIncident}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-    );
-  }
-
   if (loading) {
     return (
       <View style={styles.root}>
         <AdminHeader title="Incident Review" navigation={navigation} />
         <View style={styles.centered}>
           <ActivityIndicator size="small" color={Colors.adminInfo} />
-          <Text style={styles.loadingText}>Loading incident details...</Text>
+          <Text style={styles.subtle}>Loading incident details...</Text>
         </View>
       </View>
     );
@@ -248,48 +172,40 @@ export default function AdminIncidentReviewScreen() {
     return (
       <View style={styles.root}>
         <AdminHeader title="Incident Review" navigation={navigation} />
-        <View style={styles.contentPad}>
-          {renderState('alert-circle-outline', 'Could not load incident', error.message || 'Unknown error', true)}
+        <View style={styles.content}>
+          <View style={[styles.card, styles.errorCard]}>
+            <Text style={styles.title}>Could not load incident</Text>
+            <Text style={styles.subtle}>{error.message || 'Unknown error'}</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={refreshIncident} activeOpacity={0.85}>
+              <Text style={styles.primaryBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   }
 
   if (!incident) {
-    return (
-      <View style={styles.root}>
-        <AdminHeader title="Incident Review" navigation={navigation} />
-        <View style={styles.contentPad}>
-          {renderState('file-tray-outline', 'Incident not found', 'The requested incident could not be loaded.')}
-        </View>
-      </View>
-    );
+    return null;
   }
 
-  const severityColor = getSeverityColor(incident.severity);
+  const spam = incident.spamAnalysis || {};
   const statusColor = getStatusColor(incident.status);
 
   return (
     <View style={styles.root}>
       <AdminHeader title="Incident Review" navigation={navigation} />
-
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refreshIncident}
-            tintColor={Colors.adminInfo}
-          />
-        }
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshIncident} tintColor={Colors.adminInfo} />}
       >
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
             <Ionicons name="arrow-back" size={18} color={Colors.adminInfo} />
-            <Text style={styles.backText}>Back to Incidents</Text>
+            <Text style={styles.backText}>Back to incidents</Text>
           </TouchableOpacity>
-          <Text style={styles.incidentId}>{incident.displayId}</Text>
+          <Text style={styles.queueId}>{incident.displayId}</Text>
         </View>
 
         {error ? (
@@ -299,286 +215,148 @@ export default function AdminIncidentReviewScreen() {
           </View>
         ) : null}
 
-        <View style={styles.mapCard}>
+        <View style={styles.card}>
           {hasCoordinates ? (
             <MapView
               style={styles.map}
-              initialRegion={{
-                latitude: incident.coordinates.lat,
-                longitude: incident.coordinates.lng,
-                latitudeDelta: 0.08,
-                longitudeDelta: 0.08,
-              }}
-              region={{
-                latitude: incident.coordinates.lat,
-                longitude: incident.coordinates.lng,
-                latitudeDelta: 0.08,
-                longitudeDelta: 0.08,
-              }}
+              initialRegion={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
+              region={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
               scrollEnabled={false}
               zoomEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
             >
-              <Marker
-                coordinate={{
-                  latitude: incident.coordinates.lat,
-                  longitude: incident.coordinates.lng,
-                }}
-                title={incident.title || formatLabel(incident.incidentType)}
-                description={incident.location}
-              />
+              <Marker coordinate={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng }} title={incident.title || formatLabel(incident.incidentType)} description={incident.location} />
             </MapView>
           ) : (
             <View style={styles.mapPlaceholder}>
-              <Ionicons name="map-outline" size={34} color={Colors.grey} />
-              <Text style={styles.mapPlaceholderTitle}>No coordinates available</Text>
-              <Text style={styles.mapPlaceholderText}>{incident.location}</Text>
+              <Ionicons name="map-outline" size={34} color={Colors.greyLight} />
+              <Text style={styles.title}>No coordinates available</Text>
+              <Text style={styles.subtle}>{incident.location}</Text>
             </View>
           )}
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Incident Details</Text>
-            <View style={[styles.statusPill, { backgroundColor: `${statusColor}20` }]}>
-              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-              <Text style={[styles.statusPillText, { color: statusColor }]}>
-                {formatLabel(incident.status)}
-              </Text>
+        <View style={styles.card}>
+          <View style={styles.sectionTop}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={styles.title}>{incident.title || formatLabel(incident.incidentType)}</Text>
+              <Text style={styles.subtle}>{incident.location}</Text>
             </View>
+            <Text style={[styles.statusText, { color: statusColor }]}>{formatLabel(incident.status)}</Text>
           </View>
-
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Title</Text>
-            <Text style={styles.detailValue}>{incident.title || formatLabel(incident.incidentType)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Type</Text>
-            <Text style={styles.detailValue}>{formatLabel(incident.incidentType)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Severity</Text>
-            <View style={[styles.severityPill, { backgroundColor: `${severityColor}18` }]}>
-              <Text style={[styles.severityText, { color: severityColor }]}>
-                {formatLabel(incident.severity)}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Location</Text>
-            <Text style={styles.detailValue}>{incident.location}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Description</Text>
-            <Text style={styles.detailValue}>{incident.description}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Created</Text>
-            <Text style={styles.detailValue}>{formatDateTime(incident.createdAt)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Occurred</Text>
-            <Text style={styles.detailValue}>{formatDateTime(incident.occurredAt)}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Age</Text>
-            <Text style={styles.detailValue}>{incident.ago || 'Unknown'}</Text>
-          </View>
-          {incident.mergedIntoReportId ? (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Merged Into</Text>
-              <Text style={styles.detailValue}>{incident.mergedIntoReportId}</Text>
-            </View>
-          ) : null}
+          <Text style={styles.rowText}>Type: {formatLabel(incident.incidentType)}</Text>
+          <Text style={styles.rowText}>Severity: {formatLabel(incident.severity)}</Text>
+          <Text style={styles.rowText}>Severity source: {incident.severitySource === 'ai' ? 'AI assessment' : 'Report hint'}</Text>
+          <Text style={styles.rowText}>Reported: {formatDateTime(incident.createdAt)}</Text>
+          <Text style={styles.rowText}>Occurred: {formatDateTime(incident.occurredAt)}</Text>
+          <Text style={styles.rowText}>Age: {incident.ago || EMPTY_TEXT}</Text>
+          <Text style={styles.rowText}>Description: {incident.description || EMPTY_TEXT}</Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Reporter Info</Text>
-          <View style={styles.reporterCard}>
-            <View style={styles.reporterAvatar}>
-              <Ionicons name="person-outline" size={22} color={Colors.adminInfo} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.reporterName}>{incident.reporter.name}</Text>
-              <Text style={styles.reporterSub}>{incident.reporter.email || 'No email available'}</Text>
-            </View>
+        <View style={styles.card}>
+          <Text style={styles.title}>Reporter profile</Text>
+          <View style={styles.grid}>
+            {[
+              ['Reporter', incident.reporter.name],
+              ['Reporter trust', typeof incident.reporter.reporterScore === 'number' ? `${incident.reporter.reporterScore.toFixed(1)}%` : 'Not provided'],
+              ['Total reports', String(incident.reporter.totalReports)],
+              ['Joined', formatDateTime(incident.reporter.joinedAt)],
+            ].map(([label, value]) => metric(label, value))}
           </View>
-
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Total Reports</Text>
-              <Text style={styles.infoValue}>{incident.reporter.totalReports}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Joined</Text>
-              <Text style={styles.infoValue}>{formatDateTime(incident.reporter.joinedAt)}</Text>
-            </View>
-          </View>
+          {incident.reporter.email ? <Text style={styles.rowText}>Email: {incident.reporter.email}</Text> : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>AI Assessment</Text>
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Status</Text>
-              <Text style={styles.infoValue}>{formatLabel(incident.aiAssessment.status)}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Confidence</Text>
-              <Text style={styles.infoValue}>{getConfidenceLabel(incident)}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>AI Severity</Text>
-              <Text style={styles.infoValue}>{formatLabel(incident.aiAssessment.severity)}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Assessed</Text>
-              <Text style={styles.infoValue}>{formatDateTime(incident.aiAssessment.assessedAt)}</Text>
-            </View>
+        <View style={styles.card}>
+          <Text style={styles.title}>AI assessment</Text>
+          <View style={styles.grid}>
+            {[
+              ['Status', formatLabel(incident.aiAssessment.status || 'not_available')],
+              ['Confidence', typeof incident.aiAssessment.confidence === 'number' && incident.aiAssessment.status === 'completed' ? `${incident.aiAssessment.confidence}%` : incident.aiAssessment.status === 'pending' ? 'Pending AI' : incident.aiAssessment.status === 'failed' ? 'AI failed' : EMPTY_TEXT],
+              ['AI severity', formatLabel(incident.aiAssessment.severity)],
+              ['Assessed at', formatDateTime(incident.aiAssessment.assessedAt)],
+            ].map(([label, value]) => metric(label, value))}
           </View>
-
-          {incident.aiAssessment.status !== 'completed' ? (
-            <View style={styles.noticeCard}>
-              <Ionicons name="information-circle-outline" size={16} color={Colors.adminWarning} />
-              <Text style={styles.noticeText}>
-                AI verification is not fully active yet for this report, so severity can still rely on the report hint.
-              </Text>
-            </View>
-          ) : null}
+          {incident.aiAssessment.modelVersionId ? <Text style={styles.rowText}>Model version: {incident.aiAssessment.modelVersionId}</Text> : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Actions</Text>
-          <View style={styles.actionsGrid}>
-            {ACTIONS.map((action) => (
-              <TouchableOpacity
-                key={action.key}
-                style={[styles.actionButton, { borderColor: `${action.color}40`, backgroundColor: `${action.color}15` }]}
-                disabled={submitting}
-                onPress={() => handleAction(action.key)}
-              >
-                <Ionicons name={action.icon} size={20} color={action.color} />
-                <Text style={[styles.actionButtonText, { color: action.color }]}>
-                  {submitting ? 'Saving...' : action.label}
-                </Text>
+        <View style={styles.card}>
+          <Text style={styles.title}>Spam analysis</Text>
+          <View style={styles.grid}>
+            {[
+              ['Predicted label', formatPredictedLabel(spam.predictedLabel)],
+              ['ML status', formatMlStatus(spam.status)],
+              ['Spam score', formatPercent(spam.spamScore)],
+              ['ML confidence', formatPercent(spam.confidence)],
+              ['Model version', spam.modelVersion || EMPTY_TEXT],
+              ['Classified at', formatDateTime(spam.classifiedAt)],
+              ['Review verdict', spam.reviewVerdict || 'Pending'],
+              ['Reviewed by', spam.reviewedBy || EMPTY_TEXT],
+            ].map(([label, value]) => metric(label, value))}
+          </View>
+          {spam.pendingReview ? <Text style={[styles.rowText, styles.warningText]}>Pending manual review: this report is suspicious and still needs a verdict.</Text> : null}
+          {spam.reviewNotes ? <Text style={styles.rowText}>Review notes: {spam.reviewNotes}</Text> : null}
+          {spam.reviewedAt ? <Text style={styles.rowText}>Reviewed at: {formatDateTime(spam.reviewedAt)}</Text> : null}
+        </View>
+
+        {incident.media.length > 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.title}>Evidence</Text>
+            <View style={styles.grid}>
+              {incident.media.map((item) => (
+                <View key={item.id} style={styles.mediaCard}>
+                  <Image source={{ uri: item.url }} style={styles.mediaImage} resizeMode="cover" />
+                  <Text style={styles.mediaText}>{formatLabel(item.mediaType)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.title}>Nearby reports</Text>
+          {incident.nearbyReports.length > 0 ? incident.nearbyReports.map((item) => (
+            <Text key={item.reportId} style={styles.rowText}>
+              {item.displayId}: {item.location} - {typeof item.distanceKm === 'number' ? `${item.distanceKm.toFixed(1)} km` : EMPTY_TEXT}
+            </Text>
+          )) : <Text style={styles.subtle}>No nearby reports found.</Text>}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.title}>Timeline</Text>
+          {incident.timeline.length > 0 ? incident.timeline.map((entry) => (
+            <Text key={entry.id} style={styles.rowText}>{entry.timeLabel}: {entry.event}</Text>
+          )) : <Text style={styles.subtle}>No timeline entries yet.</Text>}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.title}>Internal notes</Text>
+          {incident.notes.length > 0 ? incident.notes.map((note) => (
+            <View key={note.id} style={styles.noteBlock}>
+              <Text style={styles.noteAuthor}>{note.author} - {formatDateTime(note.time)}</Text>
+              <Text style={styles.noteBody}>{note.text}</Text>
+            </View>
+          )) : <Text style={styles.subtle}>No notes yet.</Text>}
+          <TextInput
+            style={styles.noteInput}
+            placeholder="Add internal note..."
+            placeholderTextColor={Colors.grey}
+            value={internalNote}
+            onChangeText={setInternalNote}
+            multiline
+          />
+          <TouchableOpacity style={styles.primaryBtn} onPress={addNote} disabled={noteSubmitting} activeOpacity={0.85}>
+            <Text style={styles.primaryBtnText}>{noteSubmitting ? 'Saving...' : 'Add note'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.title}>Actions</Text>
+          <View style={styles.grid}>
+            {ACTIONS.map(([key, label, icon, color]) => (
+              <TouchableOpacity key={key} style={styles.actionBtn} onPress={() => handleAction(key)} disabled={submitting} activeOpacity={0.85}>
+                <Ionicons name={icon} size={18} color={color} />
+                <Text style={[styles.actionText, { color }]}>{label}</Text>
               </TouchableOpacity>
             ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Nearby Reports</Text>
-          {incident.nearbyReports.length > 0 ? (
-            incident.nearbyReports.map((nearby) => (
-              <TouchableOpacity
-                key={nearby.reportId}
-                style={styles.listRow}
-                onPress={() => navigation.push('AdminIncidentReview', { reportId: nearby.reportId })}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.listRowTitle}>{nearby.displayId}</Text>
-                  <Text style={styles.listRowSubtitle}>{nearby.location}</Text>
-                </View>
-                <View style={styles.listRowRight}>
-                  <Text style={styles.listRowMeta}>{formatLabel(nearby.status)}</Text>
-                  <Text style={styles.listRowMeta}>
-                    {typeof nearby.distanceKm === 'number' ? `${nearby.distanceKm} km` : 'Unknown'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <Text style={styles.emptyInline}>No nearby reports found</Text>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Flags</Text>
-          {incident.flags.length > 0 ? (
-            incident.flags.map((flag) => (
-              <View key={flag.id} style={styles.listRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.listRowTitle}>{formatLabel(flag.reason)}</Text>
-                  <Text style={styles.listRowSubtitle}>{flag.comment || 'No comment'}</Text>
-                </View>
-                <Text style={styles.listRowMeta}>{formatLabel(flag.status)}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyInline}>No active flags</Text>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Timeline</Text>
-          {incident.timeline.length > 0 ? (
-            incident.timeline.map((entry) => (
-              <View key={entry.id} style={styles.timelineRow}>
-                <View style={styles.timelineDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.timelineTime}>{entry.timeLabel}</Text>
-                  <Text style={styles.timelineEvent}>{entry.event}</Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyInline}>No timeline entries yet</Text>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Review Activity</Text>
-          {incident.reviewActions.length > 0 ? (
-            incident.reviewActions.map((action) => (
-              <View key={action.id} style={styles.listRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.listRowTitle}>{formatLabel(action.action)}</Text>
-                  <Text style={styles.listRowSubtitle}>{action.note || 'No note'}</Text>
-                </View>
-                <View style={styles.listRowRight}>
-                  <Text style={styles.listRowMeta}>{action.reviewedBy}</Text>
-                  <Text style={styles.listRowMeta}>{formatDateTime(action.createdAt)}</Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyInline}>No admin actions yet</Text>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Internal Notes</Text>
-          {incident.notes.length > 0 ? (
-            incident.notes.map((note) => (
-              <View key={note.id} style={styles.noteItem}>
-                <View style={styles.noteHeader}>
-                  <Text style={styles.noteAuthor}>{note.author}</Text>
-                  <Text style={styles.noteTime}>{formatDateTime(note.time)}</Text>
-                </View>
-                <Text style={styles.noteText}>{note.text || 'No note text'}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyInline}>No notes yet</Text>
-          )}
-
-          <View style={styles.noteComposer}>
-            <TextInput
-              style={styles.noteInput}
-              placeholder="Add an internal note..."
-              placeholderTextColor={Colors.grey}
-              value={internalNote}
-              onChangeText={setInternalNote}
-              multiline
-            />
-            <TouchableOpacity
-              style={[styles.noteButton, noteSubmitting && { opacity: 0.6 }]}
-              onPress={addNote}
-              disabled={noteSubmitting}
-            >
-              <Text style={styles.noteButtonText}>{noteSubmitting ? 'Saving...' : 'Add Note'}</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -589,211 +367,37 @@ export default function AdminIncidentReviewScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.adminBg },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  contentPad: { padding: 16 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  loadingText: { color: Colors.grey, fontSize: 13 },
-
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  backText: { color: Colors.adminInfo, fontSize: 13, fontWeight: '600' },
-  incidentId: { color: Colors.adminInfo, fontSize: 14, fontWeight: '800' },
-
-  inlineError: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(239,68,68,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.28)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  inlineErrorText: { color: Colors.adminDanger, fontSize: 12, flex: 1 },
-
-  mapCard: {
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 14,
-  },
-  map: { width: '100%', height: 220 },
-  mapPlaceholder: {
-    height: 180,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  mapPlaceholderTitle: { color: Colors.adminText, fontSize: 15, fontWeight: '700', marginTop: 10 },
-  mapPlaceholderText: { color: Colors.grey, fontSize: 12, marginTop: 6, textAlign: 'center' },
-
-  section: {
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 14,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 10,
-  },
-  sectionTitle: { color: Colors.adminText, fontSize: 16, fontWeight: '700', marginBottom: 12 },
-
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusPillText: { fontSize: 11, fontWeight: '700' },
-  severityPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  severityText: { fontSize: 11, fontWeight: '700' },
-
-  detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-  detailLabel: { color: Colors.grey, width: 78, fontSize: 12, marginTop: 2 },
-  detailValue: { color: Colors.adminText, fontSize: 13, flex: 1, lineHeight: 18 },
-
-  reporterCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  reporterAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.blueLight,
-  },
-  reporterName: { color: Colors.adminText, fontSize: 14, fontWeight: '700' },
-  reporterSub: { color: Colors.grey, fontSize: 12, marginTop: 2 },
-
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  infoItem: {
-    width: '47%',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-    padding: 10,
-  },
-  infoLabel: { color: Colors.grey, fontSize: 10, marginBottom: 4, textTransform: 'uppercase' },
-  infoValue: { color: Colors.adminText, fontSize: 12, lineHeight: 17, fontWeight: '600' },
-
-  noticeCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 12,
-    backgroundColor: 'rgba(245,158,11,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.25)',
-    borderRadius: 10,
-    padding: 12,
-  },
-  noticeText: { color: Colors.adminWarning, fontSize: 12, flex: 1, lineHeight: 18 },
-
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  actionButton: {
-    width: '47%',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  actionButtonText: { fontSize: 12, fontWeight: '700' },
-
-  listRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.adminBorder,
-  },
-  listRowTitle: { color: Colors.adminText, fontSize: 13, fontWeight: '700' },
-  listRowSubtitle: { color: Colors.grey, fontSize: 11, marginTop: 4, lineHeight: 16 },
-  listRowRight: { alignItems: 'flex-end', gap: 4 },
-  listRowMeta: { color: Colors.grey, fontSize: 11, textAlign: 'right' },
-  emptyInline: { color: Colors.grey, fontSize: 12 },
-
-  timelineRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.adminInfo,
-    marginTop: 4,
-  },
-  timelineTime: { color: Colors.grey, fontSize: 11, marginBottom: 4 },
-  timelineEvent: { color: Colors.adminText, fontSize: 12, lineHeight: 18 },
-
-  noteItem: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-  },
-  noteHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  noteAuthor: { color: Colors.adminInfo, fontSize: 12, fontWeight: '700' },
-  noteTime: { color: Colors.grey, fontSize: 11 },
-  noteText: { color: Colors.adminText, fontSize: 12, lineHeight: 18 },
-  noteComposer: { marginTop: 4, gap: 10 },
-  noteInput: {
-    minHeight: 90,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 10,
-    padding: 12,
-    color: Colors.adminText,
-    textAlignVertical: 'top',
-    fontSize: 13,
-  },
-  noteButton: {
-    alignSelf: 'flex-end',
-    backgroundColor: Colors.adminInfo,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  noteButtonText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
-
-  stateCard: {
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 12,
-    padding: 24,
-    alignItems: 'center',
-    gap: 10,
-  },
-  stateTitle: { color: Colors.adminText, fontSize: 15, fontWeight: '700' },
-  stateText: { color: Colors.grey, fontSize: 12, textAlign: 'center', lineHeight: 18 },
-  retryButton: {
-    marginTop: 4,
-    backgroundColor: Colors.adminInfo,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  retryButtonText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
+  content: { padding: 16, paddingBottom: 32 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  card: { backgroundColor: Colors.adminSurface, borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 16, padding: 16, marginBottom: 14 },
+  errorCard: { borderColor: 'rgba(239,68,68,0.35)', backgroundColor: 'rgba(239,68,68,0.08)' },
+  title: { color: Colors.adminText, fontSize: 16, fontWeight: '700' },
+  subtle: { color: Colors.greyLight, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  backBtn: { flexDirection: 'row', alignItems: 'center' },
+  backText: { color: Colors.adminInfo, fontSize: 12, fontWeight: '600', marginLeft: 6 },
+  queueId: { color: Colors.adminText, fontSize: 13, fontWeight: '700' },
+  inlineError: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
+  inlineErrorText: { color: Colors.adminDanger, fontSize: 12, marginLeft: 8, flex: 1 },
+  map: { height: 230, borderRadius: 14 },
+  mapPlaceholder: { height: 220, borderRadius: 14, borderWidth: 1, borderColor: Colors.adminBorder, backgroundColor: 'rgba(255,255,255,0.02)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  sectionTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  rowText: { color: Colors.adminText, fontSize: 12, lineHeight: 19, marginTop: 8 },
+  warningText: { color: Colors.adminWarning },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 10 },
+  metricCard: { width: '48%', backgroundColor: 'rgba(255,255,255,0.02)', borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 12, padding: 12, marginBottom: 12 },
+  metricLabel: { color: Colors.greyLight, fontSize: 11, marginBottom: 6 },
+  metricValue: { color: Colors.adminText, fontSize: 12, fontWeight: '700', lineHeight: 18 },
+  mediaCard: { width: '48%', marginBottom: 12 },
+  mediaImage: { width: '100%', height: 110, borderRadius: 12, backgroundColor: Colors.adminBorder },
+  mediaText: { color: Colors.greyLight, fontSize: 11, marginTop: 6 },
+  noteBlock: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.adminBorder },
+  noteAuthor: { color: Colors.adminInfo, fontSize: 11, fontWeight: '700' },
+  noteBody: { color: Colors.adminText, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  noteInput: { minHeight: 88, borderRadius: 12, borderWidth: 1, borderColor: Colors.adminBorder, backgroundColor: 'rgba(255,255,255,0.02)', color: Colors.adminText, fontSize: 12, paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: 'top', marginTop: 12, marginBottom: 10 },
+  primaryBtn: { backgroundColor: Colors.adminInfo, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start', marginTop: 8, marginRight: 10 },
+  primaryBtnText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
+  actionBtn: { width: '48%', borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.02)' },
+  actionText: { fontSize: 12, fontWeight: '700', marginLeft: 8 },
 });

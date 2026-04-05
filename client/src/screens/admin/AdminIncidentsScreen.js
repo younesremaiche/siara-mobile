@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import AdminHeader from '../../components/layout/AdminHeader';
 import {
   fetchAdminIncidents,
@@ -21,6 +21,8 @@ import { Colors } from '../../theme/colors';
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
   { key: 'pending', label: 'Pending' },
+  { key: 'suspicious', label: 'Suspected Spam' },
+  { key: 'pending-review', label: 'Manual Review' },
   { key: 'ai-flagged', label: 'AI Flagged' },
   { key: 'community', label: 'Community' },
   { key: 'merged', label: 'Merged' },
@@ -28,7 +30,9 @@ const FILTER_TABS = [
 ];
 
 const SORT_OPTIONS = [
-  { key: 'confidence', label: 'Confidence' },
+  { key: 'spamScore', label: 'Spam score' },
+  { key: 'classifiedAt', label: 'Classified' },
+  { key: 'confidence', label: 'AI confidence' },
   { key: 'createdAt', label: 'Newest' },
   { key: 'severity', label: 'Severity' },
 ];
@@ -52,9 +56,40 @@ function formatDateTime(value) {
   return date.toLocaleString();
 }
 
+function formatPercent(value, digits = 2) {
+  return typeof value === 'number' ? `${value.toFixed(digits)}%` : 'Unknown';
+}
+
+function formatMlStatus(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return 'Not started';
+  }
+
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatPredictedLabel(value) {
+  if (!value) {
+    return 'Unclassified';
+  }
+
+  return value === 'spam' ? 'Spam' : 'Real';
+}
+
 function getEmptyState(filter, completedAiReports) {
   if (filter === 'ai-flagged' && completedAiReports === 0) {
     return 'AI verification is not active yet for incident reports.';
+  }
+
+  if (filter === 'suspicious') {
+    return 'No reports are currently classified as suspected spam.';
+  }
+
+  if (filter === 'pending-review') {
+    return 'No spam-classified reports are waiting for manual review.';
   }
 
   if (filter === 'community') {
@@ -97,6 +132,8 @@ function getStatusColor(status) {
       return Colors.adminInfo;
     case 'archived':
       return Colors.grey;
+    case 'flagged':
+      return Colors.adminDanger;
     default:
       return Colors.adminWarning;
   }
@@ -120,14 +157,17 @@ function getConfidenceLabel(item) {
 
 export default function AdminIncidentsScreen() {
   const navigation = useNavigation();
-  const [activeFilter, setActiveFilter] = useState('all');
+  const route = useRoute();
+  const [activeFilter, setActiveFilter] = useState(normalizeIncidentFilter(route.params?.filter || 'all'));
   const [search, setSearch] = useState('');
-  const [sortField, setSortField] = useState('confidence');
+  const [sortField, setSortField] = useState('spamScore');
   const [sortDir, setSortDir] = useState('desc');
   const [incidents, setIncidents] = useState([]);
   const [counts, setCounts] = useState({
     all: 0,
     pending: 0,
+    suspicious: 0,
+    'pending-review': 0,
     'ai-flagged': 0,
     community: 0,
     merged: 0,
@@ -141,6 +181,12 @@ export default function AdminIncidentsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (route.params?.filter) {
+      setActiveFilter(normalizeIncidentFilter(route.params.filter));
+    }
+  }, [route.params?.filter]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -240,12 +286,12 @@ export default function AdminIncidentsScreen() {
             <Text style={styles.summaryLabel}>In View</Text>
           </View>
           <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{counts.all}</Text>
-            <Text style={styles.summaryLabel}>Total Reports</Text>
+            <Text style={styles.summaryValue}>{counts.suspicious}</Text>
+            <Text style={styles.summaryLabel}>Suspected Spam</Text>
           </View>
           <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{counts.pending}</Text>
-            <Text style={styles.summaryLabel}>Pending</Text>
+            <Text style={styles.summaryValue}>{counts['pending-review']}</Text>
+            <Text style={styles.summaryLabel}>Manual Review</Text>
           </View>
         </View>
 
@@ -312,10 +358,11 @@ export default function AdminIncidentsScreen() {
   function renderIncident({ item }) {
     const severityColor = getSeverityColor(item.severity);
     const statusColor = getStatusColor(item.status);
+    const spamBadgeColor = item.predictedLabel === 'spam' ? Colors.adminWarning : item.predictedLabel === 'real' ? Colors.adminSuccess : Colors.grey;
 
     return (
       <TouchableOpacity
-        style={styles.card}
+        style={[styles.card, item.pendingSpamReview && styles.cardWarning]}
         activeOpacity={0.8}
         onPress={() => navigation.navigate('AdminIncidentReview', { reportId: item.reportId })}
       >
@@ -339,10 +386,16 @@ export default function AdminIncidentsScreen() {
               {formatLabel(item.severity)}
             </Text>
           </View>
-          {item.openFlagCount > 0 ? (
+          <View style={[styles.severityPill, { backgroundColor: `${spamBadgeColor}18` }]}>
+            <Ionicons name="shield-checkmark-outline" size={12} color={spamBadgeColor} />
+            <Text style={[styles.severityText, { color: spamBadgeColor }]}>
+              {formatPredictedLabel(item.predictedLabel)}
+            </Text>
+          </View>
+          {item.pendingSpamReview ? (
             <View style={styles.flagPill}>
-              <Ionicons name="flag-outline" size={12} color={Colors.adminWarning} />
-              <Text style={styles.flagText}>{item.openFlagCount} open flag{item.openFlagCount === 1 ? '' : 's'}</Text>
+              <Ionicons name="time-outline" size={12} color={Colors.adminWarning} />
+              <Text style={styles.flagText}>Pending manual review</Text>
             </View>
           ) : null}
         </View>
@@ -354,17 +407,46 @@ export default function AdminIncidentsScreen() {
 
         <View style={styles.infoGrid}>
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>AI Confidence</Text>
+            <Text style={styles.infoLabel}>Spam score</Text>
+            <Text style={styles.infoValue}>{formatPercent(item.spamScore)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>ML confidence</Text>
+            <Text style={styles.infoValue}>{formatPercent(item.mlConfidence)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>ML status</Text>
+            <Text style={styles.infoValue}>{formatMlStatus(item.mlStatus)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Classified</Text>
+            <Text style={styles.infoValue}>{formatDateTime(item.classifiedAt)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Model version</Text>
+            <Text style={styles.infoValue}>{item.modelVersion || 'Unknown'}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Review verdict</Text>
+            <Text style={styles.infoValue}>{item.reviewVerdict || 'Pending'}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>AI confidence</Text>
             <Text style={styles.infoValue}>{getConfidenceLabel(item)}</Text>
           </View>
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Age</Text>
-            <Text style={styles.infoValue}>{item.ago || 'Unknown'}</Text>
+            <Text style={styles.infoLabel}>Reporter trust</Text>
+            <Text style={styles.infoValue}>
+              {typeof item.reporterScore === 'number' ? `${item.reporterScore.toFixed(1)}%` : 'Not provided'}
+            </Text>
           </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Created</Text>
-            <Text style={styles.infoValue}>{formatDateTime(item.createdAt)}</Text>
-          </View>
+        </View>
+
+        <View style={styles.footerRow}>
+          <Text style={styles.footerMeta}>{item.ago || 'Unknown'}</Text>
+          {item.openFlagCount > 0 ? (
+            <Text style={styles.footerMeta}>{item.openFlagCount} open flag{item.openFlagCount === 1 ? '' : 's'}</Text>
+          ) : null}
         </View>
 
         <TouchableOpacity
@@ -522,6 +604,10 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  cardWarning: {
+    borderColor: 'rgba(245,158,11,0.45)',
+    backgroundColor: 'rgba(245,158,11,0.06)',
+  },
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -575,6 +661,9 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: Colors.grey, fontSize: 10, marginBottom: 4, textTransform: 'uppercase' },
   infoValue: { color: Colors.adminText, fontSize: 11, lineHeight: 16, fontWeight: '600' },
+
+  footerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
+  footerMeta: { color: Colors.grey, fontSize: 11 },
 
   reviewButton: {
     flexDirection: 'row',

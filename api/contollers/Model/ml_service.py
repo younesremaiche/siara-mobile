@@ -3,14 +3,21 @@ import json
 import joblib
 import numpy as np
 import pandas as pd
+import requests
 import shap
 import os
+import sys
 from bisect import bisect_right
 
 app = Flask(__name__)
 
 # Base directory (api folder)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ANOMALY_DETECTION_DIR = os.path.join(BASE_DIR, "anomaly-detection")
+if ANOMALY_DETECTION_DIR not in sys.path:
+    sys.path.append(ANOMALY_DETECTION_DIR)
+
+from report_spam_model import classify_report_payload
 
 # Driver mentality model artifacts
 MODEL_PATH = os.path.join(BASE_DIR, "driver-quiz-model", "driver_model.joblib")
@@ -23,6 +30,10 @@ BASE_MODEL_PATH = os.path.join(BASE_DIR, "danger-zone-model", "siara_v1_artifact
 DANGER_META_PATH = os.path.join(BASE_DIR, "danger-zone-model", "siara_v1_artifacts", "siara_severe_metadata.json")
 SENTINEL_PATH = os.path.join(
     BASE_DIR, "anomaly-detection", "SiaraSentinelDZ_v2.joblib"
+)
+REPORT_SPAM_MODEL_PATH = os.getenv(
+    "REPORT_SPAM_MODEL_PATH",
+    os.path.join(BASE_DIR, "anomaly-detection", "best_fakeddit_model.pt"),
 )
 
 # ---- Load driver-quiz artifacts
@@ -1065,6 +1076,41 @@ def risk_confidence():
         return jsonify({"enabled": True, "sentinel": sentinel_payload})
     except Exception as exc:
         return jsonify({"enabled": True, "error": "Sentinel scoring failed", "details": str(exc)}), 500
+
+
+@app.route("/report-spam/classify", methods=["POST"])
+def report_spam_classify():
+    payload = request.get_json(silent=True) or {}
+    _log_incoming("/report-spam/classify", payload)
+
+    text = payload.get("text")
+    image_url = payload.get("image_url")
+    image_path = payload.get("image_path")
+
+    if text is None:
+        return jsonify({"error": "text is required"}), 400
+    if not image_url and not image_path:
+        return jsonify({"error": "image_url or image_path is required"}), 400
+
+    try:
+        result = classify_report_payload(
+            text=text,
+            image_url=image_url,
+            image_path=image_path,
+            model_path=payload.get("model_path") or REPORT_SPAM_MODEL_PATH,
+            model_name=payload.get("model_name"),
+            model_version=payload.get("model_version"),
+            threshold_percent=payload.get("threshold_percent"),
+        )
+        return jsonify(result)
+    except FileNotFoundError as exc:
+        return jsonify({"error": "Spam model file is unavailable", "details": str(exc)}), 503
+    except requests.RequestException as exc:
+        return jsonify({"error": "Failed to fetch report image", "details": str(exc)}), 502
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": "Spam classification failed", "details": str(exc)}), 500
 
 
 # Quick test snippet:

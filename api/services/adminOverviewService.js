@@ -237,7 +237,7 @@ function buildPluralText(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function buildCriticalAlerts({ oldHighPendingCount, lowConfidencePredictionCount }) {
+function buildCriticalAlerts({ oldHighPendingCount, lowConfidencePredictionCount, pendingSpamReviewCount }) {
   const alerts = [];
 
   if (Number(oldHighPendingCount || 0) > 0) {
@@ -259,6 +259,17 @@ function buildCriticalAlerts({ oldHighPendingCount, lowConfidencePredictionCount
       count,
       action: "View AI",
       route: "/admin/ai",
+    });
+  }
+
+  if (Number(pendingSpamReviewCount || 0) > 0) {
+    const count = Number(pendingSpamReviewCount || 0);
+    alerts.push({
+      type: "spam",
+      text: `${buildPluralText(count, "spam-flagged report")} still waiting for admin review`,
+      count,
+      action: "Review Reports",
+      route: "/admin/incidents?filter=pending-review",
     });
   }
 
@@ -284,6 +295,11 @@ async function fetchOverviewSummary({ currentStart, previousStart, minutes }, db
               AND ar.created_at >= $2
               AND ar.created_at < $1
           )::int AS previous_pending_review
+          ,
+          count(*) FILTER (
+            WHERE ar.latest_predicted_label = 'spam'
+              AND coalesce(nullif(btrim(ar.review_verdict), ''), '') = ''
+          )::int AS pending_spam_review_count
         FROM app.accident_reports ar
       ),
       prediction_stats AS (
@@ -334,6 +350,7 @@ async function fetchOverviewSummary({ currentStart, previousStart, minutes }, db
         report_stats.previous_incidents,
         report_stats.current_pending_review,
         report_stats.previous_pending_review,
+        report_stats.pending_spam_review_count,
         prediction_stats.current_ai_confidence,
         prediction_stats.previous_ai_confidence,
         prediction_stats.low_confidence_predictions,
@@ -353,6 +370,7 @@ async function fetchOverviewSummary({ currentStart, previousStart, minutes }, db
     previous_incidents: 0,
     current_pending_review: 0,
     previous_pending_review: 0,
+    pending_spam_review_count: 0,
     current_ai_confidence: null,
     previous_ai_confidence: null,
     low_confidence_predictions: 0,
@@ -442,6 +460,13 @@ async function fetchReviewQueue(now = new Date(), db = pool) {
         ar.status,
         ar.created_at,
         ar.severity_hint,
+        ar.ml_status,
+        ar.latest_predicted_label,
+        ar.latest_spam_score,
+        ar.latest_ml_confidence,
+        ar.latest_model_version,
+        ar.latest_classified_at,
+        ar.review_verdict,
         latest_assessment.predicted_severity AS ai_severity_value,
         CASE
           WHEN lower(coalesce(latest_assessment.assessment_status, '')) IN ('completed', 'pending', 'failed')
@@ -472,7 +497,7 @@ async function fetchReviewQueue(now = new Date(), db = pool) {
         LIMIT 1
       ) latest_assessment ON true
       WHERE ar.status = ANY($1::text[])
-      ORDER BY confidence DESC NULLS LAST, ar.created_at DESC, ar.id DESC
+      ORDER BY ar.latest_spam_score DESC NULLS LAST, confidence DESC NULLS LAST, ar.created_at DESC, ar.id DESC
     `,
     [ACTIONABLE_REVIEW_QUEUE_STATUSES],
   );
@@ -493,6 +518,14 @@ async function fetchReviewQueue(now = new Date(), db = pool) {
       severity: mapSeverityLabel(severityValue),
       confidence,
       confidenceStatus,
+      mlStatus: row.ml_status || null,
+      predictedLabel: row.latest_predicted_label || null,
+      spamScore: normalizeScoreValue(row.latest_spam_score, { digits: 2 }),
+      mlConfidence: normalizeScoreValue(row.latest_ml_confidence, { digits: 2 }),
+      modelVersion: row.latest_model_version || null,
+      classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
+      reviewVerdict: row.review_verdict || null,
+      pendingSpamReview: row.latest_predicted_label === "spam" && !String(row.review_verdict || "").trim(),
       status: row.status,
       reporterScore: null,
       ago: formatAgo(createdAt, now),
@@ -609,6 +642,7 @@ async function getAdminOverview(range, db = pool) {
     criticalAlerts: buildCriticalAlerts({
       oldHighPendingCount: summaryRow.old_high_pending_count,
       lowConfidencePredictionCount: summaryRow.low_confidence_predictions,
+      pendingSpamReviewCount: summaryRow.pending_spam_review_count,
     }),
     kpis: buildKpis(summaryRow, zoneRow, window.minutes),
     reviewQueue,

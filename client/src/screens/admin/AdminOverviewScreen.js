@@ -1,574 +1,309 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { Colors } from '../../theme/colors';
 import AdminHeader from '../../components/layout/AdminHeader';
-import {
-  fetchAdminOverview,
-  normalizeOverviewResponse,
-  normalizeRange,
-} from '../../services/adminOverviewService';
+import { fetchAdminIncidentCounts } from '../../services/adminIncidentsService';
+import { fetchAdminOverview, normalizeOverviewResponse, normalizeRange } from '../../services/adminOverviewService';
+import { Colors } from '../../theme/colors';
 
 const EMPTY_OVERVIEW = normalizeOverviewResponse();
-const EMPTY_TEXT = '\u2014';
+const EMPTY_TEXT = '-';
 const RANGE_OPTIONS = [
   { value: '1h', label: 'Last hour' },
   { value: '24h', label: 'Last 24h' },
   { value: '7d', label: 'Last 7 days' },
   { value: '30d', label: 'Last 30 days' },
 ];
-const RANGE_TITLE_SUFFIX = {
-  '1h': 'Last hour',
-  '24h': 'Last 24h',
-  '7d': 'Last 7 days',
-  '30d': 'Last 30 days',
-};
 const KPI_CONFIG = [
-  { key: 'incidents', label: (range) => `${RANGE_TITLE_SUFFIX[range]} Incidents`, icon: 'flash', tone: 'danger', type: 'count' },
-  { key: 'pendingReview', label: () => 'Pending Review', icon: 'time', tone: 'warning', type: 'count' },
-  { key: 'aiConfidence', label: () => 'AI Confidence', icon: 'hardware-chip', tone: 'info', type: 'percent' },
-  { key: 'highRiskZones', label: () => 'High Risk Zones', icon: 'location', tone: 'danger', type: 'count' },
-  { key: 'activeAlerts', label: () => 'Active Alerts', icon: 'notifications', tone: 'success', type: 'count' },
-  { key: 'reportsPerMin', label: () => 'Reports/min', icon: 'pulse', tone: 'info', type: 'decimal' },
+  ['incidents', 'Incidents', 'warning-outline', Colors.adminDanger, 'count'],
+  ['pendingReview', 'Pending Review', 'time-outline', Colors.adminWarning, 'count'],
+  ['aiConfidence', 'AI Confidence', 'hardware-chip-outline', Colors.adminInfo, 'percent'],
+  ['highRiskZones', 'High Risk Zones', 'location-outline', Colors.adminDanger, 'count'],
+  ['activeAlerts', 'Active Alerts', 'notifications-outline', Colors.adminSuccess, 'count'],
+  ['reportsPerMin', 'Reports / Min', 'pulse-outline', Colors.adminInfo, 'decimal'],
 ];
 
-function getToneColor(tone) {
-  switch (tone) {
-    case 'danger':
-      return Colors.adminDanger;
-    case 'warning':
-      return Colors.adminWarning;
-    case 'success':
-      return Colors.adminSuccess;
-    case 'info':
-    default:
-      return Colors.adminInfo;
-  }
+function formatTrend(value) {
+  if (!value) return EMPTY_TEXT;
+  const text = String(value).trim();
+  if (text.startsWith('+')) return `Up ${text.slice(1)}`;
+  if (text.startsWith('-')) return `Down ${text.slice(1)}`;
+  return text;
 }
 
-function getTrendTone(trend) {
-  const value = String(trend || '').trim().toLowerCase();
-
-  if (!value || value === 'stable' || value === 'live' || value.startsWith('0')) {
-    return 'stable';
-  }
-
-  if (value.startsWith('-')) {
-    return 'down';
-  }
-
-  if (value.startsWith('+')) {
-    return 'up';
-  }
-
-  return 'stable';
+function formatPercent(value, digits = 1) {
+  return typeof value === 'number' ? `${value.toFixed(digits)}%` : EMPTY_TEXT;
 }
 
-function formatTrendText(trend) {
-  if (!trend) {
-    return EMPTY_TEXT;
-  }
-
-  const value = String(trend).trim();
-
-  if (value.startsWith('+')) {
-    return `Up ${value.slice(1)}`;
-  }
-
-  if (value.startsWith('-')) {
-    return `Down ${value.slice(1)}`;
-  }
-
-  return value;
-}
-
-function formatPercent(value) {
-  return typeof value === 'number' ? `${value.toFixed(1)}%` : EMPTY_TEXT;
-}
-
-function formatDecimal(value) {
-  return typeof value === 'number' ? value.toFixed(1) : EMPTY_TEXT;
-}
-
-function formatKpiValue(value, type) {
-  if (type === 'percent') {
-    return formatPercent(value);
-  }
-
-  if (type === 'decimal') {
-    return formatDecimal(value);
-  }
-
+function formatValue(value, type) {
+  if (type === 'percent') return formatPercent(value);
+  if (type === 'decimal') return typeof value === 'number' ? value.toFixed(1) : EMPTY_TEXT;
   return typeof value === 'number' ? String(value) : EMPTY_TEXT;
 }
 
-function capitalize(value) {
+function formatDateTime(value) {
+  if (!value) return EMPTY_TEXT;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? EMPTY_TEXT : date.toLocaleString();
+}
+
+function formatMlStatus(value) {
   const text = String(value || '').trim();
-  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : EMPTY_TEXT;
+  if (!text) return 'Not started';
+  return text.replace(/[_-]+/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function getConfidenceFillClass(confidence) {
-  if (typeof confidence !== 'number') {
-    return null;
-  }
-
-  if (confidence >= 85) {
-    return Colors.adminSuccess;
-  }
-
-  if (confidence >= 65) {
-    return Colors.adminWarning;
-  }
-
-  return Colors.adminDanger;
+function formatPredictedLabel(value) {
+  if (!value) return 'Unclassified';
+  return value === 'spam' ? 'Spam' : 'Real';
 }
 
-function getConfidenceText(incident) {
-  if (typeof incident?.confidence === 'number' && incident?.confidenceStatus === 'completed') {
-    return `${incident.confidence}%`;
+function formatAiConfidence(item) {
+  if (typeof item?.confidence === 'number' && item.confidenceStatus === 'completed') {
+    return `${item.confidence}%`;
   }
-
-  if (incident?.confidenceStatus === 'pending') {
-    return 'Pending AI';
-  }
-
-  if (incident?.confidenceStatus === 'failed') {
-    return 'AI failed';
-  }
-
+  if (item?.confidenceStatus === 'pending') return 'Pending AI';
+  if (item?.confidenceStatus === 'failed') return 'AI failed';
   return EMPTY_TEXT;
 }
 
-function getSeverityColor(severity) {
-  switch (severity) {
-    case 'high':
-      return Colors.adminDanger;
-    case 'medium':
-      return Colors.adminWarning;
-    case 'low':
-      return Colors.adminSuccess;
-    default:
-      return Colors.grey;
-  }
-}
-
-function getStatusColors(status) {
-  switch (String(status || '').toLowerCase()) {
-    case 'flagged':
-      return { text: Colors.adminDanger, background: 'rgba(239,68,68,0.16)' };
-    case 'pending':
-      return { text: Colors.adminWarning, background: 'rgba(245,158,11,0.16)' };
-    default:
-      return { text: Colors.grey, background: 'rgba(148,163,184,0.16)' };
-  }
-}
-
-function getCriticalAlertIcon(type) {
-  return type === 'ai' ? 'hardware-chip' : 'warning';
-}
-
-function mapAdminRouteToScreen(route) {
-  if (!route) {
-    return 'AdminOverview';
-  }
-
+function parseAdminRoute(route) {
+  if (!route) return { screen: 'AdminOverview', params: undefined };
   if (route.startsWith('/admin/incidents')) {
-    return 'AdminIncidents';
+    const match = route.match(/[?&]filter=([^&]+)/);
+    return {
+      screen: 'AdminIncidents',
+      params: match ? { filter: decodeURIComponent(match[1]) } : undefined,
+    };
   }
-
-  if (route.startsWith('/admin/alerts')) {
-    return 'AdminAlerts';
-  }
-
-  if (route.startsWith('/admin/zones')) {
-    return 'AdminZones';
-  }
-
-  if (route.startsWith('/admin/ai')) {
-    return 'AdminAI';
-  }
-
-  if (route.startsWith('/admin/users')) {
-    return 'AdminUsers';
-  }
-
-  if (route.startsWith('/admin/system')) {
-    return 'AdminSystem';
-  }
-
-  if (route.startsWith('/admin/analytics')) {
-    return 'AdminAnalytics';
-  }
-
-  return 'AdminOverview';
+  if (route.startsWith('/admin/alerts')) return { screen: 'AdminAlerts' };
+  if (route.startsWith('/admin/zones')) return { screen: 'AdminZones' };
+  if (route.startsWith('/admin/ai')) return { screen: 'AdminAI' };
+  if (route.startsWith('/admin/users')) return { screen: 'AdminUsers' };
+  if (route.startsWith('/admin/system')) return { screen: 'AdminSystem' };
+  if (route.startsWith('/admin/analytics')) return { screen: 'AdminAnalytics' };
+  return { screen: 'AdminOverview', params: undefined };
 }
 
 export default function AdminOverviewScreen() {
   const navigation = useNavigation();
   const [timeRange, setTimeRange] = useState('24h');
   const [overview, setOverview] = useState(EMPTY_OVERVIEW);
+  const [counts, setCounts] = useState({ all: 0, pending: 0, suspicious: 0, 'pending-review': 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [hasResolvedInitialLoad, setHasResolvedInitialLoad] = useState(false);
+  const [ready, setReady] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    async function loadOverview() {
+    async function load() {
       setLoading(true);
       setError(null);
-
       try {
-        const nextOverview = await fetchAdminOverview(timeRange, {
-          signal: controller.signal,
-        });
-
+        const [nextOverview, nextCounts] = await Promise.all([
+          fetchAdminOverview(timeRange, { signal: controller.signal }),
+          fetchAdminIncidentCounts({ signal: controller.signal }),
+        ]);
         if (!controller.signal.aborted) {
           setOverview(nextOverview);
+          setCounts(nextCounts);
         }
       } catch (requestError) {
-        if (!controller.signal.aborted) {
-          setError(requestError);
-        }
+        if (!controller.signal.aborted) setError(requestError);
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
-          setHasResolvedInitialLoad(true);
+          setReady(true);
         }
       }
     }
-
-    loadOverview();
-
+    load();
     return () => controller.abort();
   }, [reloadToken, timeRange]);
 
-  const showInitialLoading = loading && !hasResolvedInitialLoad;
-  const maxWeeklyCount = useMemo(
-    () => Math.max(...overview.weeklyVolume.map((entry) => entry.count), 0),
-    [overview.weeklyVolume]
-  );
-  const reviewQueueCount = overview.reviewQueue.length;
-
-  function handleRetry() {
-    setReloadToken((value) => value + 1);
-  }
-
-  function handleRefresh() {
-    handleRetry();
-  }
-
-  function navigateToAdminRoute(route) {
-    navigation.navigate(mapAdminRouteToScreen(route));
-  }
+  const spamRate = useMemo(() => {
+    if (!counts.all) return null;
+    return (counts.suspicious / counts.all) * 100;
+  }, [counts.all, counts.suspicious]);
+  const maxWeeklyCount = useMemo(() => Math.max(...overview.weeklyVolume.map((entry) => entry.count), 0), [overview.weeklyVolume]);
 
   return (
     <View style={styles.root}>
       <AdminHeader title="System Overview" subtitle="Dashboard" navigation={navigation} />
-
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading && hasResolvedInitialLoad}
-            onRefresh={handleRefresh}
-            tintColor={Colors.adminInfo}
-          />
-        }
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading && ready} onRefresh={() => setReloadToken((value) => value + 1)} tintColor={Colors.adminInfo} />}
       >
         {error ? (
           <View style={[styles.card, styles.errorCard]}>
-            <View style={styles.errorHeader}>
-              <View style={styles.errorCopy}>
-                <Text style={styles.cardTitle}>Overview unavailable</Text>
-                <Text style={styles.cardSubtitle}>
-                  {error.message || 'Failed to load the admin overview.'}
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.retryButton} onPress={handleRetry} activeOpacity={0.8}>
-                <Text style={styles.retryButtonText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.title}>Overview unavailable</Text>
+            <Text style={styles.subtle}>{error.message || 'Failed to load the admin overview.'}</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={() => setReloadToken((value) => value + 1)} activeOpacity={0.85}>
+              <Text style={styles.primaryBtnText}>Retry</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
         {overview.criticalAlerts.map((alert) => (
-          <View key={`${alert.type}-${alert.route}`} style={styles.criticalBar}>
-            <View style={styles.criticalCopy}>
-              <View style={styles.criticalIconWrap}>
-                <Ionicons
-                  name={getCriticalAlertIcon(alert.type)}
-                  size={16}
-                  color={Colors.adminDanger}
-                />
-              </View>
-              <Text style={styles.criticalText}>{alert.text}</Text>
+          <View key={`${alert.type}-${alert.text}`} style={styles.alertBar}>
+            <View style={styles.alertCopy}>
+              <Ionicons name={alert.type === 'ai' ? 'hardware-chip-outline' : 'warning-outline'} size={16} color={Colors.adminDanger} />
+              <Text style={styles.alertText}>{alert.text}</Text>
             </View>
             {alert.route ? (
               <TouchableOpacity
-                onPress={() => navigateToAdminRoute(alert.route)}
-                activeOpacity={0.8}
+                onPress={() => {
+                  const target = parseAdminRoute(alert.route);
+                  navigation.navigate(target.screen, target.params);
+                }}
+                activeOpacity={0.85}
               >
-                <Text style={styles.criticalAction}>{alert.action} -></Text>
+                <Text style={styles.alertAction}>{alert.action || 'Open'}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
         ))}
 
-        <View style={styles.pageHeader}>
-          <View style={styles.pageHeaderCopy}>
-            <Text style={styles.pageTitle}>System Overview</Text>
-            <Text style={styles.pageSubtitle}>
-              National Risk Supervision - Real-time
-              {loading && hasResolvedInitialLoad ? ' - Refreshing...' : ''}
-            </Text>
+        <View style={styles.headerBlock}>
+          <Text style={styles.pageTitle}>Spam and safety overview</Text>
+          <Text style={styles.pageSubtitle}>Admin metrics now come from the real backend spam detection contract.</Text>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.navigate('AdminIncidents', { filter: 'suspicious' })} activeOpacity={0.85}>
+              <Text style={styles.secondaryBtnText}>Suspicious queue</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.navigate('AdminIncidents', { filter: 'pending-review' })} activeOpacity={0.85}>
+              <Text style={styles.primaryBtnText}>Manual review</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.exportButton} activeOpacity={0.8}>
-            <Ionicons name="download-outline" size={16} color={Colors.adminText} />
-            <Text style={styles.exportButtonText}>Export</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.rangeRow}>
           {RANGE_OPTIONS.map((option) => {
             const active = option.value === timeRange;
             return (
-              <TouchableOpacity
-                key={option.value}
-                style={[styles.rangeChip, active && styles.rangeChipActive]}
-                onPress={() => setTimeRange(normalizeRange(option.value))}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
-                  {option.label}
-                </Text>
+              <TouchableOpacity key={option.value} style={[styles.chip, active && styles.chipActive]} onPress={() => setTimeRange(normalizeRange(option.value))} activeOpacity={0.85}>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{option.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {showInitialLoading ? (
+        {loading && !ready ? (
           <View style={styles.card}>
-            <View style={styles.loadingState}>
+            <View style={styles.loadingWrap}>
               <ActivityIndicator size="small" color={Colors.adminInfo} />
-              <Text style={styles.cardTitle}>Loading overview...</Text>
-              <Text style={styles.cardSubtitle}>
-                Pulling real incident, AI, and zone data from the backend.
-              </Text>
+              <Text style={styles.title}>Loading overview...</Text>
+              <Text style={styles.subtle}>Pulling incident, AI, and spam classification data from the backend.</Text>
             </View>
           </View>
         ) : (
           <>
-            <View style={styles.kpiGrid}>
-              {KPI_CONFIG.map((item) => {
-                const config = overview.kpis[item.key];
-                const toneColor = getToneColor(item.tone);
-                const trendTone = getTrendTone(config.trend);
-
-                return (
-                  <View key={item.key} style={styles.kpiCard}>
-                    <View style={styles.kpiHeader}>
-                      <View style={[styles.kpiIconWrap, { backgroundColor: `${toneColor}20` }]}>
-                        <Ionicons name={item.icon} size={18} color={toneColor} />
-                      </View>
-                      <Text
-                        style={[
-                          styles.kpiTrend,
-                          trendTone === 'up'
-                            ? styles.trendUp
-                            : trendTone === 'down'
-                            ? styles.trendDown
-                            : styles.trendStable,
-                        ]}
-                      >
-                        {formatTrendText(config.trend)}
-                      </Text>
+            <View style={styles.grid}>
+              {KPI_CONFIG.map(([key, label, icon, tone, type]) => (
+                <View key={key} style={styles.metricCard}>
+                  <View style={styles.metricTop}>
+                    <View style={[styles.metricIcon, { backgroundColor: `${tone}20` }]}>
+                      <Ionicons name={icon} size={18} color={tone} />
                     </View>
-                    <Text style={styles.kpiValue}>{formatKpiValue(config.value, item.type)}</Text>
-                    <Text style={styles.kpiLabel}>{item.label(timeRange)}</Text>
+                    <Text style={styles.metricTrend}>{formatTrend(overview.kpis[key].trend)}</Text>
                   </View>
-                );
-              })}
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionCopy}>
-                  <Text style={styles.cardTitle}>Review Queue</Text>
-                  <Text style={styles.cardSubtitle}>
-                    Pending and flagged incidents across all time - {reviewQueueCount} open
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.primaryButton}
-                  onPress={() => navigation.navigate('AdminIncidents')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.primaryButtonText}>View Queue</Text>
-                </TouchableOpacity>
-              </View>
-
-              {overview.reviewQueue.length > 0 ? (
-                <View style={styles.queueList}>
-                  {overview.reviewQueue.map((incident) => {
-                    const severityColor = getSeverityColor(incident.severity);
-                    const statusColors = getStatusColors(incident.status);
-                    const confidenceColor = getConfidenceFillClass(incident.confidence);
-
-                    return (
-                      <View key={incident.reportId || incident.displayId} style={styles.queueCard}>
-                        <View style={styles.queueTop}>
-                          <Text style={styles.queueId}>{incident.displayId}</Text>
-                          <View
-                            style={[
-                              styles.statusBadge,
-                              { backgroundColor: statusColors.background },
-                            ]}
-                          >
-                            <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
-                              {capitalize(incident.status)}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <Text style={styles.queueLocation} numberOfLines={2}>
-                          {incident.location}
-                        </Text>
-
-                        <View style={styles.queueMetaRow}>
-                          <View
-                            style={[
-                              styles.severityBadge,
-                              { backgroundColor: `${severityColor}18` },
-                            ]}
-                          >
-                            <View style={[styles.severityDot, { backgroundColor: severityColor }]} />
-                            <Text style={[styles.severityText, { color: severityColor }]}>
-                              {capitalize(incident.severity)}
-                            </Text>
-                          </View>
-                          <Text style={styles.queueMetaText}>{incident.ago}</Text>
-                        </View>
-
-                        <View style={styles.confidenceRow}>
-                          <Text style={styles.confidenceLabel}>AI Confidence</Text>
-                          <Text style={styles.confidenceValue}>{getConfidenceText(incident)}</Text>
-                        </View>
-                        <View style={styles.progressTrack}>
-                          <View
-                            style={[
-                              styles.progressFill,
-                              {
-                                width: `${typeof incident.confidence === 'number' ? incident.confidence : 0}%`,
-                                backgroundColor: confidenceColor || Colors.adminBorder,
-                              },
-                            ]}
-                          />
-                        </View>
-
-                        <TouchableOpacity
-                          style={styles.queueAction}
-                          onPress={() => navigation.navigate('AdminIncidents', { reportId: incident.reportId })}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={styles.queueActionText}>Open Queue</Text>
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : (
-                <Text style={styles.emptyStateText}>
-                  No pending or flagged incidents are waiting in the review queue.
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Weekly Incident Volume</Text>
-              <Text style={styles.cardSubtitle}>Live incident totals for the selected range.</Text>
-              <View style={styles.weeklyChart}>
-                {overview.weeklyVolume.map((entry) => {
-                  const height = maxWeeklyCount > 0 ? (entry.count / maxWeeklyCount) * 100 : 0;
-                  return (
-                    <View key={entry.label} style={styles.weeklyColumn}>
-                      <Text style={styles.weeklyValue}>{entry.count}</Text>
-                      <View style={styles.weeklyBarTrack}>
-                        <View style={[styles.weeklyBarFill, { height: `${height}%` }]} />
-                      </View>
-                      <Text style={styles.weeklyLabel}>{entry.label}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Severity Distribution</Text>
-              <Text style={styles.cardSubtitle}>Share of incidents by severity bucket.</Text>
-
-              {[
-                { label: 'Critical / High', value: overview.severityDistribution.high, color: Colors.adminDanger },
-                { label: 'Medium', value: overview.severityDistribution.medium, color: Colors.adminWarning },
-                { label: 'Low', value: overview.severityDistribution.low, color: Colors.adminSuccess },
-              ].map((segment) => (
-                <View key={segment.label} style={styles.distributionRow}>
-                  <View style={styles.distributionHeader}>
-                    <Text style={styles.distributionLabel}>{segment.label}</Text>
-                    <Text style={styles.distributionValue}>{segment.value}%</Text>
-                  </View>
-                  <View style={styles.progressTrack}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${segment.value}%`, backgroundColor: segment.color },
-                      ]}
-                    />
-                  </View>
+                  <Text style={styles.metricValue}>{formatValue(overview.kpis[key].value, type)}</Text>
+                  <Text style={styles.metricLabel}>{label}</Text>
                 </View>
               ))}
             </View>
 
+            <View style={styles.grid}>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricValue}>{counts.suspicious}</Text>
+                <Text style={styles.metricLabel}>Suspected spam reports</Text>
+                <Text style={styles.metricTrend}>Live queue count</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricValue}>{counts['pending-review']}</Text>
+                <Text style={styles.metricLabel}>Pending manual review</Text>
+                <Text style={styles.metricTrend}>Spam-labelled, no verdict yet</Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricValue}>{formatPercent(spamRate)}</Text>
+                <Text style={styles.metricLabel}>Spam rate</Text>
+                <Text style={styles.metricTrend}>{counts.all ? `${counts.suspicious} of ${counts.all}` : 'No reports yet'}</Text>
+              </View>
+            </View>
+
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Top Risk Zones</Text>
-              <Text style={styles.cardSubtitle}>Most active zones returned by the web overview API.</Text>
+              <View style={styles.sectionTop}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={styles.title}>Review queue</Text>
+                  <Text style={styles.subtle}>Pending and flagged incidents across all time.</Text>
+                </View>
+                <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.navigate('AdminIncidents', { filter: 'pending-review' })} activeOpacity={0.85}>
+                  <Text style={styles.primaryBtnText}>Open queue</Text>
+                </TouchableOpacity>
+              </View>
 
-              {overview.topRiskZones.length > 0 ? (
-                <View style={styles.zoneList}>
-                  {overview.topRiskZones.map((zone) => {
-                    const zoneColor = zone.risk === 'high' ? Colors.adminDanger : Colors.adminWarning;
+              {overview.reviewQueue.length > 0 ? overview.reviewQueue.map((item) => (
+                <TouchableOpacity key={item.reportId || item.displayId} style={styles.queueCard} onPress={() => navigation.navigate('AdminIncidentReview', { reportId: item.reportId })} activeOpacity={0.9}>
+                  <View style={styles.queueTop}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={styles.queueId}>{item.displayId}</Text>
+                      <Text style={styles.queueLocation}>{item.location}</Text>
+                    </View>
+                    <Text style={styles.queueStatus}>{String(item.status || 'pending').toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.queueMeta}>{item.ago || EMPTY_TEXT}  |  AI {formatAiConfidence(item)}</Text>
+                  <View style={styles.mlBox}>
+                    <Text style={styles.mlRow}>Predicted label: {formatPredictedLabel(item.predictedLabel)}</Text>
+                    <Text style={styles.mlRow}>Spam score: {formatPercent(item.spamScore, 2)}</Text>
+                    <Text style={styles.mlRow}>Confidence: {formatPercent(item.mlConfidence, 2)}</Text>
+                    <Text style={styles.mlRow}>ML status: {formatMlStatus(item.mlStatus)}</Text>
+                    <Text style={styles.mlRow}>Model version: {item.modelVersion || EMPTY_TEXT}</Text>
+                    <Text style={styles.mlRow}>Classified at: {formatDateTime(item.classifiedAt)}</Text>
+                    <Text style={styles.mlRow}>Review verdict: {item.reviewVerdict || (item.pendingSpamReview ? 'Pending' : EMPTY_TEXT)}</Text>
+                    <Text style={styles.mlRow}>Reporter trust: {typeof item.reporterScore === 'number' ? `${item.reporterScore.toFixed(1)}%` : 'Not provided'}</Text>
+                  </View>
+                </TouchableOpacity>
+              )) : (
+                <Text style={styles.subtle}>No pending or flagged incidents are waiting in the review queue.</Text>
+              )}
+            </View>
 
+            <View style={styles.row}>
+              <View style={[styles.card, styles.half]}>
+                <Text style={styles.title}>Weekly incident volume</Text>
+                <View style={styles.chartRow}>
+                  {overview.weeklyVolume.map((entry) => {
+                    const height = maxWeeklyCount > 0 ? (entry.count / maxWeeklyCount) * 100 : 0;
                     return (
-                      <View key={zone.zone} style={styles.zoneRow}>
-                        <View style={styles.zoneCopy}>
-                          <Text style={styles.zoneName}>{zone.zone}</Text>
-                          <Text style={styles.zoneMeta}>{zone.incidents} incidents</Text>
+                      <View key={entry.label} style={styles.barCol}>
+                        <Text style={styles.barValue}>{entry.count}</Text>
+                        <View style={styles.barTrack}>
+                          <View style={[styles.barFill, { height: `${height}%` }]} />
                         </View>
-                        <View style={[styles.zoneRiskBadge, { backgroundColor: `${zoneColor}18` }]}>
-                          <Text style={[styles.zoneRiskText, { color: zoneColor }]}>
-                            {capitalize(zone.risk)}
-                          </Text>
-                        </View>
+                        <Text style={styles.barLabel}>{entry.label}</Text>
                       </View>
                     );
                   })}
                 </View>
-              ) : (
-                <Text style={styles.emptyStateText}>
-                  No zone activity was found for this time range.
-                </Text>
-              )}
+              </View>
+
+              <View style={[styles.card, styles.half]}>
+                <Text style={styles.title}>Top risk zones</Text>
+                {overview.topRiskZones.length > 0 ? overview.topRiskZones.map((zone) => (
+                  <View key={zone.zone} style={styles.zoneRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.zoneTitle}>{zone.zone}</Text>
+                      <Text style={styles.zoneSub}>{zone.incidents} incidents</Text>
+                    </View>
+                    <Text style={styles.zoneRisk}>{String(zone.risk || 'medium').toUpperCase()}</Text>
+                  </View>
+                )) : (
+                  <Text style={styles.subtle}>No zone activity was found for this time range.</Text>
+                )}
+              </View>
             </View>
           </>
         )}
@@ -578,433 +313,57 @@ export default function AdminOverviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.adminBg,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  card: {
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-  },
-  cardTitle: {
-    color: Colors.adminText,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cardSubtitle: {
-    color: Colors.grey,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  errorCard: {
-    borderColor: 'rgba(239,68,68,0.35)',
-    backgroundColor: 'rgba(239,68,68,0.08)',
-  },
-  errorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  errorCopy: {
-    flex: 1,
-  },
-  retryButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: Colors.adminDanger,
-  },
-  retryButtonText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  criticalBar: {
-    backgroundColor: 'rgba(239,68,68,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.25)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
-  },
-  criticalCopy: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 8,
-  },
-  criticalIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(239,68,68,0.16)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
-  },
-  criticalText: {
-    flex: 1,
-    color: Colors.adminText,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-  criticalAction: {
-    color: Colors.adminDanger,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  pageHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
-  },
-  pageHeaderCopy: {
-    flex: 1,
-  },
-  pageTitle: {
-    color: Colors.adminText,
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  pageSubtitle: {
-    color: Colors.grey,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  exportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-  },
-  exportButtonText: {
-    color: Colors.adminText,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  rangeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 14,
-  },
-  rangeChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-  },
-  rangeChipActive: {
-    backgroundColor: Colors.violetLight,
-    borderColor: Colors.btnPrimary,
-  },
-  rangeChipText: {
-    color: Colors.grey,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  rangeChipTextActive: {
-    color: Colors.btnPrimary,
-  },
-  loadingState: {
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-  },
-  kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 14,
-  },
-  kpiCard: {
-    width: '48%',
-    flexGrow: 1,
-    backgroundColor: Colors.adminSurface,
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 14,
-    padding: 14,
-  },
-  kpiHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    gap: 8,
-  },
-  kpiIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kpiTrend: {
-    flexShrink: 1,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-  trendUp: {
-    color: Colors.adminSuccess,
-  },
-  trendDown: {
-    color: Colors.adminDanger,
-  },
-  trendStable: {
-    color: Colors.grey,
-  },
-  kpiValue: {
-    color: Colors.adminText,
-    fontSize: 23,
-    fontWeight: '800',
-  },
-  kpiLabel: {
-    color: Colors.grey,
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    marginBottom: 14,
-  },
-  sectionCopy: {
-    flex: 1,
-  },
-  primaryButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: Colors.btnPrimary,
-  },
-  primaryButtonText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  queueList: {
-    gap: 10,
-  },
-  queueCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: Colors.adminBorder,
-    borderRadius: 14,
-    padding: 14,
-  },
-  queueTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  queueId: {
-    color: Colors.adminInfo,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  queueLocation: {
-    color: Colors.adminText,
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
-    marginTop: 10,
-  },
-  queueMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 12,
-  },
-  severityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  severityDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  severityText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  queueMetaText: {
-    color: Colors.grey,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  confidenceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  confidenceLabel: {
-    color: Colors.grey,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  confidenceValue: {
-    color: Colors.adminText,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  progressTrack: {
-    width: '100%',
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-  },
-  queueAction: {
-    alignSelf: 'flex-start',
-    marginTop: 12,
-  },
-  queueActionText: {
-    color: Colors.btnPrimary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  weeklyChart: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 170,
-    marginTop: 14,
-  },
-  weeklyColumn: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 6,
-  },
-  weeklyValue: {
-    color: Colors.adminText,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  weeklyBarTrack: {
-    width: '56%',
-    height: 110,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  weeklyBarFill: {
-    width: '100%',
-    backgroundColor: Colors.adminInfo,
-    borderRadius: 8,
-  },
-  weeklyLabel: {
-    color: Colors.grey,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  distributionRow: {
-    marginTop: 14,
-  },
-  distributionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  distributionLabel: {
-    color: Colors.adminText,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  distributionValue: {
-    color: Colors.adminText,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  zoneList: {
-    marginTop: 10,
-  },
-  zoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.adminBorder,
-  },
-  zoneCopy: {
-    flex: 1,
-  },
-  zoneName: {
-    color: Colors.adminText,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  zoneMeta: {
-    color: Colors.grey,
-    fontSize: 11,
-    marginTop: 3,
-  },
-  zoneRiskBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  zoneRiskText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  emptyStateText: {
-    color: Colors.grey,
-    fontSize: 12,
-    lineHeight: 18,
-  },
+  root: { flex: 1, backgroundColor: Colors.adminBg },
+  scroll: { flex: 1 },
+  content: { padding: 16, paddingBottom: 32 },
+  card: { backgroundColor: Colors.adminSurface, borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 16, padding: 16, marginBottom: 14 },
+  errorCard: { borderColor: 'rgba(239,68,68,0.35)', backgroundColor: 'rgba(239,68,68,0.08)' },
+  title: { color: Colors.adminText, fontSize: 16, fontWeight: '700' },
+  subtle: { color: Colors.greyLight, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  loadingWrap: { alignItems: 'center', paddingVertical: 16 },
+  alertBar: { backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  alertCopy: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  alertText: { color: Colors.adminText, fontSize: 12, lineHeight: 17, marginLeft: 8, flex: 1 },
+  alertAction: { color: Colors.adminDanger, fontSize: 12, fontWeight: '700', marginLeft: 10 },
+  headerBlock: { marginBottom: 14 },
+  pageTitle: { color: Colors.adminText, fontSize: 22, fontWeight: '800' },
+  pageSubtitle: { color: Colors.greyLight, fontSize: 13, lineHeight: 20, marginTop: 6 },
+  buttonRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
+  primaryBtn: { backgroundColor: Colors.adminInfo, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start', marginTop: 8, marginRight: 10 },
+  primaryBtnText: { color: Colors.white, fontSize: 12, fontWeight: '700' },
+  secondaryBtn: { backgroundColor: 'rgba(59,130,246,0.12)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.25)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start', marginTop: 8, marginRight: 10 },
+  secondaryBtnText: { color: Colors.adminInfo, fontSize: 12, fontWeight: '700' },
+  rangeRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 14 },
+  chip: { borderWidth: 1, borderColor: Colors.adminBorder, backgroundColor: Colors.adminSurface, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, marginBottom: 8 },
+  chipActive: { backgroundColor: Colors.adminInfo, borderColor: Colors.adminInfo },
+  chipText: { color: Colors.adminText, fontSize: 12, fontWeight: '600' },
+  chipTextActive: { color: Colors.white },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  metricCard: { width: '48%', backgroundColor: Colors.adminSurface, borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 16, padding: 14, marginBottom: 14 },
+  metricTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  metricIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  metricTrend: { color: Colors.greyLight, fontSize: 11, flexShrink: 1, textAlign: 'right' },
+  metricValue: { color: Colors.adminText, fontSize: 22, fontWeight: '800' },
+  metricLabel: { color: Colors.greyLight, fontSize: 12, marginTop: 4 },
+  sectionTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  queueCard: { borderWidth: 1, borderColor: Colors.adminBorder, borderRadius: 14, padding: 14, marginBottom: 12, backgroundColor: 'rgba(255,255,255,0.02)' },
+  queueTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  queueId: { color: Colors.adminText, fontSize: 14, fontWeight: '700' },
+  queueLocation: { color: Colors.greyLight, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  queueStatus: { color: Colors.adminWarning, fontSize: 10, fontWeight: '700' },
+  queueMeta: { color: Colors.greyLight, fontSize: 11, marginTop: 10, marginBottom: 10 },
+  mlBox: { backgroundColor: 'rgba(15,23,42,0.55)', borderRadius: 12, padding: 12 },
+  mlRow: { color: Colors.adminText, fontSize: 11, lineHeight: 18 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  half: { width: '48%' },
+  chartRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 12, minHeight: 150 },
+  barCol: { flex: 1, alignItems: 'center', marginHorizontal: 2 },
+  barValue: { color: Colors.greyLight, fontSize: 10, marginBottom: 6 },
+  barTrack: { width: 24, height: 90, borderRadius: 12, backgroundColor: 'rgba(148,163,184,0.15)', justifyContent: 'flex-end', overflow: 'hidden' },
+  barFill: { width: '100%', backgroundColor: Colors.adminInfo, borderRadius: 12 },
+  barLabel: { color: Colors.greyLight, fontSize: 10, marginTop: 8 },
+  zoneRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.adminBorder },
+  zoneTitle: { color: Colors.adminText, fontSize: 12, fontWeight: '600' },
+  zoneSub: { color: Colors.greyLight, fontSize: 11, marginTop: 3 },
+  zoneRisk: { color: Colors.adminWarning, fontSize: 10, fontWeight: '700', marginLeft: 10 },
 });

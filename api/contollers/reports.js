@@ -8,6 +8,7 @@ const {
   createNotificationsForReport,
   fetchReportNotificationDiagnostics,
 } = require("../services/reportNotificationService");
+const { refreshReportSpamAnalysis } = require("../services/reportSpamDetectionService");
 const { verifyToken } = require("./verifytoken");
 
 const REPORT_ID_REGEX =
@@ -57,12 +58,29 @@ const REPORT_SELECT_SQL = `
     ar.occurred_at,
     ar.created_at,
     ar.updated_at,
+    ar.ml_status,
+    ar.latest_predicted_label,
+    ar.latest_spam_score,
+    ar.latest_ml_confidence,
+    ar.latest_model_version,
+    ar.latest_classified_at,
+    ar.review_verdict,
     ar.incident_location,
     ST_Y(ar.incident_location::geometry) as lat,
     ST_X(ar.incident_location::geometry) as lng,
     concat_ws(' ', u.first_name, u.last_name) as reporter_name,
     u.first_name as reporter_first_name,
-    u.last_name as reporter_last_name
+    u.last_name as reporter_last_name,
+    coalesce(
+      (
+        select array_agg(distinct r.name)
+        from auth.user_roles ur
+        left join auth.roles r on r.id = ur.role_id
+        where ur.user_id = ar.reported_by
+          and r.name is not null
+      ),
+      '{}'::varchar[]
+    ) as reporter_roles
   from app.accident_reports ar
   left join auth.users u on u.id = ar.reported_by
 `;
@@ -314,6 +332,41 @@ function mapMediaRow(row) {
   };
 }
 
+function normalizeMlPercent(value, digits = 2) {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const normalized = parsed <= 1.2 ? parsed * 100 : parsed;
+  const multiplier = 10 ** digits;
+  return Math.round(normalized * multiplier) / multiplier;
+}
+
+function buildSpamAnalysis(row) {
+  if (!row) {
+    return null;
+  }
+
+  const reviewVerdict = String(row.review_verdict || "").trim() || null;
+  const predictedLabel = String(row.latest_predicted_label || "").trim() || null;
+
+  return {
+    status: String(row.ml_status || "").trim() || null,
+    predictedLabel,
+    spamScore: normalizeMlPercent(row.latest_spam_score),
+    confidence: normalizeMlPercent(row.latest_ml_confidence),
+    modelVersion: String(row.latest_model_version || "").trim() || null,
+    classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
+    reviewVerdict,
+    pendingReview: predictedLabel === "spam" && !reviewVerdict,
+  };
+}
+
 function mapReportRow(row) {
   if (!row) {
     return null;
@@ -339,6 +392,7 @@ function mapReportRow(row) {
     updatedAt: row.updated_at,
     distanceKm:
       row.distance_meters == null ? null : Number((Number(row.distance_meters) / 1000).toFixed(2)),
+    spamAnalysis: buildSpamAnalysis(row),
     reportedBy: row.reported_by
       ? {
           id: row.reported_by,
@@ -346,6 +400,7 @@ function mapReportRow(row) {
             row.reporter_name ||
             [row.reporter_first_name, row.reporter_last_name].filter(Boolean).join(" ") ||
             null,
+          roles: Array.isArray(row.reporter_roles) ? row.reporter_roles : [],
         }
       : null,
   };
@@ -616,6 +671,18 @@ async function deleteRemoteMediaIfNeeded(mediaRows) {
   }
 }
 
+async function refreshReportSpamAnalysisSafely(reportId, context) {
+  try {
+    await refreshReportSpamAnalysis(reportId);
+  } catch (error) {
+    console.error("[reports] spam_analysis_refresh_failed", {
+      reportId,
+      context,
+      message: error.message,
+    });
+  }
+}
+
 async function listReports(query, db = pool) {
   const normalizedQuery = normalizeReportListQuery(query);
 
@@ -830,6 +897,8 @@ router.post("/", verifyToken, async (req, res, next) => {
     client.release();
     client = null;
 
+    await refreshReportSpamAnalysisSafely(reportId, "report_created");
+
     const createdRow = await requireExistingReport(reportId);
     return res.status(201).json({ report: await buildReportResponse(createdRow) });
   } catch (error) {
@@ -902,6 +971,7 @@ router.post("/:id/media", verifyToken, async (req, res, next) => {
       const report = await buildReportResponse(updatedRow, client);
 
       await client.query("commit");
+      await refreshReportSpamAnalysisSafely(reportId, "report_media_uploaded");
       return res.status(201).json({
         report,
         media: report.media,
@@ -989,6 +1059,9 @@ router.put("/:id", verifyToken, async (req, res, next) => {
     );
 
     const updatedRow = await requireExistingReport(reportId);
+    if (updates.title !== undefined || updates.description !== undefined) {
+      await refreshReportSpamAnalysisSafely(reportId, "report_text_updated");
+    }
     return res.status(200).json({ report: await buildReportResponse(updatedRow) });
   } catch (error) {
     return next(error);
@@ -1013,6 +1086,7 @@ router.delete("/:id/media/:mediaId", verifyToken, async (req, res, next) => {
     const mediaRow = await requireExistingReportMedia(reportId, mediaId);
     await deleteRemoteMediaIfNeeded([mediaRow]);
     await pool.query(`delete from app.report_media where id = $1 and report_id = $2`, [mediaId, reportId]);
+    await refreshReportSpamAnalysisSafely(reportId, "report_media_deleted");
 
     const updatedRow = await requireExistingReport(reportId);
     return res.status(200).json({

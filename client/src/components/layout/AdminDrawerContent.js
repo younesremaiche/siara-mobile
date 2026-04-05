@@ -32,6 +32,20 @@ function buildSections(incidentCounts, alertCounts) {
         },
         {
           screen: 'AdminIncidents',
+          icon: 'flag-outline',
+          text: 'Suspected Spam',
+          badge: String(incidentCounts.suspicious ?? 0),
+          params: { filter: 'suspicious' },
+        },
+        {
+          screen: 'AdminIncidents',
+          icon: 'time-outline',
+          text: 'Manual Spam Review',
+          badge: String(incidentCounts['pending-review'] ?? 0),
+          params: { filter: 'pending-review' },
+        },
+        {
+          screen: 'AdminIncidents',
           icon: 'alert-circle-outline',
           text: 'AI-Flagged High Risk',
           badge: String(incidentCounts['ai-flagged'] ?? 0),
@@ -167,6 +181,8 @@ export default function AdminDrawerContent(props) {
   const adminDrawer = useAdminDrawer();
   const [incidentCounts, setIncidentCounts] = useState({
     pending: 0,
+    suspicious: 0,
+    'pending-review': 0,
     'ai-flagged': 0,
     community: 0,
     merged: 0,
