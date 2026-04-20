@@ -80,6 +80,7 @@ const weatherCache = new Map();
 const currentWeatherCache = new Map();
 const forecastWeatherCache = new Map();
 const riskForecastCache = new Map();
+const resolvedWeatherSnapshotCache = new Map();
 const osrmRouteCache = new Map();
 const twilightCache = new Map();
 const roadCache = new Map();
@@ -89,9 +90,15 @@ const MAX_CURRENT_WEATHER_CACHE = Number(process.env.MAX_CURRENT_WEATHER_CACHE |
 const MAX_FORECAST_WEATHER_CACHE = Number(process.env.MAX_FORECAST_WEATHER_CACHE || 1000);
 const MAX_RISK_FORECAST_CACHE = Number(process.env.MAX_RISK_FORECAST_CACHE || 1000);
 const MAX_WEATHER_FEATURE_CACHE = Number(process.env.MAX_WEATHER_FEATURE_CACHE || 2000);
+const MAX_RESOLVED_WEATHER_SNAPSHOT_CACHE = Number(
+  process.env.MAX_RESOLVED_WEATHER_SNAPSHOT_CACHE || 2000,
+);
 const CURRENT_WEATHER_CACHE_TTL_MS = Number(process.env.CURRENT_WEATHER_CACHE_TTL_MS || 2 * 60 * 1000);
 const FORECAST_WEATHER_CACHE_TTL_MS = Number(process.env.FORECAST_WEATHER_CACHE_TTL_MS || 10 * 60 * 1000);
 const WEATHER_FEATURE_CACHE_TTL_MS = Number(process.env.WEATHER_FEATURE_CACHE_TTL_MS || 10 * 60 * 1000);
+const RESOLVED_WEATHER_SNAPSHOT_CACHE_TTL_MS = Number(
+  process.env.RESOLVED_WEATHER_SNAPSHOT_CACHE_TTL_MS || WEATHER_FEATURE_CACHE_TTL_MS,
+);
 const RISK_FORECAST_BUCKET_MS = Number(process.env.RISK_FORECAST_BUCKET_MS || 5 * 60 * 1000);
 const RISK_FORECAST_CACHE_TTL_MS = Number(process.env.RISK_FORECAST_CACHE_TTL_MS || 5 * 60 * 1000);
 const EARTH_RADIUS_KM = 6371;
@@ -589,6 +596,27 @@ function detectTemperatureUnitKind(unit) {
   return "unknown";
 }
 
+function detectVisibilityUnitKind(unit) {
+  const text = normalizeUnitText(unit);
+  if (!text) return "unknown";
+  if (text === "mi" || text.includes("mile")) return "mile";
+  if (
+    text === "km" ||
+    text.includes("kilometer") ||
+    text.includes("kilometre")
+  ) {
+    return "km";
+  }
+  if (
+    text === "m" ||
+    text.includes("meter") ||
+    text.includes("metre")
+  ) {
+    return "meter";
+  }
+  return "unknown";
+}
+
 function getUnitsForWeatherSource(data, source) {
   if (source === "current") {
     return data?.current_units || null;
@@ -609,6 +637,7 @@ function normalizeSnapshotForModelUnits(snapshot, units, sourceLabel = "unknown"
   const selectedWindUnit = units?.wind_speed_10m;
   const selectedPrecipUnit = units?.precipitation;
   const selectedTempUnit = units?.temperature_2m;
+  const selectedVisibilityUnit = units?.visibility;
 
   const windBefore = safeNumber(normalized.wind_speed_10m);
   const windUnitKind = detectWindUnitKind(selectedWindUnit);
@@ -632,6 +661,16 @@ function normalizeSnapshotForModelUnits(snapshot, units, sourceLabel = "unknown"
     normalized.temperature_2m = cToF(tempBefore);
   }
 
+  const visibilityBefore = safeNumber(normalized.visibility);
+  const visibilityUnitKind = detectVisibilityUnitKind(selectedVisibilityUnit);
+  if (visibilityBefore != null) {
+    if (visibilityUnitKind === "km") {
+      normalized.visibility = visibilityBefore * 1000;
+    } else if (visibilityUnitKind === "mile") {
+      normalized.visibility = visibilityBefore * 1609.344;
+    }
+  }
+
   if (DEBUG_WEATHER_UNITS) {
     const windAfter = safeNumber(normalized.wind_speed_10m);
     const precipAfter = safeNumber(normalized.precipitation);
@@ -641,6 +680,7 @@ function normalizeSnapshotForModelUnits(snapshot, units, sourceLabel = "unknown"
         wind_speed_10m: selectedWindUnit || "n/a",
         precipitation: selectedPrecipUnit || "n/a",
         temperature_2m: selectedTempUnit || "n/a",
+        visibility: selectedVisibilityUnit || "meter(default)",
       },
       wind: {
         before: windBefore == null ? null : roundNumber(windBefore, 4),
@@ -649,6 +689,10 @@ function normalizeSnapshotForModelUnits(snapshot, units, sourceLabel = "unknown"
       precipitation: {
         before: precipBefore == null ? null : roundNumber(precipBefore, 4),
         after_in: precipAfter == null ? null : roundNumber(precipAfter, 4),
+      },
+      visibility: {
+        before: visibilityBefore == null ? null : roundNumber(visibilityBefore, 4),
+        after_m: safeNumber(normalized.visibility) == null ? null : roundNumber(normalized.visibility, 4),
       },
     });
   }
@@ -816,6 +860,20 @@ function pickWeatherSnapshot(data, targetSeconds, absDiffSeconds, deltaSeconds =
   };
 }
 
+function buildEmptyWeatherSnapshot() {
+  return {
+    selected_time_unix: null,
+    temperature_2m: null,
+    relative_humidity_2m: null,
+    pressure_msl: null,
+    visibility: null,
+    wind_speed_10m: null,
+    wind_direction_10m: null,
+    precipitation: null,
+    weather_code: null,
+  };
+}
+
 function getBaseWeatherFieldList() {
   return [
     "temperature_2m",
@@ -866,6 +924,189 @@ function buildModelWeatherRowFromSnapshot(snapshot) {
   };
 }
 
+function buildSharedWeatherParams(lat, lng, { includeMinutely15 = true, includeCurrentVisibility = true } = {}) {
+  const fields = getBaseWeatherFieldList();
+  const currentFields = includeCurrentVisibility
+    ? fields
+    : fields.filter((field) => field !== "visibility");
+
+  return {
+    latitude: lat,
+    longitude: lng,
+    current: currentFields.join(","),
+    hourly: fields.join(","),
+    ...(includeMinutely15 ? { minutely_15: fields.join(",") } : {}),
+    forecast_days: 7,
+    temperature_unit: "celsius",
+    wind_speed_unit: "kmh",
+    precipitation_unit: "mm",
+    timezone: "auto",
+    timeformat: "unixtime",
+  };
+}
+
+async function fetchSharedWeatherPayload(lat, lng) {
+  const variants = [
+    buildSharedWeatherParams(lat, lng),
+    buildSharedWeatherParams(lat, lng, { includeCurrentVisibility: false }),
+    buildSharedWeatherParams(lat, lng, { includeMinutely15: false }),
+    buildSharedWeatherParams(lat, lng, {
+      includeMinutely15: false,
+      includeCurrentVisibility: false,
+    }),
+  ];
+
+  let lastError = null;
+  for (let i = 0; i < variants.length; i += 1) {
+    try {
+      const response = await axios.get(OPEN_METEO_URL, {
+        params: variants[i],
+        timeout: WEATHER_TIMEOUT_MS,
+      });
+      return response.data;
+    } catch (error) {
+      if (error?.response?.status !== 400) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+async function resolveWeatherSnapshot(lat, lng, timestampIso = null) {
+  const resolvedTimestampIso = timestampIso ? toIsoTimestamp(timestampIso) : toIsoTimestamp(null);
+  const key = weatherCacheKey(lat, lng, resolvedTimestampIso);
+  const cached = getCacheEntry(resolvedWeatherSnapshotCache, key);
+  if (cached) {
+    return cached;
+  }
+
+  const data = await fetchSharedWeatherPayload(lat, lng);
+
+  if (DEBUG_WEATHER_UNITS && !weatherUnitsLogged) {
+    weatherUnitsLogged = true;
+    console.log("[Node][weather-units]", {
+      current_units: data?.current_units,
+      hourly_units: data?.hourly_units,
+      minutely_15_units: data?.minutely_15_units,
+    });
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const targetSecondsRaw = Math.floor(Date.parse(resolvedTimestampIso) / 1000);
+  const targetSeconds = Number.isFinite(targetSecondsRaw) ? targetSecondsRaw : nowSeconds;
+  const deltaSeconds = targetSeconds - nowSeconds;
+  const absDiffSeconds = Math.abs(deltaSeconds);
+  const { source: weatherSource, snapshot } = pickWeatherSnapshot(
+    data,
+    targetSeconds,
+    absDiffSeconds,
+    deltaSeconds,
+  );
+  const selectedUnits = getUnitsForWeatherSource(data, weatherSource);
+  const resolved = {
+    weatherSource,
+    snapshot: snapshot || buildEmptyWeatherSnapshot(),
+    selectedSnapshotTimeUnix: safeNumber(snapshot?.selected_time_unix),
+    selectedUnits,
+    targetSeconds,
+  };
+
+  setCacheEntryWithTtl(
+    resolvedWeatherSnapshotCache,
+    key,
+    resolved,
+    MAX_RESOLVED_WEATHER_SNAPSHOT_CACHE,
+    RESOLVED_WEATHER_SNAPSHOT_CACHE_TTL_MS,
+  );
+  return resolved;
+}
+
+function buildUiWeatherFromSnapshot(snapshot, weatherSource, targetSeconds) {
+  const windSpeedKmh = safeNumber(snapshot?.wind_speed_10m);
+  const windSpeedMph = windSpeedKmh == null ? null : kmhToMph(windSpeedKmh);
+
+  return {
+    temperature_c: roundNumber(snapshot?.temperature_2m, 1),
+    condition: mapWeatherConditionLabel(snapshot?.weather_code),
+    visibility_km:
+      safeNumber(snapshot?.visibility) == null ? null : roundNumber(snapshot.visibility / 1000, 1),
+    wind_kmh: roundNumber(windSpeedKmh, 1),
+    wind_direction: mapWindDirection(snapshot?.wind_direction_10m, windSpeedMph),
+    humidity_pct: roundNumber(snapshot?.relative_humidity_2m, 0),
+    pressure_hpa: roundNumber(snapshot?.pressure_msl, 1),
+    precipitation_mm: roundNumber(snapshot?.precipitation, 2),
+    timestamp_iso: new Date(targetSeconds * 1000).toISOString(),
+    snapshot_time_iso:
+      snapshot?.selected_time_unix == null
+        ? null
+        : new Date(snapshot.selected_time_unix * 1000).toISOString(),
+    snapshot_source: weatherSource,
+    fetched_at_iso: new Date().toISOString(),
+  };
+}
+
+async function resolveWeatherOutputs(lat, lng, timestampIso = null) {
+  const {
+    weatherSource,
+    snapshot,
+    selectedUnits,
+    targetSeconds,
+  } = await resolveWeatherSnapshot(lat, lng, timestampIso);
+  const normalizedSnapshot = normalizeSnapshotForModelUnits(
+    snapshot,
+    selectedUnits,
+    weatherSource,
+  );
+  const uiWeather = buildUiWeatherFromSnapshot(snapshot, weatherSource, targetSeconds);
+  const modelRow = buildModelWeatherRowFromSnapshot(normalizedSnapshot);
+
+  console.log("[Node][weather-snapshot-consistency]", {
+    source: weatherSource,
+    snapshot_time_iso:
+      snapshot?.selected_time_unix == null
+        ? null
+        : new Date(snapshot.selected_time_unix * 1000).toISOString(),
+    raw_visibility_m: safeNumber(snapshot?.visibility),
+    ui_visibility_km: uiWeather?.visibility_km ?? null,
+    model_visibility_mi: modelRow?.["Visibility(mi)"] ?? null,
+  });
+
+  if (DEBUG_WEATHER_UNITS) {
+    const selectedIso =
+      normalizedSnapshot.selected_time_unix == null
+        ? "n/a"
+        : new Date(normalizedSnapshot.selected_time_unix * 1000).toISOString();
+    console.log(
+      `[Node][weather-select] source=${weatherSource} target=${new Date(
+        targetSeconds * 1000,
+      ).toISOString()} selected=${selectedIso}`,
+    );
+    console.log("[Node][weather-wind]", {
+      source: weatherSource,
+      selected_units: selectedUnits,
+      raw_wind_speed: safeNumber(snapshot?.wind_speed_10m),
+      normalized_wind_mph: safeNumber(normalizedSnapshot?.wind_speed_10m),
+      normalized_wind_kmh: (() => {
+        const mph = safeNumber(normalizedSnapshot?.wind_speed_10m);
+        return mph == null ? null : roundNumber(mphToKmh(mph), 4);
+      })(),
+      wind_direction_deg: safeNumber(normalizedSnapshot?.wind_direction_10m),
+    });
+  }
+
+  return {
+    weatherSource,
+    snapshot,
+    selectedSnapshotTimeUnix: safeNumber(snapshot?.selected_time_unix),
+    selectedUnits,
+    uiWeather,
+    modelRow,
+  };
+}
+
 async function fetchCurrentWeatherPayload(lat, lng) {
   const fields = getBaseWeatherFieldList();
   const seriesFields = fields.join(",");
@@ -912,39 +1153,7 @@ async function getCurrentWeatherUi(lat, lng, timestampIso = null) {
     return cached;
   }
 
-  const payload = await fetchCurrentWeatherPayload(lat, lng);
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const targetSecondsRaw = Math.floor(Date.parse(timestampIso || "") / 1000);
-  const targetSeconds = Number.isFinite(targetSecondsRaw) ? targetSecondsRaw : nowSeconds;
-  const deltaSeconds = targetSeconds - nowSeconds;
-  const absDiffSeconds = Math.abs(deltaSeconds);
-  const { source: weatherSource, snapshot } = pickWeatherSnapshot(
-    payload,
-    targetSeconds,
-    absDiffSeconds,
-    deltaSeconds,
-  );
-  const windSpeedKmh = safeNumber(snapshot.wind_speed_10m);
-  const windSpeedMph = windSpeedKmh == null ? null : kmhToMph(windSpeedKmh);
-
-  const weather = {
-    temperature_c: roundNumber(snapshot.temperature_2m, 1),
-    condition: mapWeatherConditionLabel(snapshot.weather_code),
-    visibility_km:
-      safeNumber(snapshot.visibility) == null ? null : roundNumber(snapshot.visibility / 1000, 1),
-    wind_kmh: roundNumber(windSpeedKmh, 1),
-    wind_direction: mapWindDirection(snapshot.wind_direction_10m, windSpeedMph),
-    humidity_pct: roundNumber(snapshot.relative_humidity_2m, 0),
-    pressure_hpa: roundNumber(snapshot.pressure_msl, 1),
-    precipitation_mm: roundNumber(snapshot.precipitation, 2),
-    timestamp_iso: new Date(targetSeconds * 1000).toISOString(),
-    snapshot_time_iso:
-      snapshot?.selected_time_unix == null
-        ? null
-        : new Date(snapshot.selected_time_unix * 1000).toISOString(),
-    snapshot_source: weatherSource,
-    fetched_at_iso: new Date().toISOString(),
-  };
+  const { uiWeather: weather } = await resolveWeatherOutputs(lat, lng, timestampIso);
 
   setCacheEntryWithTtl(
     currentWeatherCache,
@@ -997,94 +1206,7 @@ async function getWeatherFeatures(lat, lng, timestampIso) {
     return cached;
   }
 
-  const seriesFields = getBaseWeatherFieldList().join(",");
-  const params = {
-    latitude: lat,
-    longitude: lng,
-    current: seriesFields,
-    hourly: seriesFields,
-    minutely_15: seriesFields,
-    forecast_days: 7,
-    temperature_unit: "fahrenheit",
-    wind_speed_unit: "mph",
-    precipitation_unit: "inch",
-    timezone: "GMT",
-    timeformat: "unixtime",
-  };
-
-  let data = null;
-  try {
-    const response = await axios.get(OPEN_METEO_URL, {
-      params,
-      timeout: WEATHER_TIMEOUT_MS,
-    });
-    data = response.data;
-  } catch (error) {
-    if (error?.response?.status === 400) {
-      const fallbackParams = { ...params };
-      delete fallbackParams.minutely_15;
-      const fallbackResponse = await axios.get(OPEN_METEO_URL, {
-        params: fallbackParams,
-        timeout: WEATHER_TIMEOUT_MS,
-      });
-      data = fallbackResponse.data;
-    } else {
-      throw error;
-    }
-  }
-
-  if (DEBUG_WEATHER_UNITS && !weatherUnitsLogged) {
-    weatherUnitsLogged = true;
-    console.log("[Node][weather-units]", {
-      current_units: data?.current_units,
-      hourly_units: data?.hourly_units,
-      minutely_15_units: data?.minutely_15_units,
-    });
-  }
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const targetSecondsRaw = Math.floor(Date.parse(timestampIso) / 1000);
-  const targetSeconds = Number.isFinite(targetSecondsRaw) ? targetSecondsRaw : nowSeconds;
-  const deltaSeconds = targetSeconds - nowSeconds;
-  const absDiffSeconds = Math.abs(targetSeconds - nowSeconds);
-
-  const { source: weatherSource, snapshot } = pickWeatherSnapshot(
-    data,
-    targetSeconds,
-    absDiffSeconds,
-    deltaSeconds,
-  );
-  const selectedUnits = getUnitsForWeatherSource(data, weatherSource);
-  const normalizedSnapshot = normalizeSnapshotForModelUnits(
-    snapshot,
-    selectedUnits,
-    weatherSource,
-  );
-
-  if (DEBUG_WEATHER_UNITS) {
-    const selectedIso =
-      normalizedSnapshot.selected_time_unix == null
-        ? "n/a"
-        : new Date(normalizedSnapshot.selected_time_unix * 1000).toISOString();
-    console.log(
-      `[Node][weather-select] source=${weatherSource} target=${new Date(
-        targetSeconds * 1000,
-      ).toISOString()} selected=${selectedIso}`,
-    );
-    console.log("[Node][weather-wind]", {
-      source: weatherSource,
-      selected_units: selectedUnits,
-      raw_wind_speed: safeNumber(snapshot?.wind_speed_10m),
-      normalized_wind_mph: safeNumber(normalizedSnapshot?.wind_speed_10m),
-      normalized_wind_kmh: (() => {
-        const mph = safeNumber(normalizedSnapshot?.wind_speed_10m);
-        return mph == null ? null : roundNumber(mphToKmh(mph), 4);
-      })(),
-      wind_direction_deg: safeNumber(normalizedSnapshot?.wind_direction_10m),
-    });
-  }
-
-  const row = buildModelWeatherRowFromSnapshot(normalizedSnapshot);
+  const { modelRow: row } = await resolveWeatherOutputs(lat, lng, timestampIso);
 
   setCacheEntryWithTtl(
     weatherCache,
