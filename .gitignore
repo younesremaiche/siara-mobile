@@ -20,3 +20,9 @@ client/android/app/.cxx/
 client/.expo/
 
 *firebase-adminsdk*.json
+
+__pycache__/
+
+*.pyc
+
+*.pt

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../theme/colors';
+import Button from '../../components/ui/Button';
+import DriverQuizModal from '../../components/quiz/DriverQuizModal';
+import { loadDriverQuizState } from '../../services/driverQuizStorage';
 
 const { width } = Dimensions.get('window');
 const FEATURE_CARD_W = (width - 54) / 2;
@@ -117,16 +120,58 @@ const TECH_STACK = [
 /*  COMPONENT                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function PredictionsScreen() {
+export default function PredictionsScreen({ navigation, route }) {
   const [selectedBar, setSelectedBar] = useState(null);
+  const [quizVisible, setQuizVisible] = useState(false);
+  const [quizForceShow, setQuizForceShow] = useState(false);
+  const [quizSummary, setQuizSummary] = useState({
+    completed: false,
+    result: null,
+  });
+
+  const refreshQuizSummary = useCallback(async () => {
+    const storedState = await loadDriverQuizState();
+    setQuizSummary({
+      completed: storedState.completed,
+      result: storedState.result,
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshQuizSummary().catch((error) => {
+      console.warn('[PredictionsScreen] failed to load quiz summary', error?.message || error);
+    });
+  }, [refreshQuizSummary]);
+
+  useEffect(() => {
+    if (!quizVisible) {
+      refreshQuizSummary().catch((error) => {
+        console.warn('[PredictionsScreen] failed to refresh quiz summary', error?.message || error);
+      });
+    }
+  }, [quizVisible, refreshQuizSummary]);
+
+  useEffect(() => {
+    if (!route?.params?.openQuiz) {
+      return;
+    }
+
+    setQuizForceShow(true);
+    setQuizVisible(true);
+
+    if (typeof navigation?.setParams === 'function') {
+      navigation.setParams({ openQuiz: false });
+    }
+  }, [navigation, route?.params?.openQuiz]);
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <StatusBar barStyle="light-content" />
+    <>
+      <ScrollView
+        style={styles.root}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <StatusBar barStyle="light-content" />
 
       {/* ========== HERO BANNER ========== */}
       <LinearGradient
@@ -175,7 +220,76 @@ export default function PredictionsScreen() {
         ))}
       </View>
 
-      {/* ========== FEATURE CARDS GRID ========== */}
+        {/* ========== DRIVER QUIZ CTA ========== */}
+        <View style={styles.section}>
+          <View style={styles.quizCard}>
+            <LinearGradient
+              colors={[Colors.violetLight, Colors.blueLight]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.quizCardInner}
+            >
+              <View style={styles.quizCardTopRow}>
+                <View style={styles.quizInfo}>
+                  <View style={styles.quizBadge}>
+                    <Ionicons name="reader-outline" size={14} color={Colors.primary} />
+                    <Text style={styles.quizBadgeText}>DRIVER PROFILE ASSESSMENT</Text>
+                  </View>
+                  <Text style={styles.quizTitle}>Driver Quiz</Text>
+                  <Text style={styles.quizDescription}>
+                    Measure behavior-linked risk factors with the same driver assessment flow used in the web experience.
+                  </Text>
+                </View>
+
+                <View style={styles.quizIconWrap}>
+                  <Ionicons name="analytics-outline" size={26} color={Colors.primary} />
+                </View>
+              </View>
+
+              <View style={styles.quizStatusRow}>
+                <View style={styles.quizStatusPill}>
+                  <Text style={styles.quizStatusLabel}>
+                    {quizSummary.completed ? 'Assessment completed' : 'Assessment not started'}
+                  </Text>
+                </View>
+
+                {quizSummary?.result?.risk_label ? (
+                  <View style={styles.quizResultPill}>
+                    <Text style={styles.quizResultPillText}>{quizSummary.result.risk_label}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.quizMetaRow}>
+                <View style={styles.quizMetaItem}>
+                  <Text style={styles.quizMetaLabel}>Latest risk percent</Text>
+                  <Text style={styles.quizMetaValue}>
+                    {Number.isFinite(Number(quizSummary?.result?.risk_percent))
+                      ? `${Number(quizSummary.result.risk_percent).toFixed(1)}%`
+                      : 'Not available'}
+                  </Text>
+                </View>
+                <View style={styles.quizMetaDivider} />
+                <View style={styles.quizMetaItem}>
+                  <Text style={styles.quizMetaLabel}>Experience</Text>
+                  <Text style={styles.quizMetaValue}>Grouped, mobile-first flow</Text>
+                </View>
+              </View>
+
+              <Button
+                onPress={() => {
+                  setQuizForceShow(true);
+                  setQuizVisible(true);
+                }}
+                style={styles.quizCtaButton}
+              >
+                Driver Quiz
+              </Button>
+            </LinearGradient>
+          </View>
+        </View>
+
+        {/* ========== FEATURE CARDS GRID ========== */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionBadge}>
@@ -409,8 +523,23 @@ export default function PredictionsScreen() {
         </View>
       </View>
 
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      <DriverQuizModal
+        visible={quizVisible}
+        forceShow={quizForceShow}
+        onClose={() => {
+          setQuizVisible(false);
+          setQuizForceShow(false);
+        }}
+        onComplete={() => {
+          refreshQuizSummary();
+          setQuizVisible(false);
+          setQuizForceShow(false);
+        }}
+      />
+    </>
   );
 }
 
@@ -559,6 +688,123 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center',
     marginTop: 2,
+  },
+
+  /* ---------- Driver Quiz CTA ---------- */
+  quizCard: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.violetBorder,
+  },
+  quizCardInner: {
+    padding: 20,
+  },
+  quizCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  quizInfo: {
+    flex: 1,
+  },
+  quizBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  quizBadgeText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  quizTitle: {
+    color: Colors.heading,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  quizDescription: {
+    color: Colors.textDark,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  quizIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quizStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 18,
+    marginBottom: 14,
+  },
+  quizStatusPill: {
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  quizStatusLabel: {
+    color: Colors.heading,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quizResultPill: {
+    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  quizResultPillText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  quizMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 16,
+  },
+  quizMetaItem: {
+    flex: 1,
+  },
+  quizMetaLabel: {
+    color: Colors.subtext,
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  quizMetaValue: {
+    color: Colors.heading,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  quizMetaDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: Colors.violetBorder,
+    marginHorizontal: 14,
+  },
+  quizCtaButton: {
+    marginTop: 4,
   },
 
   /* ---------- Sections ---------- */

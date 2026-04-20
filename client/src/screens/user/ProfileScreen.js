@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useCallback, useContext, useState } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,10 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../../contexts/AuthContext';
 import { Colors } from '../../theme/colors';
+import { loadDriverQuizState } from '../../services/driverQuizStorage';
 
 const { width } = Dimensions.get('window');
 
@@ -44,6 +46,10 @@ export default function ProfileScreen({ navigation }) {
   const { user, setUser, logout } = useContext(AuthContext);
   const [showBadges, setShowBadges] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
+  const [quizSummary, setQuizSummary] = useState({
+    completed: false,
+    result: null,
+  });
 
   // ── Edit form state ──
   const [editName, setEditName] = useState('');
@@ -93,6 +99,34 @@ export default function ProfileScreen({ navigation }) {
     // Clear auth store - AppNavigator will automatically switch to PublicStack
     logout();
   }
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      (async () => {
+        try {
+          const storedState = await loadDriverQuizState();
+          if (!isActive) {
+            return;
+          }
+
+          setQuizSummary({
+            completed: storedState.completed,
+            result: storedState.result,
+          });
+        } catch (error) {
+          if (isActive) {
+            console.warn('[ProfileScreen] failed to load quiz summary', error?.message || error);
+          }
+        }
+      })();
+
+      return () => {
+        isActive = false;
+      };
+    }, []),
+  );
 
   return (
     <ScrollView
@@ -171,6 +205,41 @@ export default function ProfileScreen({ navigation }) {
           Complete your profile to unlock all features
         </Text>
       </View>
+
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.quizLaunchCard}
+        onPress={() => navigation.navigate('Predictions', { openQuiz: true })}
+      >
+        <View style={styles.quizLaunchIconWrap}>
+          <Ionicons name="clipboard-outline" size={22} color={Colors.primary} />
+        </View>
+        <View style={styles.quizLaunchCopy}>
+          <View style={styles.quizLaunchLabelRow}>
+            <Text style={styles.quizLaunchTitle}>
+              {quizSummary.completed ? 'Retake Driver Quiz' : 'Start Driver Quiz'}
+            </Text>
+            {quizSummary.completed ? (
+              <View style={styles.quizLaunchBadge}>
+                <Text style={styles.quizLaunchBadgeText}>Quiz completed</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.quizLaunchSubtitle}>
+            Take the driving profile assessment
+          </Text>
+          {quizSummary?.result?.risk_label ? (
+            <Text style={styles.quizLaunchMeta}>
+              Latest result: {quizSummary.result.risk_label}
+            </Text>
+          ) : (
+            <Text style={styles.quizLaunchMeta}>
+              Opens the full assessment immediately from your Predictions tab
+            </Text>
+          )}
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={Colors.greyLight} />
+      </TouchableOpacity>
 
       {/* Badges section */}
       <TouchableOpacity
@@ -552,6 +621,70 @@ const styles = StyleSheet.create({
     color: Colors.subtext,
     fontSize: 12,
     marginTop: 8,
+  },
+
+  /* Driver Quiz launch */
+  quizLaunchCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  quizLaunchIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: Colors.violetLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quizLaunchCopy: {
+    flex: 1,
+  },
+  quizLaunchLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  quizLaunchTitle: {
+    color: Colors.heading,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  quizLaunchSubtitle: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  quizLaunchMeta: {
+    color: Colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  quizLaunchBadge: {
+    backgroundColor: Colors.blueLight,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  quizLaunchBadgeText: {
+    color: Colors.secondary,
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   /* Badges section */

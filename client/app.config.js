@@ -4,12 +4,11 @@ const STATIC_EXPO_CONFIG = baseConfig.expo || {};
 
 module.exports = ({ config } = {}) => {
   const resolvedConfig = config && typeof config === 'object' ? config : STATIC_EXPO_CONFIG;
-  const isDevBuild = process.env.NODE_ENV !== 'production';
   const apiBaseUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL
     || resolvedConfig?.extra?.apiBaseUrl
     || STATIC_EXPO_CONFIG?.extra?.apiBaseUrl
-    || (isDevBuild ? 'http://127.0.0.1:5000' : undefined);
+    || undefined;
   const projectId =
     process.env.EXPO_PUBLIC_EAS_PROJECT_ID
     || resolvedConfig?.extra?.eas?.projectId

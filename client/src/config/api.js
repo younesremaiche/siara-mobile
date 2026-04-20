@@ -1,14 +1,38 @@
 // SIARA mobile API configuration.
-// For physical-device LAN testing, the phone must talk to the backend over Wi-Fi.
-// Never assume localhost/127.0.0.1 from the phone.
+// Prefer EXPO_PUBLIC_API_BASE_URL or runtime extra.apiBaseUrl for real devices.
+// If neither is set in development, we try to infer the Expo host machine LAN IP.
 
 import Constants from 'expo-constants';
 
-const DEV_LAN_API_BASE_URL = 'http://127.0.0.1:5000';
+const DEV_API_PORT = '5000';
 let didLogResolvedApiBaseUrl = false;
 
 function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function inferDevApiBaseUrl() {
+  const hostCandidates = [
+    Constants?.expoConfig?.hostUri,
+    Constants?.manifest2?.extra?.expoGo?.debuggerHost,
+    Constants?.manifest?.debuggerHost,
+  ];
+
+  for (const candidate of hostCandidates) {
+    const normalizedCandidate = normalizeBaseUrl(candidate);
+    if (!normalizedCandidate) {
+      continue;
+    }
+
+    const host = normalizedCandidate.split(':')[0];
+    if (!host) {
+      continue;
+    }
+
+    return `http://${host}:${DEV_API_PORT}`;
+  }
+
+  return '';
 }
 
 function resolveApiBaseUrl() {
@@ -23,10 +47,13 @@ function resolveApiBaseUrl() {
   }
 
   if (__DEV__) {
-    return DEV_LAN_API_BASE_URL;
+    const inferredBaseUrl = inferDevApiBaseUrl();
+    if (inferredBaseUrl) {
+      return inferredBaseUrl;
+    }
   }
 
-  return DEV_LAN_API_BASE_URL;
+  return `http://localhost:${DEV_API_PORT}`;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
@@ -49,5 +76,6 @@ export function logResolvedApiBaseUrl() {
     apiBaseUrl: API_BASE_URL,
     apiOrigin: API_ORIGIN,
     mode: __DEV__ ? 'development' : 'production',
+    guidance: 'Set EXPO_PUBLIC_API_BASE_URL for physical-device testing if the inferred host is not correct.',
   });
 }
