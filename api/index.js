@@ -20,6 +20,7 @@ const alertRoutes = require("./contollers/alerts");
 const emailRoutes = require("./contollers/emails");
 const dashboardRoutes = require("./contollers/dashboard");
 const notificationRoutes = require("./contollers/notifications");
+const policeRoutes = require("./contollers/police");
 const pushRoutes = require("./contollers/push");
 const reportRoutes = require("./contollers/reports");
 const { startNotificationListener } = require("./services/notificationListener");
@@ -57,6 +58,7 @@ app.use("/api/alerts", alertRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/emails", emailRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/police", policeRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/reports", reportRoutes);
 

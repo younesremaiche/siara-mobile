@@ -37,6 +37,8 @@ export function AuthProvider({ children }) {
     setToken: authStore.setToken,
     isAuthenticated: authStore.isAuthenticated,
     isAdmin: authStore.isAdmin,
+    isPolice: authStore.isPolice,
+    activeMode: authStore.activeMode,
     hasCheckedSession: authStore.hasCheckedSession,
     rememberMe: authStore.rememberMe,
     
@@ -78,6 +80,9 @@ export function AuthProvider({ children }) {
     loading: !authStore.hasCheckedSession || authStore.isRestoringSession,
     setAuthenticated: authStore.setAuthenticated,
     clearSession: authStore.clearSession,
+    setActiveMode: authStore.setActiveMode,
+    switchToUserMode: authStore.switchToUserMode,
+    switchToPoliceMode: authStore.switchToPoliceMode,
   };
 
   return (

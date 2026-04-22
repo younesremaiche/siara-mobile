@@ -10,10 +10,18 @@
  */
 export function isAdminUser(user) {
   if (!user) return false;
-  if (Array.isArray(user.roles)) {
-    return user.roles.includes('admin');
-  }
-  return user.role === 'admin';
+  const roles = Array.isArray(user.roles) ? user.roles : [user.role];
+  return roles
+    .map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''))
+    .includes('admin');
+}
+
+export function isPoliceUser(user) {
+  if (!user) return false;
+  const roles = Array.isArray(user.roles) ? user.roles : [user.role];
+  return roles
+    .map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''))
+    .some((entry) => entry === 'police' || entry === 'policeofficer');
 }
 
 /**
@@ -36,6 +44,12 @@ export function getAuthenticatedRedirect(user, isEmailVerified = true) {
     };
   }
 
+  if (isPoliceUser(user)) {
+    return {
+      name: 'UserTabs',
+    };
+  }
+
   // Otherwise send to user home
   return {
     name: 'UserTabs',
@@ -50,6 +64,11 @@ export function getLoginRedirect(user) {
   if (isAdminUser(user)) {
     return {
       name: 'AdminPanel',
+    };
+  }
+  if (isPoliceUser(user)) {
+    return {
+      name: 'UserTabs',
     };
   }
   return {
@@ -106,8 +125,27 @@ export const ADMIN_ONLY_ROUTES = [
   'AdminDashboard',
 ];
 
+export const POLICE_ROUTES = [
+  'PoliceStack',
+  'PoliceZoneSetup',
+  'PoliceTabs',
+  'PoliceDashboard',
+  'PoliceActiveIncidents',
+  'PoliceNearbyIncidents',
+  'PoliceAlerts',
+  'PoliceMore',
+  'PoliceMyIncidents',
+  'PoliceFieldReports',
+  'PoliceOperationHistory',
+  'PoliceIncidentDetail',
+];
+
 export function isAdminRoute(routeName) {
   return ADMIN_ONLY_ROUTES.includes(routeName);
+}
+
+export function isPoliceRoute(routeName) {
+  return POLICE_ROUTES.includes(routeName);
 }
 
 /**
@@ -119,6 +157,7 @@ export const ROUTE_GROUPS = {
   PUBLIC: 'PUBLIC', // About, Description, etc
   USER: 'USER', // Home, Dashboard, etc (requires auth, non-admin)
   ADMIN: 'ADMIN', // Admin screens (requires admin role)
+  POLICE: 'POLICE', // Police screens (requires police role)
 };
 
 /**
@@ -134,13 +173,16 @@ export function getRouteGroup(routeName, user = null) {
   if (isAdminRoute(routeName)) {
     return ROUTE_GROUPS.ADMIN;
   }
+  if (isPoliceRoute(routeName)) {
+    return ROUTE_GROUPS.POLICE;
+  }
   return ROUTE_GROUPS.USER;
 }
 
 /**
  * Determine if user can access a route
  */
-export function canAccessRoute(routeName, isAuthenticated, isAdmin) {
+export function canAccessRoute(routeName, isAuthenticated, isAdmin, isPolice = false) {
   const group = getRouteGroup(routeName);
 
   switch (group) {
@@ -156,8 +198,11 @@ export function canAccessRoute(routeName, isAuthenticated, isAdmin) {
       // Only authenticated admins can access
       return isAuthenticated && isAdmin;
 
+    case ROUTE_GROUPS.POLICE:
+      return isAuthenticated && isPolice;
+
     case ROUTE_GROUPS.USER:
-      // Authenticated non-admins can access
+      // Authenticated non-admin users, including police accounts in user mode, can access
       return isAuthenticated && !isAdmin;
 
     default:
@@ -168,13 +213,13 @@ export function canAccessRoute(routeName, isAuthenticated, isAdmin) {
 /**
  * Get redirect for accidental route access based on current auth state
  */
-export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user) {
+export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user, isPolice = false) {
   const group = getRouteGroup(routeName);
 
   // If unauthenticated and trying to access protected route
   if (!isAuthenticated) {
     // Can't access user or admin routes, redirect to login
-    if (group === ROUTE_GROUPS.USER || group === ROUTE_GROUPS.ADMIN) {
+    if (group === ROUTE_GROUPS.USER || group === ROUTE_GROUPS.ADMIN || group === ROUTE_GROUPS.POLICE) {
       return { name: 'Login' };
     }
   }
@@ -192,6 +237,10 @@ export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, u
   // If authenticated non-admin trying to access admin routes
   if (isAuthenticated && !isAdmin && group === ROUTE_GROUPS.ADMIN) {
     return { name: 'UserTabs' };
+  }
+
+  if (isAuthenticated && !isPolice && group === ROUTE_GROUPS.POLICE) {
+    return isAdmin ? { name: 'AdminPanel' } : { name: 'UserTabs' };
   }
 
   // No redirect needed

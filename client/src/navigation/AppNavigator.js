@@ -6,7 +6,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/authStore';
 import { Colors } from '../theme/colors';
 
-// Shared screens
 import SplashScreen from '../screens/shared/SplashScreen';
 import LoginScreen from '../screens/shared/LoginScreen';
 import RegisterScreen from '../screens/shared/RegisterScreen';
@@ -14,7 +13,6 @@ import VerifyEmailScreen from '../screens/shared/VerifyEmailScreen';
 import AboutScreen from '../screens/shared/AboutScreen';
 import DescriptionScreen from '../screens/shared/DescriptionScreen';
 
-// User screens
 import HomeScreen from '../screens/user/HomeScreen';
 import MapScreen from '../screens/user/MapScreen';
 import NewsScreen from '../screens/user/NewsScreen';
@@ -30,7 +28,6 @@ import SettingsScreen from '../screens/user/SettingsScreen';
 import ServicesScreen from '../screens/user/ServicesScreen';
 import ContactScreen from '../screens/user/ContactScreen';
 
-// Admin screens
 import AdminOverviewScreen from '../screens/admin/AdminOverviewScreen';
 import AdminIncidentsScreen from '../screens/admin/AdminIncidentsScreen';
 import AdminIncidentReviewScreen from '../screens/admin/AdminIncidentReviewScreen';
@@ -41,135 +38,91 @@ import AdminZonesScreen from '../screens/admin/AdminZonesScreen';
 import AdminSystemSettingsScreen from '../screens/admin/AdminSystemSettingsScreen';
 import AdminAnalyticsScreen from '../screens/admin/AdminAnalyticsScreen';
 import DashboardScreen from '../screens/admin/DashboardScreen';
-import { flushPendingNotificationNavigation, navigationRef } from './navigationService';
 
-// Admin shell
+import PoliceDashboardScreen from '../screens/police/PoliceDashboardScreen';
+import PoliceIncidentsScreen from '../screens/police/PoliceIncidentsScreen';
+import PoliceNearbyIncidentsScreen from '../screens/police/PoliceNearbyIncidentsScreen';
+import PoliceAlertsScreen from '../screens/police/PoliceAlertsScreen';
+import PoliceMoreScreen from '../screens/police/PoliceMoreScreen';
+import PoliceMyIncidentsScreen from '../screens/police/PoliceMyIncidentsScreen';
+import PoliceFieldReportsScreen from '../screens/police/PoliceFieldReportsScreen';
+import PoliceOperationHistoryScreen from '../screens/police/PoliceOperationHistoryScreen';
+import PoliceIncidentDetailScreen from '../screens/police/PoliceIncidentDetailScreen';
+import PoliceWorkZoneScreen from '../screens/police/PoliceWorkZoneScreen';
+
+import { flushPendingNotificationNavigation, navigationRef } from './navigationService';
 import AdminDrawerShell from '../components/layout/AdminDrawerShell';
+import { getPoliceMe } from '../services/policeService';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const AdminStack = createNativeStackNavigator();
+const PoliceStack = createNativeStackNavigator();
 
-// ─── Public Stack (Login, Register, Verify Email) ─────────
+function buildTabScreenOptions(route) {
+  const icons = {
+    Home: 'home',
+    Map: 'map',
+    News: 'newspaper',
+    Dashboard: 'grid',
+    Profile: 'person',
+    PoliceDashboard: 'shield-checkmark',
+    PoliceActiveIncidents: 'warning',
+    PoliceNearbyIncidents: 'navigate',
+    PoliceAlerts: 'notifications',
+    PoliceMore: 'menu',
+  };
+
+  return {
+    headerShown: false,
+    tabBarStyle: {
+      backgroundColor: Colors.white,
+      borderTopColor: Colors.border,
+      height: 64,
+      paddingBottom: 8,
+      paddingTop: 4,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+    },
+    tabBarActiveTintColor: Colors.primary,
+    tabBarInactiveTintColor: Colors.greyLight,
+    tabBarLabelStyle: {
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    tabBarIcon: ({ color, size }) => (
+      <Ionicons name={icons[route.name] || 'ellipse'} size={size} color={color} />
+    ),
+  };
+}
+
 function PublicStack() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: Colors.bg },
-      }}
-    >
-      <Stack.Screen 
-        name="Login" 
-        component={LoginScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Register" 
-        component={RegisterScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="VerifyEmail" 
-        component={VerifyEmailScreen}
-        options={{ animationEnabled: true }}
-      />
-      {/* Public screens accessible to all */}
-      <Stack.Screen 
-        name="About" 
-        component={AboutScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Description" 
-        component={DescriptionScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Predictions" 
-        component={PredictionsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Alerts" 
-        component={AlertsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="CreateAlert" 
-        component={CreateAlertScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Notifications" 
-        component={NotificationsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="IncidentDetail" 
-        component={IncidentDetailScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="ReportIncident" 
-        component={ReportCreateScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Contact" 
-        component={ContactScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Services" 
-        component={ServicesScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Settings" 
-        component={SettingsScreen}
-        options={{ animationEnabled: true }}
-      />
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+      <Stack.Screen name="About" component={AboutScreen} />
+      <Stack.Screen name="Description" component={DescriptionScreen} />
+      <Stack.Screen name="Predictions" component={PredictionsScreen} />
+      <Stack.Screen name="Alerts" component={AlertsScreen} />
+      <Stack.Screen name="CreateAlert" component={CreateAlertScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
+      <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+      <Stack.Screen name="Contact" component={ContactScreen} />
+      <Stack.Screen name="Services" component={ServicesScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 }
 
-// ─── User bottom tab navigator ───────────────────────────
 function UserTabs() {
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: Colors.white,
-          borderTopColor: Colors.border,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 4,
-          elevation: 8,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-        },
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.greyLight,
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-        },
-        tabBarIcon: ({ color, size }) => {
-          const icons = {
-            Home: 'home',
-            Map: 'map',
-            News: 'newspaper',
-            Dashboard: 'grid',
-            Profile: 'person',
-          };
-          return <Ionicons name={icons[route.name] || 'ellipse'} size={size} color={color} />;
-        },
-      })}
-    >
+    <Tab.Navigator screenOptions={({ route }) => buildTabScreenOptions(route)}>
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen name="News" component={NewsScreen} />
@@ -179,90 +132,56 @@ function UserTabs() {
   );
 }
 
-// ─── User Stack (with public screens) ─────────────────────
 function UserStack() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: Colors.bg },
-      }}
-    >
-      {/* User main tabs */}
-      <Stack.Screen 
-        name="UserTabs" 
-        component={UserTabs}
-        options={{ animationEnabled: false }}
-      />
-      
-      {/* Public screens accessible from user area */}
-      <Stack.Screen 
-        name="About" 
-        component={AboutScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Description" 
-        component={DescriptionScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Predictions" 
-        component={PredictionsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Alerts" 
-        component={AlertsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="CreateAlert" 
-        component={CreateAlertScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Notifications" 
-        component={NotificationsScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="IncidentDetail" 
-        component={IncidentDetailScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="ReportIncident" 
-        component={ReportCreateScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Contact" 
-        component={ContactScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Services" 
-        component={ServicesScreen}
-        options={{ animationEnabled: true }}
-      />
-      <Stack.Screen 
-        name="Settings" 
-        component={SettingsScreen}
-        options={{ animationEnabled: true }}
-      />
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}>
+      <Stack.Screen name="UserTabs" component={UserTabs} options={{ animationEnabled: false }} />
+      <Stack.Screen name="About" component={AboutScreen} />
+      <Stack.Screen name="Description" component={DescriptionScreen} />
+      <Stack.Screen name="Predictions" component={PredictionsScreen} />
+      <Stack.Screen name="Alerts" component={AlertsScreen} />
+      <Stack.Screen name="CreateAlert" component={CreateAlertScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
+      <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+      <Stack.Screen name="Contact" component={ContactScreen} />
+      <Stack.Screen name="Services" component={ServicesScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 }
 
-// ─── Admin stack inside shell ────────────────────────────
+function PoliceTabs() {
+  return (
+    <Tab.Navigator screenOptions={({ route }) => buildTabScreenOptions(route)}>
+      <Tab.Screen name="PoliceDashboard" component={PoliceDashboardScreen} options={{ title: 'Dashboard' }} />
+      <Tab.Screen name="PoliceActiveIncidents" component={PoliceIncidentsScreen} options={{ title: 'Incidents' }} />
+      <Tab.Screen name="PoliceNearbyIncidents" component={PoliceNearbyIncidentsScreen} options={{ title: 'Nearby' }} />
+      <Tab.Screen name="PoliceAlerts" component={PoliceAlertsScreen} options={{ title: 'Alerts' }} />
+      <Tab.Screen name="PoliceMore" component={PoliceMoreScreen} options={{ title: 'More' }} />
+    </Tab.Navigator>
+  );
+}
+
+function PoliceStackNavigator({ requiresZoneSelection }) {
+  return (
+    <PoliceStack.Navigator
+      initialRouteName={requiresZoneSelection ? 'PoliceZoneSetup' : 'PoliceTabs'}
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}
+    >
+      <PoliceStack.Screen name="PoliceZoneSetup" component={PoliceWorkZoneScreen} />
+      <PoliceStack.Screen name="PoliceTabs" component={PoliceTabs} options={{ animationEnabled: false }} />
+      <PoliceStack.Screen name="PoliceMyIncidents" component={PoliceMyIncidentsScreen} />
+      <PoliceStack.Screen name="PoliceFieldReports" component={PoliceFieldReportsScreen} />
+      <PoliceStack.Screen name="PoliceOperationHistory" component={PoliceOperationHistoryScreen} />
+      <PoliceStack.Screen name="PoliceIncidentDetail" component={PoliceIncidentDetailScreen} />
+    </PoliceStack.Navigator>
+  );
+}
+
 function AdminStackScreens() {
   return (
-    <AdminStack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
+    <AdminStack.Navigator screenOptions={{ headerShown: false }}>
       <AdminStack.Screen name="AdminOverview" component={AdminOverviewScreen} />
       <AdminStack.Screen name="AdminIncidents" component={AdminIncidentsScreen} />
       <AdminStack.Screen name="AdminIncidentReview" component={AdminIncidentReviewScreen} />
@@ -277,7 +196,6 @@ function AdminStackScreens() {
   );
 }
 
-// ─── Admin shell navigator ───────────────────────────────
 function AdminDrawer() {
   return (
     <AdminDrawerShell>
@@ -286,14 +204,68 @@ function AdminDrawer() {
   );
 }
 
-// ─── Root Navigator ──────────────────────────────────────
 export default function AppNavigator() {
-  const isHydrated = useAuthStore((state) => state.hasCheckedSession);
+  const hasCheckedSession = useAuthStore((state) => state.hasCheckedSession);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isAdmin = useAuthStore((state) => state.isAdmin);
+  const isPolice = useAuthStore((state) => state.isPolice);
+  const activeMode = useAuthStore((state) => state.activeMode);
+  const userId = useAuthStore((state) => state.user?.id);
+  const [policeBootstrap, setPoliceBootstrap] = React.useState({
+    loading: false,
+    requiresZoneSelection: false,
+  });
+  const shouldBootstrapPolice = isAuthenticated && isPolice && activeMode === 'police';
+  const navigatorKey = !isAuthenticated
+    ? 'public'
+    : isAdmin
+      ? 'admin'
+      : isPolice
+        ? `police-access-${activeMode}`
+        : 'user';
 
-  // Show splash screen while session is being restored
-  if (!isHydrated) {
+  React.useEffect(() => {
+    let isCancelled = false;
+
+    async function loadPoliceBootstrap() {
+      if (!shouldBootstrapPolice) {
+        setPoliceBootstrap({
+          loading: false,
+          requiresZoneSelection: false,
+        });
+        return;
+      }
+
+      setPoliceBootstrap((previous) => ({
+        ...previous,
+        loading: true,
+      }));
+
+      try {
+        const payload = await getPoliceMe();
+        if (!isCancelled) {
+          setPoliceBootstrap({
+            loading: false,
+            requiresZoneSelection: Boolean(payload.requiresZoneSelection),
+          });
+        }
+      } catch (_error) {
+        if (!isCancelled) {
+          setPoliceBootstrap({
+            loading: false,
+            requiresZoneSelection: false,
+          });
+        }
+      }
+    }
+
+    void loadPoliceBootstrap();
+    return () => {
+      isCancelled = true;
+    };
+  }, [shouldBootstrapPolice, userId]);
+
+  if (!hasCheckedSession || (shouldBootstrapPolice && policeBootstrap.loading)) {
     return (
       <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -306,93 +278,37 @@ export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation}>
       <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.bg },
-        }}
+        key={navigatorKey}
+        screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}
       >
-        {/* Unauthenticated: show login/register/public screens */}
         {!isAuthenticated ? (
           <Stack.Group screenOptions={{ animationEnabled: false }}>
-            <Stack.Screen 
-              name="PublicStack" 
-              component={PublicStack}
-              options={{ animationEnabled: false }}
-            />
+            <Stack.Screen name="PublicStack" component={PublicStack} options={{ animationEnabled: false }} />
           </Stack.Group>
         ) : isAdmin ? (
-          /* Authenticated Admin: show admin panel with all public screens accessible */
           <Stack.Group screenOptions={{ animationEnabled: false }}>
-            <Stack.Screen
-              name="AdminPanel"
-              component={AdminDrawer}
-              options={{ animationEnabled: false }}
-            />
-            {/* Public screens accessible from admin area */}
-            <Stack.Screen 
-              name="About" 
-              component={AboutScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Description" 
-              component={DescriptionScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Predictions" 
-              component={PredictionsScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Alerts" 
-              component={AlertsScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="CreateAlert" 
-              component={CreateAlertScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Notifications" 
-              component={NotificationsScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="IncidentDetail" 
-              component={IncidentDetailScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="ReportIncident" 
-              component={ReportCreateScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Contact" 
-              component={ContactScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Services" 
-              component={ServicesScreen}
-              options={{ animationEnabled: true }}
-            />
-            <Stack.Screen 
-              name="Settings" 
-              component={SettingsScreen}
-              options={{ animationEnabled: true }}
-            />
+            <Stack.Screen name="AdminPanel" component={AdminDrawer} options={{ animationEnabled: false }} />
+            <Stack.Screen name="About" component={AboutScreen} />
+            <Stack.Screen name="Description" component={DescriptionScreen} />
+            <Stack.Screen name="Predictions" component={PredictionsScreen} />
+            <Stack.Screen name="Alerts" component={AlertsScreen} />
+            <Stack.Screen name="CreateAlert" component={CreateAlertScreen} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
+            <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+            <Stack.Screen name="Contact" component={ContactScreen} />
+            <Stack.Screen name="Services" component={ServicesScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+          </Stack.Group>
+        ) : isPolice && activeMode === 'police' ? (
+          <Stack.Group screenOptions={{ animationEnabled: false }}>
+            <Stack.Screen name="PoliceStack">
+              {() => <PoliceStackNavigator requiresZoneSelection={policeBootstrap.requiresZoneSelection} />}
+            </Stack.Screen>
           </Stack.Group>
         ) : (
-          /* Authenticated Non-Admin: show user stack */
           <Stack.Group screenOptions={{ animationEnabled: false }}>
-            <Stack.Screen
-              name="UserStack"
-              component={UserStack}
-              options={{ animationEnabled: false }}
-            />
+            <Stack.Screen name="UserStack" component={UserStack} options={{ animationEnabled: false }} />
           </Stack.Group>
         )}
       </Stack.Navigator>

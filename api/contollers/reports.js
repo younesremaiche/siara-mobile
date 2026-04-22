@@ -21,7 +21,14 @@ const ALLOWED_INCIDENT_TYPES = new Set([
   "roadworks",
   "other",
 ]);
-const ALLOWED_STATUSES = new Set(["pending", "verified", "rejected", "resolved"]);
+const ALLOWED_STATUSES = new Set([
+  "pending",
+  "under_review",
+  "verified",
+  "dispatched",
+  "rejected",
+  "resolved",
+]);
 const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_FEED_TYPES = new Set(["latest", "nearby", "verified", "following"]);
 const ALLOWED_SORT_TYPES = new Set(["recent", "severity"]);
@@ -55,6 +62,13 @@ const REPORT_SELECT_SQL = `
     ar.status,
     ar.severity_hint,
     ar.location_label,
+    ar.assigned_officer_id,
+    ar.verified_by_officer_id,
+    ar.verified_at,
+    ar.resolved_by_officer_id,
+    ar.resolved_at,
+    ar.source_channel,
+    ar.reported_by_role_snapshot,
     ar.occurred_at,
     ar.created_at,
     ar.updated_at,
@@ -383,6 +397,13 @@ function mapReportRow(row) {
     severityHint,
     severity: HINT_TO_SEVERITY[severityHint] || null,
     locationLabel: row.location_label || "",
+    sourceChannel: row.source_channel || null,
+    reportedByRoleSnapshot: row.reported_by_role_snapshot || null,
+    assignedOfficerId: row.assigned_officer_id || null,
+    verifiedByOfficerId: row.verified_by_officer_id || null,
+    verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
+    resolvedByOfficerId: row.resolved_by_officer_id || null,
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : null,
     location: {
       lat: row.lat == null ? null : Number(row.lat),
       lng: row.lng == null ? null : Number(row.lng),
@@ -825,7 +846,9 @@ router.post("/", verifyToken, async (req, res, next) => {
           severity_hint,
           incident_location,
           location_label,
-          occurred_at
+          occurred_at,
+          source_channel,
+          reported_by_role_snapshot
         )
         values (
           $1,
@@ -836,7 +859,9 @@ router.post("/", verifyToken, async (req, res, next) => {
           $5,
           ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography,
           $8,
-          $9::timestamptz
+          $9::timestamptz,
+          $10,
+          $11::jsonb
         )
         returning id
       `,
@@ -850,6 +875,8 @@ router.post("/", verifyToken, async (req, res, next) => {
         payload.lat,
         payload.locationLabel,
         payload.occurredAt,
+        "mobile",
+        JSON.stringify(req.user?.roles || []),
       ],
     );
 

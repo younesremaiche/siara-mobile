@@ -7,15 +7,21 @@ import { request as apiRequest } from './api';
  */
 export function normalizeUser(user) {
   if (!user) return { ...user, isAdmin: false };
-  
-  const isAdmin = Array.isArray(user.roles) 
-    ? user.roles.includes('admin')
-    : user.role === 'admin';
+  const roles = Array.isArray(user.roles)
+    ? user.roles
+    : user.role
+      ? [user.role]
+      : [];
+  const normalizedRoles = roles.map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''));
+  const isAdmin = normalizedRoles.includes('admin');
+  const isPolice = normalizedRoles.includes('police') || normalizedRoles.includes('policeofficer');
   
   return {
     ...user,
+    roles,
     isAdmin,
-    role: user.role || (user.roles?.[0] || null), // Ensure role field exists
+    isPolice,
+    role: user.role || (roles[0] || null), // Ensure role field exists
   };
 }
 

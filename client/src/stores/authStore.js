@@ -5,6 +5,17 @@ import { fetchCurrentUser } from '../services/authService';
 import { setInMemoryAccessToken } from '../services/api';
 import { clearStoredSession } from '../services/sessionStorage';
 
+const USER_MODE = 'user';
+const POLICE_MODE = 'police';
+
+function resolveActiveMode(user, requestedMode = USER_MODE) {
+  if (requestedMode === POLICE_MODE && user?.isPolice === true) {
+    return POLICE_MODE;
+  }
+
+  return USER_MODE;
+}
+
 /**
  * Custom storage adapter for Zustand with AsyncStorage
  * This allows Zustand's persist middleware to work with React Native's AsyncStorage
@@ -44,6 +55,8 @@ function buildLoggedOutState() {
     token: null,
     isAuthenticated: false,
     isAdmin: false,
+    isPolice: false,
+    activeMode: USER_MODE,
     rememberMe: false,
     hasCheckedSession: false,
     isRestoringSession: false,
@@ -54,14 +67,17 @@ function buildLoggedOutState() {
  * Build authenticated state from user and token
  * Uses normalized user.isAdmin flag (set by authService.normalizeUser)
  */
-function buildAuthenticatedState(user, token, rememberMe = false) {
+function buildAuthenticatedState(user, token, rememberMe = false, activeMode = USER_MODE) {
   const isAdmin = user?.isAdmin === true; // Use normalized isAdmin flag from user
+  const isPolice = user?.isPolice === true;
   
   return {
     user,
     token,
     isAuthenticated: true,
     isAdmin,
+    isPolice,
+    activeMode: resolveActiveMode(user, activeMode),
     rememberMe,
     hasCheckedSession: true,
     isRestoringSession: false,
@@ -80,6 +96,8 @@ export const useAuthStore = create(
       token: null,
       isAuthenticated: false,
       isAdmin: false,
+      isPolice: false,
+      activeMode: USER_MODE,
       rememberMe: false,
       hasCheckedSession: false,
       isRestoringSession: false,
@@ -121,7 +139,7 @@ export const useAuthStore = create(
             console.log('[authStore] Session validated, user:', user?.id);
 
             set({
-              ...buildAuthenticatedState(user, state.token, state.rememberMe),
+              ...buildAuthenticatedState(user, state.token, state.rememberMe, state.activeMode),
               hasCheckedSession: true,
             });
             return user;
@@ -146,11 +164,11 @@ export const useAuthStore = create(
       /**
        * Set user as authenticated with rememberMe flag
        */
-      setAuthenticated: (user, token, rememberMe = false) => {
+      setAuthenticated: (user, token, rememberMe = false, activeMode = USER_MODE) => {
         console.log('[authStore] Setting authenticated user:', user?.id, 'isAdmin:', user?.isAdmin, 'rememberMe:', rememberMe);
         setInMemoryAccessToken(token);
         set({
-          ...buildAuthenticatedState(user, token, rememberMe),
+          ...buildAuthenticatedState(user, token, rememberMe, activeMode),
           hasCheckedSession: true,
         });
 
@@ -171,6 +189,8 @@ export const useAuthStore = create(
           token: null,
           isAuthenticated: false,
           isAdmin: false,
+          isPolice: false,
+          activeMode: USER_MODE,
           rememberMe: false,
           hasCheckedSession: true,
           isRestoringSession: false,
@@ -190,7 +210,12 @@ export const useAuthStore = create(
        * Update user object (e.g., after profile update)
        */
       setUser: (user) => {
-        set({ user });
+        set((state) => ({
+          user,
+          isAdmin: user?.isAdmin === true,
+          isPolice: user?.isPolice === true,
+          activeMode: resolveActiveMode(user, state.activeMode),
+        }));
       },
 
       /**
@@ -198,6 +223,25 @@ export const useAuthStore = create(
        */
       setToken: (token) => {
         set({ token });
+      },
+
+      /**
+       * Update current UI mode
+       */
+      setActiveMode: (mode) => {
+        set((state) => ({
+          activeMode: resolveActiveMode(state.user, mode),
+        }));
+      },
+
+      switchToUserMode: () => {
+        set({ activeMode: USER_MODE });
+      },
+
+      switchToPoliceMode: () => {
+        set((state) => ({
+          activeMode: resolveActiveMode(state.user, POLICE_MODE),
+        }));
       },
     }),
     {
@@ -217,6 +261,7 @@ export const useAuthStore = create(
         return {
           user: state.user,
           token: state.token,
+          activeMode: state.activeMode,
           rememberMe: state.rememberMe,
         };
       },
@@ -278,3 +323,8 @@ export const selectIsRestoringSession = (state) => state.isRestoringSession;
  * Selector: Remember me flag
  */
 export const selectRememberMe = (state) => state.rememberMe;
+
+/**
+ * Selector: Active UI mode
+ */
+export const selectActiveMode = (state) => state.activeMode;

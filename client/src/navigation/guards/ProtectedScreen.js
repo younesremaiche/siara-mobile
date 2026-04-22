@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuthStore } from '../../stores/authStore';
-import { canAccessRoute, getRedirectForDeniedRoute } from '../routeAccess';
+import { getRedirectForDeniedRoute } from '../routeAccess';
 
 /**
  * ProtectedScreen wrapper
@@ -21,9 +21,10 @@ export function ProtectedScreen({
   allowedRoles = null, // if specified, only these roles allowed
   navigation = null,
 }) {
-  const { isAuthenticated, isAdmin, user } = useAuthStore((state) => ({
+  const { isAuthenticated, isAdmin, isPolice, user } = useAuthStore((state) => ({
     isAuthenticated: state.isAuthenticated,
     isAdmin: state.isAdmin,
+    isPolice: state.isPolice,
     user: state.user,
   }));
 
@@ -37,9 +38,20 @@ export function ProtectedScreen({
   }
 
   // Check role requirements if specified
-  if (allowedRoles && !allowedRoles.includes(isAdmin ? 'admin' : 'user')) {
+  const currentRoles = [];
+  if (isAdmin) {
+    currentRoles.push('admin');
+  }
+  if (isAuthenticated && !isAdmin) {
+    currentRoles.push('user');
+  }
+  if (isPolice) {
+    currentRoles.push('police');
+  }
+
+  if (allowedRoles && !allowedRoles.some((role) => currentRoles.includes(role))) {
     console.warn(`[ProtectedScreen] User without required role tried to access: ${routeName}`);
-    const redirect = getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user);
+    const redirect = getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user, isPolice);
     if (navigation && redirect) {
       navigation.navigate(redirect.name, redirect.params);
     }
@@ -47,12 +59,11 @@ export function ProtectedScreen({
   }
 
   if (requiredRoles.length > 0) {
-    const hasRequiredRole =
-      (requiredRoles.includes('admin') && isAdmin) || (requiredRoles.includes('user') && !isAdmin);
+    const hasRequiredRole = requiredRoles.some((role) => currentRoles.includes(role));
 
     if (!hasRequiredRole) {
       console.warn(`[ProtectedScreen] User without required role tried to access: ${routeName}`);
-      const redirect = getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user);
+      const redirect = getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user, isPolice);
       if (navigation && redirect) {
         navigation.navigate(redirect.name, redirect.params);
       }

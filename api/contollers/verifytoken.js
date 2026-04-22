@@ -7,6 +7,22 @@ function hasRole(user, roleName) {
   return Array.isArray(user?.roles) && user.roles.includes(roleName);
 }
 
+function normalizeRoleName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function hasAnyRole(user, roleNames = []) {
+  if (!Array.isArray(user?.roles) || !Array.isArray(roleNames) || roleNames.length === 0) {
+    return false;
+  }
+
+  const normalizedUserRoles = user.roles.map(normalizeRoleName).filter(Boolean);
+  return roleNames.some((roleName) => normalizedUserRoles.includes(normalizeRoleName(roleName)));
+}
+
 function parseCookieHeader(cookieHeader) {
   if (typeof cookieHeader !== "string" || !cookieHeader.trim()) {
     return {};
@@ -213,6 +229,22 @@ function verifyTokenAndAdmin(req, res, next) {
   });
 }
 
+function verifyTokenAndRoles(roleNames = []) {
+  return (req, res, next) => verifyToken(req, res, () => {
+    if (hasAnyRole(req.user, roleNames)) {
+      return next();
+    }
+
+    return res.status(403).json({ error: "You are not allowed to do that" });
+  });
+}
+
+const POLICE_ROLE_NAMES = ["police", "police_officer", "police officer"];
+
+function verifyTokenAndPolice(req, res, next) {
+  return verifyTokenAndRoles(POLICE_ROLE_NAMES)(req, res, next);
+}
+
 function verifyTokenAndClient(req, res, next) {
   return verifyToken(req, res, () => {
     if (hasRole(req.user, "citizen")) {
@@ -226,10 +258,15 @@ function verifyTokenAndClient(req, res, next) {
 module.exports = {
   decodeAccessToken,
   extractAccessToken,
+  hasAnyRole,
   hasRole,
+  normalizeRoleName,
+  POLICE_ROLE_NAMES,
   resolveAuthenticatedUser,
   resolveOptionalAuthenticatedUser,
   verifyToken,
   verifyTokenAndAdmin,
   verifyTokenAndClient,
+  verifyTokenAndPolice,
+  verifyTokenAndRoles,
 };

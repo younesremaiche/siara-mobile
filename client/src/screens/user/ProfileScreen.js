@@ -43,7 +43,7 @@ const BADGES = [
 ];
 
 export default function ProfileScreen({ navigation }) {
-  const { user, setUser, logout } = useContext(AuthContext);
+  const { user, setUser, logout, isPolice, activeMode, switchToPoliceMode } = useContext(AuthContext);
   const [showBadges, setShowBadges] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [quizSummary, setQuizSummary] = useState({
@@ -64,6 +64,13 @@ export default function ProfileScreen({ navigation }) {
     .join('')
     .toUpperCase()
     .slice(0, 2);
+  const showPoliceModeSwitch = isPolice && activeMode !== 'police';
+  const roleIconName = user?.role === 'admin' ? 'shield' : isPolice ? 'shield-checkmark' : 'person';
+  const roleLabel = user?.role === 'admin'
+    ? 'Administrator'
+    : isPolice
+      ? 'Police & Community Member'
+      : 'Community Member';
 
   function openEditProfile() {
     setEditName(user?.name || '');
@@ -147,12 +154,12 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.email}>{user?.email || 'user@siara.dz'}</Text>
           <View style={styles.roleBadge}>
             <Ionicons
-              name={user?.role === 'admin' ? 'shield' : 'person'}
+              name={roleIconName}
               size={12}
               color={Colors.primary}
             />
             <Text style={styles.roleText}>
-              {user?.role === 'admin' ? 'Administrator' : 'Community Member'}
+              {roleLabel}
             </Text>
           </View>
 
@@ -191,6 +198,25 @@ export default function ProfileScreen({ navigation }) {
           </View>
         ))}
       </View>
+
+      {showPoliceModeSwitch ? (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          style={styles.modeSwitchCard}
+          onPress={switchToPoliceMode}
+        >
+          <View style={styles.modeSwitchIconWrap}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={Colors.secondary} />
+          </View>
+          <View style={styles.modeSwitchCopy}>
+            <Text style={styles.modeSwitchTitle}>Switch to Police Mode</Text>
+            <Text style={styles.modeSwitchSubtitle}>
+              Open police tools without leaving your normal user access behind.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={Colors.greyLight} />
+        </TouchableOpacity>
+      ) : null}
 
       {/* Profile Completion */}
       <View style={styles.completionCard}>
@@ -540,6 +566,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 20,
     gap: 10,
+    marginTop: 4,
+  },
+  modeSwitchCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.blueBorder,
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  modeSwitchIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: Colors.blueLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modeSwitchCopy: {
+    flex: 1,
+  },
+  modeSwitchTitle: {
+    color: Colors.heading,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  modeSwitchSubtitle: {
+    color: Colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
     marginTop: 4,
   },
   statCard: {
