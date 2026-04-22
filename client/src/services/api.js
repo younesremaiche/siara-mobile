@@ -106,10 +106,11 @@ export async function request(path, options = {}) {
 
 // ─── Risk / Prediction endpoints ─────────────────────────
 
-export async function predictDriverRisk(data) {
+export async function predictDriverRisk(data, options = {}) {
   return request('/api/model/predict', {
     method: 'POST',
     body: JSON.stringify(data),
+    ...options,
   });
 }
 

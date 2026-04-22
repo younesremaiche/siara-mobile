@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Button from '../ui/Button';
 import Card from '../ui/Card';
 import QuizExplanationCard from './QuizExplanationCard';
+import { getApiBaseUrlDiagnostics } from '../../config/api';
 import { Colors } from '../../theme/colors';
 import {
   buildDriverQuizPayload,
@@ -84,8 +85,24 @@ function buildInitialState() {
     statusMessages: [],
     streamStatus: '',
     streamedExplanation: '',
-    backendFallback: false,
+    hasReceivedFirstChunk: false,
+    stillWaitingNotice: '',
     errorMessage: '',
+  };
+}
+
+function buildInitialDiagnosticsState() {
+  return {
+    ...getApiBaseUrlDiagnostics(),
+    requestMode: 'idle',
+    streamStarted: false,
+    lastSseEvent: 'none',
+    chunkReceived: false,
+    chunkCount: 0,
+    finalResultReceived: false,
+    fallbackTriggered: false,
+    stillWaiting: false,
+    currentStatus: '',
   };
 }
 
@@ -98,8 +115,13 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
   const [statusMessages, setStatusMessages] = useState([]);
   const [streamStatus, setStreamStatus] = useState('');
   const [streamedExplanation, setStreamedExplanation] = useState('');
-  const [backendFallback, setBackendFallback] = useState(false);
+  const [hasReceivedFirstChunk, setHasReceivedFirstChunk] = useState(false);
+  const [stillWaitingNotice, setStillWaitingNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [devDiagnostics, setDevDiagnostics] = useState(buildInitialDiagnosticsState);
+  const activeRequestControllerRef = useRef(null);
+  const activeSubmissionIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const currentQuestion = getDriverQuizQuestionAt(currentIndex);
   const currentSection = getDriverQuizSectionById(currentQuestion?.sectionId);
@@ -126,8 +148,21 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
     setStatusMessages(initialState.statusMessages);
     setStreamStatus(initialState.streamStatus);
     setStreamedExplanation(initialState.streamedExplanation);
-    setBackendFallback(initialState.backendFallback);
+    setHasReceivedFirstChunk(initialState.hasReceivedFirstChunk);
+    setStillWaitingNotice(initialState.stillWaitingNotice);
     setErrorMessage(initialState.errorMessage);
+    setDevDiagnostics(buildInitialDiagnosticsState());
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (activeRequestControllerRef.current) {
+        activeRequestControllerRef.current.abort();
+        activeRequestControllerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -147,7 +182,7 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
           setStatusMessages(storedState.result?.explanation_status ? [storedState.result.explanation_status] : [STREAM_STATUS_LABELS.done]);
           setStreamStatus(storedState.result?.explanation_status || STREAM_STATUS_LABELS.done);
           setStreamedExplanation(storedState.result?.explanation_text || '');
-          setBackendFallback(Boolean(storedState.result?.fallback));
+          setStillWaitingNotice('');
           setErrorMessage('');
           return;
         }
@@ -165,11 +200,27 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
     };
   }, [forceShow, resetQuiz, visible]);
 
-  const closeModal = useCallback(() => onClose?.(), [onClose]);
+  const cancelActiveSubmission = useCallback(() => {
+    activeSubmissionIdRef.current += 1;
+    if (activeRequestControllerRef.current) {
+      activeRequestControllerRef.current.abort();
+      activeRequestControllerRef.current = null;
+    }
+  }, []);
+  const closeModal = useCallback(() => {
+    cancelActiveSubmission();
+    onClose?.();
+  }, [cancelActiveSubmission, onClose]);
+  useEffect(() => {
+    if (!visible) {
+      cancelActiveSubmission();
+    }
+  }, [cancelActiveSubmission, visible]);
   const handleSkip = useCallback(() => {
+    cancelActiveSubmission();
     onComplete?.({ skipped: true });
     closeModal();
-  }, [closeModal, onComplete]);
+  }, [cancelActiveSubmission, closeModal, onComplete]);
   const goBack = useCallback(() => setCurrentIndex((previous) => Math.max(0, previous - 1)), []);
 
   const finishWithResult = useCallback(async (payload, nextResult, nextAnswers) => {
@@ -181,6 +232,12 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
   }, []);
 
   const submitAnswers = useCallback(async (nextAnswers) => {
+    cancelActiveSubmission();
+    const submissionId = activeSubmissionIdRef.current + 1;
+    activeSubmissionIdRef.current = submissionId;
+    const requestController =
+      typeof AbortController !== 'undefined' ? new AbortController() : null;
+    activeRequestControllerRef.current = requestController;
     const payload = buildDriverQuizPayload(nextAnswers);
     setLatestPayload(payload);
     setStage('loading');
@@ -188,38 +245,90 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
     setStatusMessages([STREAM_STATUS_LABELS.starting]);
     setStreamStatus(STREAM_STATUS_LABELS.starting);
     setStreamedExplanation('');
-    setBackendFallback(false);
+    setHasReceivedFirstChunk(false);
+    setStillWaitingNotice('');
     setErrorMessage('');
+    setDevDiagnostics((previous) => ({
+      ...previous,
+      ...buildInitialDiagnosticsState(),
+      requestMode: 'stream',
+      currentStatus: STREAM_STATUS_LABELS.starting,
+    }));
 
     try {
       const finalResult = await predictDriverRiskQuizStream(payload, {
         onStatus: (message) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
           setStreamStatus(message);
+          setStillWaitingNotice('');
           setStatusMessages((previous) => appendUniqueStatus(previous, message));
         },
-        onFallback: (value) => setBackendFallback(Boolean(value)),
+        onStillWaiting: (message) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
+          setStillWaitingNotice(message);
+          setStatusMessages((previous) => appendUniqueStatus(previous, message));
+        },
+        onDiagnostics: (patch) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
+          setDevDiagnostics((previous) => ({
+            ...previous,
+            ...patch,
+          }));
+        },
         onChunk: ({ explanationText: partialText }) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
+          setHasReceivedFirstChunk(true);
+          setStillWaitingNotice('');
           setStreamedExplanation(partialText || '');
           setResult((previous) => mergeQuizResult(previous, { explanation_text: partialText || '' }, { explanation_status: streamStatus || previous?.explanation_status || null }));
         },
-        onResult: (partialResult) => setResult((previous) => mergeQuizResult(previous, partialResult)),
+        onResult: (partialResult) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
+          setResult((previous) => mergeQuizResult(previous, partialResult));
+        },
         onDone: (doneResult) => {
+          if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) return;
           setResult((previous) => mergeQuizResult(previous, doneResult));
           if (doneResult?.explanation_text) setStreamedExplanation(doneResult.explanation_text);
         },
+      }, {
+        controller: requestController,
       });
 
+      if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) {
+        return;
+      }
+
       const finalizedResult = mergeQuizResult(result, finalResult, {
-        fallback: finalResult?.fallback ?? backendFallback,
         explanation_status: finalResult?.explanation_status || STREAM_STATUS_LABELS.done,
       });
+      if (__DEV__) {
+        console.info('[DriverQuizModal] final payload', {
+          payload,
+          result: finalizedResult,
+        });
+      }
       await finishWithResult(payload, finalizedResult, nextAnswers);
     } catch (error) {
+      if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) {
+        return;
+      }
+      if (__DEV__) {
+        console.error('[DriverQuizModal] submission error', {
+          message: error?.message || String(error),
+          status: error?.status ?? null,
+          code: error?.code ?? null,
+        });
+      }
       setStage('result');
       setResult(null);
       setErrorMessage(getQuizFriendlyErrorMessage(error));
+    } finally {
+      if (activeRequestControllerRef.current === requestController) {
+        activeRequestControllerRef.current = null;
+      }
     }
-  }, [backendFallback, finishWithResult, result, streamStatus]);
+  }, [cancelActiveSubmission, finishWithResult, result, streamStatus]);
 
   const handleAnswerPress = useCallback((value) => {
     if (!currentQuestion) return;
@@ -234,14 +343,16 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
   }, [answers, currentIndex, currentQuestion, submitAnswers]);
 
   const handleContinue = useCallback(() => {
+    cancelActiveSubmission();
     onComplete?.({ skipped: false, result, payload: latestPayload });
     closeModal();
-  }, [closeModal, latestPayload, onComplete, result]);
+  }, [cancelActiveSubmission, closeModal, latestPayload, onComplete, result]);
 
   const handleRetry = useCallback(async () => {
+    cancelActiveSubmission();
     await clearDriverQuizState();
     resetQuiz();
-  }, [resetQuiz]);
+  }, [cancelActiveSubmission, resetQuiz]);
 
   if (!visible) return null;
 
@@ -340,9 +451,23 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
             {stage === 'loading' ? (
               <>
                 <View style={styles.loadingHero}>
-                  <ActivityIndicator size="large" color={Colors.primary} />
-                  <Text style={styles.loadingTitle}>Analyzing your driving profile</Text>
-                  <Text style={styles.loadingText}>The backend is scoring your responses and streaming the SIARA assistant explanation.</Text>
+                  {hasReceivedFirstChunk ? (
+                    <View style={styles.typingIndicatorRow}>
+                      <View style={styles.typingDot} />
+                      <View style={styles.typingDot} />
+                      <View style={styles.typingDot} />
+                    </View>
+                  ) : (
+                    <ActivityIndicator size="large" color={Colors.primary} />
+                  )}
+                  <Text style={styles.loadingTitle}>
+                    {hasReceivedFirstChunk ? 'Streaming your explanation live' : 'Analyzing your driving profile'}
+                  </Text>
+                  <Text style={styles.loadingText}>
+                    {hasReceivedFirstChunk
+                      ? 'New Ollama text is appended below as soon as each chunk arrives from the backend stream.'
+                      : 'The backend is scoring your responses and opening the live SIARA assistant explanation stream.'}
+                  </Text>
                 </View>
 
                 <Card title="Live Status" style={styles.loadingCard}>
@@ -352,16 +477,25 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
                       <Text style={styles.statusText}>{message}</Text>
                     </View>
                   ))}
+
+                  {stillWaitingNotice ? (
+                    <View style={styles.noticeBanner}>
+                      <Ionicons name="time-outline" size={16} color={Colors.severityHigh} />
+                      <Text style={styles.noticeBannerText}>{stillWaitingNotice}</Text>
+                    </View>
+                  ) : null}
                 </Card>
 
                 <ResultSummary result={result} latestPayload={latestPayload} pending />
+
+                {__DEV__ ? <DiagnosticsCard diagnostics={devDiagnostics} /> : null}
 
                 <QuizExplanationCard
                   explanationText={explanationText}
                   structuredExplanation={result?.structured_explanation}
                   isStreaming
                   status={latestStatus}
-                  fallback={result?.fallback ?? backendFallback}
+                  fallback={false}
                   riskLabel={result?.risk_label}
                   riskPercent={result?.risk_percent}
                   riskTone={result?.risk_label ? getRiskTone(result.risk_label) : null}
@@ -373,6 +507,14 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
             {stage === 'result' ? (
               <>
                 <ResultSummary result={result} latestPayload={latestPayload} errorMessage={errorMessage} />
+                {stillWaitingNotice ? (
+                  <View style={styles.noticeBannerStandalone}>
+                    <Ionicons name="time-outline" size={16} color={Colors.severityHigh} />
+                    <Text style={styles.noticeBannerText}>{stillWaitingNotice}</Text>
+                  </View>
+                ) : null}
+
+                {__DEV__ ? <DiagnosticsCard diagnostics={devDiagnostics} /> : null}
 
                 <Card title="Probabilities / Details">
                   {probabilityEntries.length ? (
@@ -417,7 +559,7 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
                   structuredExplanation={result?.structured_explanation}
                   isStreaming={false}
                   status={result?.explanation_status || latestStatus}
-                  fallback={result?.fallback ?? backendFallback}
+                  fallback={false}
                   riskLabel={result?.risk_label}
                   riskPercent={result?.risk_percent}
                   riskTone={result?.risk_label ? getRiskTone(result.risk_label) : null}
@@ -434,6 +576,32 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
         </View>
       </SafeAreaView>
     </Modal>
+  );
+}
+
+function DiagnosticsCard({ diagnostics }) {
+  const rows = [
+    ['API base', diagnostics?.apiBaseUrl],
+    ['Mode', diagnostics?.requestMode],
+    ['Stream started', diagnostics?.streamStarted ? 'yes' : 'no'],
+    ['Last SSE event', diagnostics?.lastSseEvent],
+    ['Chunk received', diagnostics?.chunkReceived ? `yes (${diagnostics?.chunkCount || 0})` : 'no'],
+    ['Final result', diagnostics?.finalResultReceived ? 'yes' : 'no'],
+    ['Fallback', diagnostics?.fallbackTriggered ? 'yes' : 'no'],
+    ['Still waiting', diagnostics?.stillWaiting ? 'yes' : 'no'],
+  ];
+
+  return (
+    <Card title="Dev Diagnostics" style={styles.diagnosticsCard}>
+      <View style={styles.diagnosticsRows}>
+        {rows.map(([label, value]) => (
+          <View key={label} style={styles.diagnosticsRow}>
+            <Text style={styles.diagnosticsLabel}>{label}</Text>
+            <Text style={styles.diagnosticsValue}>{String(value || 'n/a')}</Text>
+          </View>
+        ))}
+      </View>
+    </Card>
   );
 }
 
@@ -514,6 +682,8 @@ const styles = StyleSheet.create({
   loadingHero: { alignItems: 'center', paddingTop: 16, paddingBottom: 6 },
   loadingTitle: { color: Colors.heading, fontSize: 22, fontWeight: '800', marginTop: 16, textAlign: 'center' },
   loadingText: { color: Colors.subtext, fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: 8 },
+  typingIndicatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 36 },
+  typingDot: { width: 10, height: 10, borderRadius: 999, backgroundColor: Colors.secondary },
   loadingCard: { width: '100%' },
   statusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
   statusText: { flex: 1, color: Colors.textDark, fontSize: 14, lineHeight: 20 },
@@ -530,6 +700,14 @@ const styles = StyleSheet.create({
   payloadHint: { color: Colors.subtext, fontSize: 12, lineHeight: 18 },
   errorBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderWidth: 1, borderColor: 'rgba(220,38,38,0.16)', backgroundColor: 'rgba(220,38,38,0.08)', borderRadius: 14, padding: 12, marginTop: 14 },
   errorBannerText: { flex: 1, color: Colors.error, fontSize: 13, lineHeight: 18 },
+  noticeBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderWidth: 1, borderColor: Colors.blueBorder, backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: 14, padding: 12, marginTop: 6 },
+  noticeBannerStandalone: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderWidth: 1, borderColor: Colors.blueBorder, backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: 14, padding: 12 },
+  noticeBannerText: { flex: 1, color: Colors.secondary, fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  diagnosticsCard: { borderColor: Colors.border },
+  diagnosticsRows: { gap: 8 },
+  diagnosticsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  diagnosticsLabel: { flex: 1, color: Colors.subtext, fontSize: 12, fontWeight: '700' },
+  diagnosticsValue: { flex: 1, color: Colors.textDark, fontSize: 12, textAlign: 'right' },
   bodyText: { color: Colors.textDark, fontSize: 14, lineHeight: 22 },
   probabilityList: { gap: 14 },
   probabilityRow: { gap: 8 },

@@ -16,7 +16,8 @@ const ML_SERVICE_BASE_URL =
     ? LEGACY_ML_SERVICE_URL.replace(/\/predict\/?$/, "")
     : "http://localhost:8000");
 
-const TIMEOUT_MS = Number(process.env.ML_SERVICE_TIMEOUT_MS || 15000);
+const TIMEOUT_MS = Number(process.env.ML_SERVICE_TIMEOUT_MS || 120000);
+const STREAM_TIMEOUT_MS = Number(process.env.ML_SERVICE_STREAM_TIMEOUT_MS || 300000);
 const WEATHER_TIMEOUT_MS = Number(process.env.WEATHER_TIMEOUT_MS || 8000);
 const SUN_TIMEOUT_MS = Number(process.env.SUN_TIMEOUT_MS || 8000);
 const RISK_TIMEZONE = process.env.RISK_TIMEZONE || "Africa/Algiers";
@@ -2429,19 +2430,121 @@ async function postToFlask(path, body) {
   });
 }
 
+function writeSse(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function postToFlaskStream(path, body) {
+  return axios.post(`${ML_SERVICE_BASE_URL}${path}`, body, {
+    responseType: "stream",
+    timeout: STREAM_TIMEOUT_MS,
+    validateStatus: () => true,
+    headers: {
+      Accept: "text/event-stream",
+    },
+  });
+}
+
+async function readStreamText(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 exports.predictDriverRisk = async (req, res) => {
   const body = req.body;
   if (body == null || typeof body !== "object" || Object.keys(body).length === 0) {
     return res.status(400).json({ error: "Empty request body" });
   }
 
+  console.info("[Node] /predict request started");
   try {
     const response = await postToFlask("/predict", body);
+    console.info("[Node] /predict completed");
     return res.json(response.data);
   } catch (err) {
     const status = err.response?.status || 500;
     const payload = err.response?.data || { error: "Model service error" };
     console.error("[Node] /predict error:", err.message);
+    return res.status(status).json(payload);
+  }
+};
+
+exports.predictDriverRiskStream = async (req, res) => {
+  const body = req.body;
+  if (body == null || typeof body !== "object" || Object.keys(body).length === 0) {
+    return res.status(400).json({ error: "Empty request body" });
+  }
+
+  console.info("[Node] /predict/stream request started");
+
+  try {
+    const response = await postToFlaskStream("/predict/stream", body);
+    if (response.status >= 400) {
+      const text = await readStreamText(response.data);
+      let payload = { error: "Quiz explanation stream failed" };
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload.details = text || null;
+      }
+      return res.status(response.status).json(payload);
+    }
+
+    res.status(response.status);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    response.data.on("error", (error) => {
+      console.error("[Node] /predict/stream upstream error:", error.message);
+      if (!res.writableEnded) {
+        writeSse(res, "error", { error: "Quiz explanation stream interrupted" });
+        res.end();
+      }
+    });
+
+    response.data.on("end", () => {
+      console.info("[Node] /predict/stream completed");
+    });
+
+    req.on("close", () => {
+      if (!res.writableEnded && response.data.destroy) {
+        response.data.destroy();
+      }
+    });
+
+    return response.data.pipe(res);
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const payload = err.response?.data || { error: "Quiz explanation stream failed" };
+    console.error("[Node] /predict/stream error:", err.message);
+
+    if (res.headersSent) {
+      writeSse(res, "error", {
+        error: payload?.error || "Quiz explanation stream failed",
+      });
+      return res.end();
+    }
+
+    return res.status(status).json(payload);
+  }
+};
+
+exports.testQuizExplanation = async (req, res) => {
+  const body = req.method === "POST" && req.body && typeof req.body === "object" ? req.body : {};
+
+  try {
+    const response = await postToFlask("/quiz/explanation/test", body);
+    return res.json(response.data);
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const payload = err.response?.data || { error: "Quiz explanation test failed" };
+    console.error("[Node] /quiz/explanation/test error:", err.message);
     return res.status(status).json(payload);
   }
 };

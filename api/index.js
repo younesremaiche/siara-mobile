@@ -27,11 +27,13 @@ const { initializeNotificationSocketServer } = require("./services/notificationS
 const { startWeeklySummaryScheduler } = require("./services/weeklySummaryScheduler");
 const {
   predictDriverRisk,
+  predictDriverRiskStream,
   predictCurrentRisk,
   predictRiskOverlay,
   predictRiskExplain,
   predictNearbyZones,
   predictRouteGuide,
+  testQuizExplanation,
   getCurrentWeather,
   getRiskForecast24h,
 } = require("./contollers/Model/models");
@@ -59,6 +61,9 @@ app.use("/api/push", pushRoutes);
 app.use("/api/reports", reportRoutes);
 
 app.post("/api/model/predict", predictDriverRisk);
+app.post("/api/model/predict/stream", predictDriverRiskStream);
+app.get("/api/model/quiz/explanation/test", testQuizExplanation);
+app.post("/api/model/quiz/explanation/test", testQuizExplanation);
 app.get("/api/weather/current", getCurrentWeather);
 app.post("/api/risk/current", predictCurrentRisk);
 app.get("/api/risk/forecast24h", getRiskForecast24h);

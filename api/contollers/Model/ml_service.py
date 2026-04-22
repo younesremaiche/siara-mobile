@@ -1,4 +1,4 @@
-﻿from flask import Flask, jsonify, request
+﻿from flask import Flask, Response, jsonify, request, stream_with_context
 import json
 import joblib
 import numpy as np
@@ -7,17 +7,26 @@ import requests
 import shap
 import os
 import sys
+import time
 from bisect import bisect_right
 
 app = Flask(__name__)
 
 # Base directory (api folder)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
 ANOMALY_DETECTION_DIR = os.path.join(BASE_DIR, "anomaly-detection")
 if ANOMALY_DETECTION_DIR not in sys.path:
     sys.path.append(ANOMALY_DETECTION_DIR)
 
 from report_spam_model import classify_report_payload
+from services.quiz_explainer import (
+    OllamaUnavailableError,
+    explain_quiz_result,
+    stream_quiz_explanation,
+    structure_quiz_explanation,
+)
 
 # Driver mentality model artifacts
 MODEL_PATH = os.path.join(BASE_DIR, "driver-quiz-model", "driver_model.joblib")
@@ -197,6 +206,54 @@ def generate_advice_paragraph(
         )
 
     return paragraph.strip()
+
+
+def _feature_factor_payload(feature, impact):
+    return {
+        "name": feature,
+        "description": FEATURE_EXPLANATIONS.get(feature, _human_label(feature)),
+        "impact": round(float(impact), 6),
+        "advice": FEATURE_ACTIONS.get(feature),
+    }
+
+
+def _top_quiz_factors(shap_per_feature, positive=True, limit=3):
+    impacts = _sorted_impacts(shap_per_feature)
+    if positive:
+        filtered = [(feature, impact) for feature, impact in impacts if impact > 0]
+    else:
+        filtered = [(feature, impact) for feature, impact in impacts if impact < 0]
+    return [_feature_factor_payload(feature, impact) for feature, impact in filtered[:limit]]
+
+
+def build_quiz_result_data(risk_label, risk_percent, shap_per_feature, factor_scores):
+    top_risk_factors = _top_quiz_factors(shap_per_feature, positive=True, limit=3)
+    top_protective_factors = _top_quiz_factors(shap_per_feature, positive=False, limit=3)
+    advice_focus = [
+        factor["advice"]
+        for factor in top_risk_factors
+        if factor.get("advice")
+    ][:3]
+
+    if not advice_focus:
+        advice_focus = [
+            "Stay attentive, keep a safe speed and distance, and follow traffic rules consistently."
+        ]
+
+    return {
+        "overall_risk_label": risk_label,
+        "overall_risk_score": round(float(risk_percent), 2),
+        "score_scale": "0-100 percent. This score is computed deterministically by the Python quiz model.",
+        "top_risk_factors": top_risk_factors,
+        "top_protective_factors": top_protective_factors,
+        "questionnaire_sources": [
+            "SIARA driver quiz questionnaire",
+            "Deterministic Python model output",
+            "SHAP feature contribution summary",
+        ],
+        "factor_scores": factor_scores,
+        "advice_focus": advice_focus,
+    }
 
 
 # -----------------------------
@@ -888,21 +945,73 @@ def _score_sentinel(raw_row):
     }
 
 
-# -----------------------------
-# Routes
-# -----------------------------
-@app.route("/predict", methods=["POST"])
-def predict():
-    data = request.get_json(silent=True) or {}
+EXAMPLE_QUIZ_EXPLAINER_PAYLOAD = {
+    "overall_risk_label": "moderate",
+    "overall_risk_score": 48.75,
+    "score_scale": "0-100 percent. This score is computed deterministically by the Python quiz model.",
+    "top_risk_factors": [
+        {
+            "name": "lapses",
+            "description": FEATURE_EXPLANATIONS["lapses"],
+            "impact": 0.0842,
+            "advice": FEATURE_ACTIONS["lapses"],
+        },
+        {
+            "name": "high_velocity",
+            "description": FEATURE_EXPLANATIONS["high_velocity"],
+            "impact": 0.0521,
+            "advice": FEATURE_ACTIONS["high_velocity"],
+        },
+    ],
+    "top_protective_factors": [
+        {
+            "name": "careful",
+            "description": FEATURE_EXPLANATIONS["careful"],
+            "impact": -0.0415,
+            "advice": FEATURE_ACTIONS["careful"],
+        }
+    ],
+    "questionnaire_sources": [
+        "SIARA driver quiz questionnaire",
+        "Deterministic Python model output",
+        "SHAP feature contribution summary",
+    ],
+    "factor_scores": {
+        "dissociative": 2,
+        "anxious": 3,
+        "risky": 2,
+        "angry": 2,
+        "high_velocity": 4,
+        "distress_reduction": 2,
+        "patient": 3,
+        "careful": 5,
+        "errors": 2,
+        "violations": 1,
+        "lapses": 4,
+    },
+    "advice_focus": [
+        FEATURE_ACTIONS["lapses"],
+        FEATURE_ACTIONS["high_velocity"],
+    ],
+}
 
+
+class QuizInputError(ValueError):
+    def __init__(self, payload, status_code=400):
+        super().__init__(payload.get("error", "Invalid quiz payload"))
+        self.payload = payload
+        self.status_code = status_code
+
+
+def build_driver_quiz_prediction(data):
     missing = [f for f in FEATURES if f not in data]
     if missing:
-        return jsonify({"error": "Missing required features", "missing": missing}), 400
+        raise QuizInputError({"error": "Missing required features", "missing": missing}, 400)
 
     try:
         x = pd.DataFrame([[float(data[f]) for f in FEATURES]], columns=FEATURES)
     except (TypeError, ValueError):
-        return jsonify({"error": "All feature values must be numeric"}), 400
+        raise QuizInputError({"error": "All feature values must be numeric"}, 400)
 
     probs = model.predict_proba(x)[0]
     pred_class = int(np.argmax(probs))
@@ -922,7 +1031,10 @@ def predict():
         elif sv.ndim == 2 and sv.shape[1] == len(FEATURES):
             shap_for_pred = sv[0]
         else:
-            return jsonify({"error": "Unexpected SHAP output shape", "shape": list(sv.shape)}), 500
+            raise QuizInputError(
+                {"error": "Unexpected SHAP output shape", "shape": list(sv.shape)},
+                500,
+            )
 
     base_value = explainer.expected_value
     if isinstance(base_value, (list, np.ndarray)) and len(np.atleast_1d(base_value)) == len(
@@ -933,24 +1045,210 @@ def predict():
         base_value_pred = float(np.array(base_value).reshape(-1)[0])
 
     shap_per_feature = {FEATURES[i]: float(shap_for_pred[i]) for i in range(len(FEATURES))}
+    factor_scores = {feature: float(x.iloc[0][feature]) for feature in FEATURES}
+    quiz_result_data = build_quiz_result_data(
+        risk_label=risk_label,
+        risk_percent=risk_percent,
+        shap_per_feature=shap_per_feature,
+        factor_scores=factor_scores,
+    )
     advice_text = generate_advice_paragraph(
         risk_label=risk_label, risk_percent=risk_percent, shap_per_feature=shap_per_feature
     )
 
+    return {
+        "risk_label": risk_label,
+        "risk_percent": round(risk_percent, 2),
+        "risk_score": round(risk_percent, 2),
+        "class_probabilities": {
+            ordered_labels[i]: float(round(probs[i], 6)) for i in range(len(ordered_labels))
+        },
+        "xai": {
+            "predicted_class_index": pred_class,
+            "base_value": base_value_pred,
+            "shap_per_feature": shap_per_feature,
+        },
+        "advice_text": advice_text,
+        "quiz_result_data": quiz_result_data,
+    }
+
+
+def sse_event(event_name, payload):
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def quiz_explanation_error_response(exc):
+    message = str(exc) or "Ollama explanation failed"
+    normalized = message.lower()
+    if "timed out" in normalized:
+        return (
+            {
+                "error": "Ollama did not return a response in time.",
+                "details": message,
+                "code": "OLLAMA_TIMEOUT",
+            },
+            504,
+        )
+    return (
+        {
+            "error": "Ollama explanation failed.",
+            "details": message,
+            "code": "OLLAMA_ERROR",
+        },
+        502,
+    )
+
+
+# -----------------------------
+# Routes
+# -----------------------------
+@app.route("/predict", methods=["POST"])
+def predict():
+    request_started_at = time.monotonic()
+    print("[quiz-predict] request started")
+    data = request.get_json(silent=True) or {}
+
+    try:
+        response_payload = build_driver_quiz_prediction(data)
+    except QuizInputError as exc:
+        return jsonify(exc.payload), exc.status_code
+
+    quiz_result_data = response_payload["quiz_result_data"]
+    try:
+        explanation_text = explain_quiz_result(quiz_result_data)
+    except OllamaUnavailableError as exc:
+        error_payload, status_code = quiz_explanation_error_response(exc)
+        print(
+            "[quiz-predict] explanation failed "
+            f"after {int((time.monotonic() - request_started_at) * 1000)} ms: {exc}"
+        )
+        return jsonify(error_payload), status_code
+
+    elapsed_ms = int((time.monotonic() - request_started_at) * 1000)
+    print(f"[quiz-predict] completed in {elapsed_ms} ms")
+
     return jsonify(
         {
-            "risk_label": risk_label,
-            "risk_percent": round(risk_percent, 2),
-            "class_probabilities": {
-                ordered_labels[i]: float(round(probs[i], 6)) for i in range(len(ordered_labels))
-            },
-            "xai": {
-                "predicted_class_index": pred_class,
-                "base_value": base_value_pred,
-                "shap_per_feature": shap_per_feature,
-            },
-            "advice_text": advice_text,
+            **response_payload,
+            "explanation_text": explanation_text,
+            "structured_explanation": structure_quiz_explanation(explanation_text),
         }
+    )
+
+
+@app.route("/predict/stream", methods=["POST"])
+def predict_stream():
+    request_started_at = time.monotonic()
+    print("[quiz-stream] request started")
+    data = request.get_json(silent=True) or {}
+
+    try:
+        response_payload = build_driver_quiz_prediction(data)
+    except QuizInputError as exc:
+        return jsonify(exc.payload), exc.status_code
+
+    quiz_result_data = response_payload["quiz_result_data"]
+
+    @stream_with_context
+    def generate():
+        explanation_parts = []
+        yield sse_event(
+            "result",
+            {
+                **response_payload,
+                "explanation_text": "",
+            },
+        )
+        for event in stream_quiz_explanation(quiz_result_data):
+            event_name = event.get("event", "message")
+            payload = {k: v for k, v in event.items() if k != "event"}
+            if event_name == "chunk":
+                explanation_parts.append(str(payload.get("content") or ""))
+            if event_name == "error":
+                payload["elapsed_ms"] = payload.get("elapsed_ms") or int(
+                    (time.monotonic() - request_started_at) * 1000
+                )
+                print(
+                    "[quiz-stream] stream failed "
+                    f"after {payload['elapsed_ms']} ms: {payload.get('details') or payload.get('error')}"
+                )
+                yield sse_event(event_name, payload)
+                return
+            if event_name == "done":
+                explanation_text = payload.get("explanation_text") or "".join(explanation_parts).strip()
+                final_payload = {
+                    **response_payload,
+                    "explanation_text": explanation_text,
+                    "structured_explanation": payload.get("structured_explanation")
+                    or structure_quiz_explanation(explanation_text),
+                }
+                payload["result"] = final_payload
+                payload["elapsed_ms"] = int((time.monotonic() - request_started_at) * 1000)
+                print(
+                    "[quiz-stream] stream completed "
+                    f"in {payload['elapsed_ms']} ms"
+                )
+            yield sse_event(event_name, payload)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.route("/quiz/explanation/test", methods=["GET", "POST"])
+def quiz_explanation_test():
+    payload = request.get_json(silent=True) or EXAMPLE_QUIZ_EXPLAINER_PAYLOAD
+    try:
+        explanation_text = explain_quiz_result(payload)
+    except OllamaUnavailableError as exc:
+        error_payload, status_code = quiz_explanation_error_response(exc)
+        print(f"[quiz-explainer] Test route failed: {exc}")
+        return jsonify(
+            {
+                "example_payload": EXAMPLE_QUIZ_EXPLAINER_PAYLOAD,
+                "input_used": payload,
+                **error_payload,
+            }
+        ), status_code
+
+    return jsonify(
+        {
+            "example_payload": EXAMPLE_QUIZ_EXPLAINER_PAYLOAD,
+            "input_used": payload,
+            "example_response": {
+                "risk_label": payload.get("overall_risk_label"),
+                "risk_score": payload.get("overall_risk_score"),
+                "explanation_text": explanation_text,
+                "structured_explanation": structure_quiz_explanation(explanation_text),
+            },
+        }
+    )
+
+
+@app.route("/quiz/explanation/stream", methods=["POST"])
+def quiz_explanation_stream():
+    payload = request.get_json(silent=True) or {}
+
+    @stream_with_context
+    def generate():
+        for event in stream_quiz_explanation(payload):
+            event_name = event.get("event", "message")
+            yield sse_event(event_name, {k: v for k, v in event.items() if k != "event"})
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 
