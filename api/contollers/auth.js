@@ -11,7 +11,7 @@ const {
   loginUser,
   loginWithGoogle,
   mapUser,
-  registerUser,
+  registerUser, 
   requestPasswordReset,
   resetPassword,
   sendVerificationCode,
