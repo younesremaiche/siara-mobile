@@ -1,13 +1,16 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 
 import PoliceScreenFrame, { PoliceListItem, PoliceSectionCard } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
 import { getPoliceDashboard, syncPoliceDeviceLocation } from '../../services/policeService';
+import { useAuthStore } from '../../stores/authStore';
 
 export default function PoliceDashboardScreen() {
   const navigation = useNavigation();
+  const switchToUserMode = useAuthStore((s) => s.switchToUserMode);
   const [dashboard, setDashboard] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -101,6 +104,27 @@ export default function PoliceDashboardScreen() {
           />
         ))}
       </PoliceSectionCard>
+
+      {/* Switch to User Mode (web parity) */}
+      <TouchableOpacity
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          backgroundColor: Colors.violetLight,
+          borderRadius: 16,
+          paddingVertical: 14,
+          borderWidth: 1,
+          borderColor: Colors.violetBorder,
+        }}
+        onPress={switchToUserMode}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="swap-horizontal" size={16} color={Colors.primary} />
+        <Text style={{ color: Colors.primary, fontWeight: '800' }}>Switch to User Mode</Text>
+        <Ionicons name="arrow-forward" size={14} color={Colors.primary} />
+      </TouchableOpacity>
 
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <TouchableOpacity

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Platform,
   Dimensions,
   Share,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../components/ui/Button';
@@ -38,6 +39,15 @@ const MOCK_INCIDENT = {
 
 export default function IncidentDetailScreen({ navigation, route }) {
   const incident = MOCK_INCIDENT;
+  const reportId = route?.params?.reportId;
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await new Promise((r) => setTimeout(r, 300));
+    setRefreshing(false);
+  }, [reportId]);
 
   const sevColor = {
     low: Colors.severityLow,
@@ -74,6 +84,7 @@ export default function IncidentDetailScreen({ navigation, route }) {
         style={styles.scroll}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
       >
         {/* Map placeholder */}
         <View style={styles.mapSection}>

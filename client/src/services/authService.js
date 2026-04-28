@@ -186,6 +186,44 @@ export async function verifyEmailWithCode(email, code) {
 }
 
 /**
+ * Request password-reset code by email.
+ * Backend: POST /api/auth/password/forgot
+ */
+export async function requestPasswordReset(email) {
+  if (!email) throw new Error('Email is required');
+  return apiRequest('/api/auth/password/forgot', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.toLowerCase() }),
+  });
+}
+
+/**
+ * Verify the reset code (returns a short-lived resetToken).
+ * Backend: POST /api/auth/password/verify-code
+ */
+export async function verifyResetCode(email, code) {
+  if (!email || !code) throw new Error('Email and code are required');
+  return apiRequest('/api/auth/password/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.toLowerCase(), code }),
+  });
+}
+
+/**
+ * Reset the password using a verified resetToken.
+ * Backend: POST /api/auth/password/reset
+ */
+export async function resetPassword({ email, resetToken, newPassword }) {
+  if (!email || !resetToken || !newPassword) {
+    throw new Error('Email, resetToken and newPassword are required');
+  }
+  return apiRequest('/api/auth/password/reset', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.toLowerCase(), resetToken, newPassword }),
+  });
+}
+
+/**
  * Login with Google OAuth
  * idToken: JWT token from Google OAuth flow
  * Returns { token, user } - caller updates Zustand store

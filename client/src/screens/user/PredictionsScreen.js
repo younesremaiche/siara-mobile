@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -128,6 +129,7 @@ export default function PredictionsScreen({ navigation, route }) {
     completed: false,
     result: null,
   });
+  const [refreshing, setRefreshing] = useState(false);
 
   const refreshQuizSummary = useCallback(async () => {
     const storedState = await loadDriverQuizState();
@@ -151,6 +153,16 @@ export default function PredictionsScreen({ navigation, route }) {
     }
   }, [quizVisible, refreshQuizSummary]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshQuizSummary();
+    } catch (error) {
+      console.warn('[PredictionsScreen] failed to refresh quiz summary', error?.message || error);
+    }
+    setRefreshing(false);
+  }, [refreshQuizSummary]);
+
   useEffect(() => {
     if (!route?.params?.openQuiz) {
       return;
@@ -170,6 +182,7 @@ export default function PredictionsScreen({ navigation, route }) {
         style={styles.root}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
       >
         <StatusBar barStyle="light-content" />
 

@@ -4,7 +4,7 @@ const multer = require("multer");
 
 const pool = require("../db");
 const { deleteCloudinaryAsset, uploadBufferToCloudinary } = require("../services/reportMediaStorage");
-const {
+const { 
   createNotificationsForReport,
   fetchReportNotificationDiagnostics,
 } = require("../services/reportNotificationService");
@@ -62,13 +62,10 @@ const REPORT_SELECT_SQL = `
     ar.status,
     ar.severity_hint,
     ar.location_label,
-    ar.assigned_officer_id,
-    ar.verified_by_officer_id,
-    ar.verified_at,
-    ar.resolved_by_officer_id,
-    ar.resolved_at,
-    ar.source_channel,
-    ar.reported_by_role_snapshot,
+    -- TODO(schema): assigned_officer_id, verified_by_officer_id, verified_at,
+    -- resolved_by_officer_id, resolved_at, source_channel,
+    -- reported_by_role_snapshot are NOT present in app.accident_reports in
+    -- this environment. Removed from the SELECT to avoid runtime errors.
     ar.occurred_at,
     ar.created_at,
     ar.updated_at,
@@ -397,13 +394,17 @@ function mapReportRow(row) {
     severityHint,
     severity: HINT_TO_SEVERITY[severityHint] || null,
     locationLabel: row.location_label || "",
-    sourceChannel: row.source_channel || null,
-    reportedByRoleSnapshot: row.reported_by_role_snapshot || null,
-    assignedOfficerId: row.assigned_officer_id || null,
-    verifiedByOfficerId: row.verified_by_officer_id || null,
-    verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
-    resolvedByOfficerId: row.resolved_by_officer_id || null,
-    resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : null,
+    // TODO(schema): sourceChannel / reportedByRoleSnapshot / assignedOfficerId /
+    // verifiedByOfficerId / verifiedAt / resolvedByOfficerId / resolvedAt are
+    // not present in app.accident_reports in this environment. Echoed back as
+    // null so existing client code that reads these keys keeps working.
+    sourceChannel: null,
+    reportedByRoleSnapshot: null,
+    assignedOfficerId: null,
+    verifiedByOfficerId: null,
+    verifiedAt: null,
+    resolvedByOfficerId: null,
+    resolvedAt: null,
     location: {
       lat: row.lat == null ? null : Number(row.lat),
       lng: row.lng == null ? null : Number(row.lng),
@@ -835,6 +836,10 @@ router.post("/", verifyToken, async (req, res, next) => {
     client = await pool.connect();
     await client.query("begin");
 
+    // TODO(schema): source_channel + reported_by_role_snapshot columns are not
+    // present in app.accident_reports. They were dropped from this INSERT to
+    // match the live schema. If they're added back later, restore both the
+    // column list and the corresponding bindings ("mobile", JSON.stringify(roles)).
     const insertResult = await client.query(
       `
         insert into app.accident_reports (
@@ -846,9 +851,7 @@ router.post("/", verifyToken, async (req, res, next) => {
           severity_hint,
           incident_location,
           location_label,
-          occurred_at,
-          source_channel,
-          reported_by_role_snapshot
+          occurred_at
         )
         values (
           $1,
@@ -859,9 +862,7 @@ router.post("/", verifyToken, async (req, res, next) => {
           $5,
           ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography,
           $8,
-          $9::timestamptz,
-          $10,
-          $11::jsonb
+          $9::timestamptz
         )
         returning id
       `,
@@ -875,8 +876,6 @@ router.post("/", verifyToken, async (req, res, next) => {
         payload.lat,
         payload.locationLabel,
         payload.occurredAt,
-        "mobile",
-        JSON.stringify(req.user?.roles || []),
       ],
     );
 

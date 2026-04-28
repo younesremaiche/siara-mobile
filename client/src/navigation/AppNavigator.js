@@ -10,6 +10,8 @@ import SplashScreen from '../screens/shared/SplashScreen';
 import LoginScreen from '../screens/shared/LoginScreen';
 import RegisterScreen from '../screens/shared/RegisterScreen';
 import VerifyEmailScreen from '../screens/shared/VerifyEmailScreen';
+import ForgotPasswordScreen from '../screens/shared/ForgotPasswordScreen';
+import ResetPasswordScreen from '../screens/shared/ResetPasswordScreen';
 import AboutScreen from '../screens/shared/AboutScreen';
 import DescriptionScreen from '../screens/shared/DescriptionScreen';
 
@@ -20,6 +22,7 @@ import PredictionsScreen from '../screens/user/PredictionsScreen';
 import AlertsScreen from '../screens/user/AlertsScreen';
 import CreateAlertScreen from '../screens/user/CreateAlertScreen';
 import ReportCreateScreen from '../screens/user/ReportCreateScreen';
+import MyReportsScreen from '../screens/user/MyReportsScreen';
 import IncidentDetailScreen from '../screens/user/IncidentDetailScreen';
 import NotificationsScreen from '../screens/user/NotificationsScreen';
 import UserDashboardScreen from '../screens/user/UserDashboardScreen';
@@ -37,6 +40,7 @@ import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminZonesScreen from '../screens/admin/AdminZonesScreen';
 import AdminSystemSettingsScreen from '../screens/admin/AdminSystemSettingsScreen';
 import AdminAnalyticsScreen from '../screens/admin/AdminAnalyticsScreen';
+import AdminServiceControlScreen from '../screens/admin/AdminServiceControlScreen';
 import DashboardScreen from '../screens/admin/DashboardScreen';
 
 import PoliceDashboardScreen from '../screens/police/PoliceDashboardScreen';
@@ -101,10 +105,16 @@ function buildTabScreenOptions(route) {
 
 function PublicStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}>
+    <Stack.Navigator
+      initialRouteName="Welcome"
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}
+    >
+      <Stack.Screen name="Welcome" component={HomeScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       <Stack.Screen name="About" component={AboutScreen} />
       <Stack.Screen name="Description" component={DescriptionScreen} />
       <Stack.Screen name="Predictions" component={PredictionsScreen} />
@@ -113,6 +123,7 @@ function PublicStack() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
       <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+      <Stack.Screen name="MyReports" component={MyReportsScreen} />
       <Stack.Screen name="Contact" component={ContactScreen} />
       <Stack.Screen name="Services" component={ServicesScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -122,11 +133,13 @@ function PublicStack() {
 
 function UserTabs() {
   return (
-    <Tab.Navigator screenOptions={({ route }) => buildTabScreenOptions(route)}>
-      <Tab.Screen name="Home" component={HomeScreen} />
+    <Tab.Navigator
+      initialRouteName="Dashboard"
+      screenOptions={({ route }) => buildTabScreenOptions(route)}
+    >
+      <Tab.Screen name="Dashboard" component={UserDashboardScreen} />
       <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen name="News" component={NewsScreen} />
-      <Tab.Screen name="Dashboard" component={UserDashboardScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -144,6 +157,7 @@ function UserStack() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
       <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+      <Stack.Screen name="MyReports" component={MyReportsScreen} />
       <Stack.Screen name="Contact" component={ContactScreen} />
       <Stack.Screen name="Services" component={ServicesScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -191,6 +205,7 @@ function AdminStackScreens() {
       <AdminStack.Screen name="AdminZones" component={AdminZonesScreen} />
       <AdminStack.Screen name="AdminSystem" component={AdminSystemSettingsScreen} />
       <AdminStack.Screen name="AdminAnalytics" component={AdminAnalyticsScreen} />
+      <AdminStack.Screen name="AdminServiceControl" component={AdminServiceControlScreen} />
       <AdminStack.Screen name="AdminDashboard" component={DashboardScreen} />
     </AdminStack.Navigator>
   );
@@ -296,6 +311,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
             <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
+            <Stack.Screen name="MyReports" component={MyReportsScreen} />
             <Stack.Screen name="Contact" component={ContactScreen} />
             <Stack.Screen name="Services" component={ServicesScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />

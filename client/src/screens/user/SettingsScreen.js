@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   StyleSheet,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -76,7 +77,24 @@ export default function SettingsScreen({ navigation }) {
     pushRegistrationError,
     pushDiagnostics,
     updatePreferences,
+    refreshNotifications,
   } = useNotifications();
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (typeof refreshNotifications === 'function') {
+        await refreshNotifications();
+      } else {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    } catch (_error) {
+      // ignore
+    }
+    setRefreshing(false);
+  }, [refreshNotifications]);
 
   const [toggles, setToggles] = useState({
     locationSharing: true,
@@ -150,6 +168,7 @@ export default function SettingsScreen({ navigation }) {
       style={styles.scroll}
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
     >
       {/* Header */}
       <View style={styles.header}>

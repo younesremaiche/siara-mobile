@@ -671,14 +671,21 @@ async function rebuildZoneRiskSummary(period = DEFAULT_PERIOD, db = pool) {
 
 async function ensureZoneRiskSummary(period = DEFAULT_PERIOD, db = pool) {
   const normalizedPeriod = normalizeZonePeriod(period);
+  // TODO(schema): ml.zone_risk_summary_current does not exist in this DB.
+  // Compute the latest-per-zone snapshot inline from ml.zone_risk_summary.
   const currentSummary = await db.query(
     `
+      WITH zone_risk_summary_current AS (
+        SELECT DISTINCT ON (admin_area_id, period_type) *
+        FROM ml.zone_risk_summary
+        WHERE period_type = $1
+          AND zone_level = 'wilaya'
+        ORDER BY admin_area_id, period_type, snapshot_at DESC
+      )
       SELECT
         count(*)::int AS zone_count,
         max(snapshot_at) AS latest_snapshot_at
-      FROM ml.zone_risk_summary_current
-      WHERE period_type = $1
-        AND zone_level = 'wilaya'
+      FROM zone_risk_summary_current
     `,
     [normalizedPeriod],
   );
@@ -787,8 +794,17 @@ async function getZoneMap(period = DEFAULT_PERIOD, metric = DEFAULT_METRIC, db =
   const normalizedMetric = normalizeZoneMetric(metric);
   const summaryState = await ensureZoneRiskSummary(normalizedPeriod, db);
 
+  // TODO(schema): ml.zone_risk_summary_current does not exist; replace with a
+  // CTE that selects the latest snapshot per (admin_area_id, period_type).
   const result = await db.query(
     `
+      WITH zone_risk_summary_current AS (
+        SELECT DISTINCT ON (admin_area_id, period_type) *
+        FROM ml.zone_risk_summary
+        WHERE period_type = $1
+          AND zone_level = 'wilaya'
+        ORDER BY admin_area_id, period_type, snapshot_at DESC
+      )
       SELECT
         zsc.admin_area_id,
         zsc.zone_name,
@@ -818,9 +834,7 @@ async function getZoneMap(period = DEFAULT_PERIOD, metric = DEFAULT_METRIC, db =
         ST_AsGeoJSON(
           ST_SimplifyPreserveTopology(zsc.geom, $2::double precision)
         )::jsonb AS geometry_geojson
-      FROM ml.zone_risk_summary_current zsc
-      WHERE zsc.period_type = $1
-        AND zsc.zone_level = 'wilaya'
+      FROM zone_risk_summary_current zsc
       ORDER BY zsc.zone_name ASC
     `,
     [normalizedPeriod, SUMMARY_GEOMETRY_TOLERANCE],
@@ -838,7 +852,7 @@ async function getZoneMap(period = DEFAULT_PERIOD, metric = DEFAULT_METRIC, db =
     period: normalizedPeriod,
     metric: normalizedMetric,
     generatedAt: summaryState.snapshotAt,
-    summarySource: "ml.zone_risk_summary_current",
+    summarySource: "ml.zone_risk_summary (latest-per-zone)",
     summaryRebuilt: summaryState.rebuilt,
     featureCollection,
     items,
@@ -1034,8 +1048,18 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
   const periodConfig = getPeriodConfig(normalizedPeriod);
   await ensureZoneRiskSummary(normalizedPeriod, db);
 
+  // TODO(schema): ml.zone_risk_summary_current does not exist; replace with a
+  // CTE that selects the latest snapshot per (admin_area_id, period_type).
   const summaryResult = await db.query(
     `
+      WITH zone_risk_summary_current AS (
+        SELECT DISTINCT ON (admin_area_id, period_type) *
+        FROM ml.zone_risk_summary
+        WHERE period_type = $1
+          AND zone_level = 'wilaya'
+          AND admin_area_id = $2::bigint
+        ORDER BY admin_area_id, period_type, snapshot_at DESC
+      )
       SELECT
         zsc.admin_area_id,
         zsc.zone_name,
@@ -1063,10 +1087,7 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
         ST_AsGeoJSON(
           ST_SimplifyPreserveTopology(zsc.geom, $3::double precision)
         )::jsonb AS geometry_geojson
-      FROM ml.zone_risk_summary_current zsc
-      WHERE zsc.period_type = $1
-        AND zsc.zone_level = 'wilaya'
-        AND zsc.admin_area_id = $2::bigint
+      FROM zone_risk_summary_current zsc
       LIMIT 1
     `,
     [normalizedPeriod, normalizedAdminAreaId, SUMMARY_GEOMETRY_TOLERANCE],

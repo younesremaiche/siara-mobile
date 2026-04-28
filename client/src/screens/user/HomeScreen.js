@@ -2,6 +2,7 @@ import React from 'react';
 import {
   View,
   Text,
+  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -103,8 +104,11 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.heroDecor2} />
 
           <View style={styles.heroLogoRow}>
-            <Ionicons name="shield-checkmark" size={32} color={Colors.white} />
-            <Text style={styles.heroLogoText}>SIARA</Text>
+            <Image
+              source={require('../../assets/logos/siara-logo.png')}
+              style={styles.heroLogoImage}
+              resizeMode="contain"
+            />
           </View>
 
           <Text style={styles.heroHeading}>
@@ -285,8 +289,11 @@ export default function HomeScreen({ navigation }) {
         {/* ========== FOOTER ========== */}
         <View style={styles.footer}>
           <View style={styles.footerLogoRow}>
-            <Ionicons name="shield-checkmark" size={20} color={Colors.primary} />
-            <Text style={styles.footerLogo}>SIARA</Text>
+            <Image
+              source={require('../../assets/logos/siara-logo.png')}
+              style={styles.footerLogoImage}
+              resizeMode="contain"
+            />
           </View>
           <Text style={styles.footerText}>
             AI-Powered Road Safety Intelligence for Algeria
@@ -342,16 +349,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   heroLogoRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
     marginBottom: 24,
   },
-  heroLogoText: {
-    color: Colors.white,
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: 4,
+  heroLogoImage: {
+    width: 200,
+    height: 100,
   },
   heroHeading: {
     color: Colors.white,
@@ -749,16 +753,13 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
   },
   footerLogoRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
     marginBottom: 8,
   },
-  footerLogo: {
-    color: Colors.primary,
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 2,
+  footerLogoImage: {
+    width: 110,
+    height: 55,
   },
   footerText: {
     color: Colors.subtext,

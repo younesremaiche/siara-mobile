@@ -1,7 +1,8 @@
-import React, { useCallback, useContext, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   View,
   Text,
+  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -10,13 +11,17 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { AuthContext } from '../../contexts/AuthContext';
 import { Colors } from '../../theme/colors';
 import { loadDriverQuizState } from '../../services/driverQuizStorage';
+import useMyAlerts from '../../hooks/useMyAlerts';
+import { listReports } from '../../services/reportsService';
 
 const { width } = Dimensions.get('window');
 
@@ -28,23 +33,51 @@ const STATS = [
 
 const MENU_ITEMS = [
   { key: 'editProfile', icon: 'person-outline', label: 'Edit Profile', chevron: true, color: Colors.primary },
+  { key: 'myReports', icon: 'document-text-outline', label: 'My Reports', chevron: true, color: Colors.secondary },
   { key: 'notifications', icon: 'notifications-outline', label: 'Notification Preferences', chevron: true, color: Colors.secondary },
   { key: 'privacy', icon: 'lock-closed-outline', label: 'Privacy & Security', chevron: true, color: Colors.accent },
   { key: 'help', icon: 'help-circle-outline', label: 'Help & Support', chevron: true, color: Colors.warning },
 ];
 
-const BADGES = [
-  { name: 'First Report', icon: 'ribbon' },
-  { name: 'Verified Reporter', icon: 'shield-checkmark' },
-  { name: 'Community Hero', icon: 'people' },
-  { name: '100 Reports', icon: 'trophy' },
-  { name: 'AI Contributor', icon: 'analytics' },
-  { name: 'Safety Champion', icon: 'heart' },
-];
+const SEVERITY_COLORS = {
+  critical: Colors.severityCritical || Colors.error,
+  high:     Colors.severityHigh     || Colors.error,
+  medium:   Colors.severityMedium   || Colors.warning,
+  low:      Colors.severityLow      || Colors.accent,
+};
+
+function getSeverityColor(severity) {
+  return SEVERITY_COLORS[String(severity || '').toLowerCase()] || Colors.greyLight;
+}
 
 export default function ProfileScreen({ navigation }) {
   const { user, setUser, logout, isPolice, activeMode, switchToPoliceMode } = useContext(AuthContext);
-  const [showBadges, setShowBadges] = useState(false);
+
+  // Activity tabs (Alerts / Reports)
+  const [activityTab, setActivityTab] = useState('alerts');
+  const { alerts: myAlerts, isLoading: alertsLoading } = useMyAlerts();
+  const [myReports, setMyReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setReportsLoading(true);
+      try {
+        const result = await listReports({ limit: 50, sort: 'recent' });
+        if (cancelled) return;
+        const myId = user?.id;
+        const items = Array.isArray(result?.reports) ? result.reports : [];
+        setMyReports(myId ? items.filter((r) => String(r.reportedBy?.id || '') === String(myId)) : items);
+      } catch (error) {
+        console.warn('[ProfileScreen] failed to load reports', error?.message || error);
+        if (!cancelled) setMyReports([]);
+      } finally {
+        if (!cancelled) setReportsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
   const [editVisible, setEditVisible] = useState(false);
   const [quizSummary, setQuizSummary] = useState({
     completed: false,
@@ -57,6 +90,7 @@ export default function ProfileScreen({ navigation }) {
   const [editPhone, setEditPhone] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editBio, setEditBio] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
 
   const initials = (user?.name || 'User')
     .split(' ')
@@ -78,7 +112,37 @@ export default function ProfileScreen({ navigation }) {
     setEditPhone(user?.phone || '');
     setEditLocation(user?.location || '');
     setEditBio(user?.bio || '');
+    setEditAvatar(user?.avatarUri || user?.avatar_url || '');
     setEditVisible(true);
+  }
+
+  async function pickAvatar() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Please allow access to your photos to set a profile picture.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setEditAvatar(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.warn('[ProfileScreen] pickAvatar failed:', error?.message || error);
+      Alert.alert('Error', 'Could not open the image picker.');
+    }
+  }
+
+  function removeAvatar() {
+    setEditAvatar('');
   }
 
   function saveProfile() {
@@ -97,6 +161,7 @@ export default function ProfileScreen({ navigation }) {
       phone: editPhone.trim(),
       location: editLocation.trim(),
       bio: editBio.trim(),
+      avatarUri: editAvatar || null,
     };
     setUser(updated);
     setEditVisible(false);
@@ -147,7 +212,14 @@ export default function ProfileScreen({ navigation }) {
         <View style={styles.avatarSection}>
           <View style={styles.avatarOuter}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials}</Text>
+              {user?.avatarUri || user?.avatar_url ? (
+                <Image
+                  source={{ uri: user.avatarUri || user.avatar_url }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarText}>{initials}</Text>
+              )}
             </View>
           </View>
           <Text style={styles.name}>{user?.name || 'User'}</Text>
@@ -185,6 +257,24 @@ export default function ProfileScreen({ navigation }) {
           )}
         </View>
       </View>
+
+      {/* Return to Police mode — only when a police officer is currently in user view */}
+      {isPolice && activeMode === 'user' ? (
+        <TouchableOpacity
+          style={styles.policeBanner}
+          activeOpacity={0.85}
+          onPress={switchToPoliceMode}
+        >
+          <View style={styles.policeBannerIcon}>
+            <Ionicons name="shield" size={18} color={Colors.white} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.policeBannerTitle}>You're viewing as a citizen</Text>
+            <Text style={styles.policeBannerSub}>Tap to return to Police mode</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.white} />
+        </TouchableOpacity>
+      ) : null}
 
       {/* Stats row */}
       <View style={styles.statsRow}>
@@ -267,40 +357,148 @@ export default function ProfileScreen({ navigation }) {
         <Ionicons name="chevron-forward" size={20} color={Colors.greyLight} />
       </TouchableOpacity>
 
-      {/* Badges section */}
-      <TouchableOpacity
-        style={styles.badgesHeader}
-        onPress={() => setShowBadges(!showBadges)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.badgesHeaderLeft}>
+      {/* Activity (Alerts / Reports) */}
+      <View style={styles.activityCard}>
+        <View style={styles.activityHeader}>
           <View style={[styles.sectionIconWrap, { backgroundColor: Colors.violetLight }]}>
-            <Ionicons name="trophy" size={18} color={Colors.primary} />
+            <Ionicons name="pulse" size={18} color={Colors.primary} />
           </View>
-          <View>
-            <Text style={styles.sectionTitle}>Badges & Achievements</Text>
-            <Text style={styles.sectionSubtitle}>{BADGES.length} badges earned</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionTitle}>My Activity</Text>
+            <Text style={styles.sectionSubtitle}>Your alerts and reports</Text>
           </View>
         </View>
-        <Ionicons
-          name={showBadges ? 'chevron-up' : 'chevron-down'}
-          size={20}
-          color={Colors.subtext}
-        />
-      </TouchableOpacity>
 
-      {showBadges && (
-        <View style={styles.badgesGrid}>
-          {BADGES.map((b) => (
-            <View key={b.name} style={styles.badgeCard}>
-              <View style={styles.badgeIconWrap}>
-                <Ionicons name={b.icon} size={24} color={Colors.primary} />
-              </View>
-              <Text style={styles.badgeName}>{b.name}</Text>
+        <View style={styles.activityTabs}>
+          <TouchableOpacity
+            style={[styles.activityTab, activityTab === 'alerts' && styles.activityTabActive]}
+            onPress={() => setActivityTab('alerts')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="notifications" size={15} color={activityTab === 'alerts' ? Colors.primary : Colors.subtext} />
+            <Text style={[styles.activityTabText, activityTab === 'alerts' && styles.activityTabTextActive]}>Alerts</Text>
+            <View style={[styles.activityTabBadge, activityTab === 'alerts' && styles.activityTabBadgeActive]}>
+              <Text style={[styles.activityTabBadgeText, activityTab === 'alerts' && styles.activityTabBadgeTextActive]}>
+                {myAlerts.length}
+              </Text>
             </View>
-          ))}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.activityTab, activityTab === 'reports' && styles.activityTabActive]}
+            onPress={() => setActivityTab('reports')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="megaphone" size={15} color={activityTab === 'reports' ? Colors.primary : Colors.subtext} />
+            <Text style={[styles.activityTabText, activityTab === 'reports' && styles.activityTabTextActive]}>Reports</Text>
+            <View style={[styles.activityTabBadge, activityTab === 'reports' && styles.activityTabBadgeActive]}>
+              <Text style={[styles.activityTabBadgeText, activityTab === 'reports' && styles.activityTabBadgeTextActive]}>
+                {myReports.length}
+              </Text>
+            </View>
+          </TouchableOpacity>
         </View>
-      )}
+
+        {activityTab === 'alerts' ? (
+          alertsLoading ? (
+            <View style={styles.activityLoading}><ActivityIndicator color={Colors.primary} /></View>
+          ) : myAlerts.length === 0 ? (
+            <View style={styles.activityEmpty}>
+              <Ionicons name="notifications-off-outline" size={28} color={Colors.greyLight} />
+              <Text style={styles.activityEmptyText}>No alerts yet</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('CreateAlert')} activeOpacity={0.7}>
+                <Text style={styles.activityEmptyAction}>Create your first alert</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            myAlerts.slice(0, 5).map((a) => (
+              <TouchableOpacity
+                key={a.id}
+                style={styles.activityItem}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('Alerts')}
+              >
+                <View style={styles.activityItemRow}>
+                  <Text style={styles.activityItemTitle} numberOfLines={1}>{a.name}</Text>
+                  <View style={[styles.severityPill, { backgroundColor: `${getSeverityColor(a.severity)}1A` }]}>
+                    <Text style={[styles.severityPillText, { color: getSeverityColor(a.severity) }]}>
+                      {String(a.severity || 'low').toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.activityItemMeta}>
+                  {a.area?.label || a.zone?.label ? (
+                    <View style={styles.activityMetaItem}>
+                      <Ionicons name="location" size={12} color={Colors.subtext} />
+                      <Text style={styles.activityMetaText} numberOfLines={1}>
+                        {a.area?.label || a.zone?.label}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {a.lastTriggered ? (
+                    <View style={styles.activityMetaItem}>
+                      <Ionicons name="time-outline" size={12} color={Colors.subtext} />
+                      <Text style={styles.activityMetaText}>Last: {a.lastTriggered}</Text>
+                    </View>
+                  ) : null}
+                  <View style={[styles.statusPill, a.status === 'active' ? styles.statusPillActive : styles.statusPillPaused]}>
+                    <Text style={[styles.statusPillText, a.status === 'active' ? styles.statusPillActiveText : styles.statusPillPausedText]}>
+                      {a.status?.toUpperCase() || 'ACTIVE'}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))
+          )
+        ) : reportsLoading ? (
+          <View style={styles.activityLoading}><ActivityIndicator color={Colors.primary} /></View>
+        ) : myReports.length === 0 ? (
+          <View style={styles.activityEmpty}>
+            <Ionicons name="document-outline" size={28} color={Colors.greyLight} />
+            <Text style={styles.activityEmptyText}>No reports yet</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('ReportIncident')} activeOpacity={0.7}>
+              <Text style={styles.activityEmptyAction}>Submit a report</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          myReports.slice(0, 5).map((r) => (
+            <TouchableOpacity
+              key={r.id}
+              style={styles.activityItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('IncidentDetail', { reportId: r.id })}
+            >
+              <View style={styles.activityItemRow}>
+                <Text style={styles.activityItemTitle} numberOfLines={1}>{r.title}</Text>
+                <View style={[styles.severityPill, { backgroundColor: `${getSeverityColor(r.severity)}1A` }]}>
+                  <Text style={[styles.severityPillText, { color: getSeverityColor(r.severity) }]}>
+                    {String(r.severity || 'low').toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.activityItemMeta}>
+                {r.locationLabel ? (
+                  <View style={styles.activityMetaItem}>
+                    <Ionicons name="location" size={12} color={Colors.subtext} />
+                    <Text style={styles.activityMetaText} numberOfLines={1}>{r.locationLabel}</Text>
+                  </View>
+                ) : null}
+                {r.relativeTime ? (
+                  <View style={styles.activityMetaItem}>
+                    <Ionicons name="time-outline" size={12} color={Colors.subtext} />
+                    <Text style={styles.activityMetaText}>{r.relativeTime}</Text>
+                  </View>
+                ) : null}
+                <View style={[styles.statusPill, r.status === 'verified' ? styles.statusPillActive : styles.statusPillPaused]}>
+                  <Text style={[styles.statusPillText, r.status === 'verified' ? styles.statusPillActiveText : styles.statusPillPausedText]}>
+                    {r.status?.toUpperCase() || 'PENDING'}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+      </View>
 
       {/* Settings menu */}
       <View style={styles.menuCard}>
@@ -314,6 +512,7 @@ export default function ProfileScreen({ navigation }) {
             ]}
             onPress={() => {
               if (item.key === 'editProfile') openEditProfile();
+              if (item.key === 'myReports') navigation.navigate('MyReports');
               if (item.key === 'notifications') navigation.navigate('Settings');
               if (item.key === 'privacy') navigation.navigate('Settings');
               if (item.key === 'help') navigation.navigate('Contact');
@@ -391,12 +590,36 @@ export default function ProfileScreen({ navigation }) {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={styles.editBody}>
-              {/* Avatar preview */}
+              {/* Avatar preview + photo picker */}
               <View style={styles.editAvatarRow}>
-                <View style={styles.editAvatarCircle}>
-                  <Text style={styles.editAvatarText}>
-                    {(editName || 'U').split(' ').map((n) => n.charAt(0)).join('').toUpperCase().slice(0, 2)}
-                  </Text>
+                <TouchableOpacity
+                  onPress={pickAvatar}
+                  activeOpacity={0.85}
+                  style={styles.editAvatarCircle}
+                >
+                  {editAvatar ? (
+                    <Image source={{ uri: editAvatar }} style={styles.editAvatarImage} />
+                  ) : (
+                    <Text style={styles.editAvatarText}>
+                      {(editName || 'U').split(' ').map((n) => n.charAt(0)).join('').toUpperCase().slice(0, 2)}
+                    </Text>
+                  )}
+                  <View style={styles.editAvatarCameraBadge}>
+                    <Ionicons name="camera" size={14} color={Colors.white} />
+                  </View>
+                </TouchableOpacity>
+
+                <View style={styles.editAvatarActions}>
+                  <TouchableOpacity onPress={pickAvatar} activeOpacity={0.7}>
+                    <Text style={styles.editAvatarActionText}>
+                      {editAvatar ? 'Change photo' : 'Add photo'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editAvatar ? (
+                    <TouchableOpacity onPress={removeAvatar} activeOpacity={0.7}>
+                      <Text style={styles.editAvatarRemoveText}>Remove</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
 
@@ -527,6 +750,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.violetLight,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     color: Colors.primary,
@@ -560,6 +788,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+
+  /* Police banner */
+  policeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  policeBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  policeBannerTitle: { color: Colors.white, fontSize: 13, fontWeight: '800' },
+  policeBannerSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 2 },
 
   /* Stats */
   statsRow: {
@@ -752,11 +1008,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  /* Badges section */
-  badgesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  /* Activity (Alerts / Reports) */
+  sectionIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  sectionTitle: { color: Colors.heading, fontSize: 14, fontWeight: '700' },
+  sectionSubtitle: { color: Colors.subtext, fontSize: 12, marginTop: 2 },
+  activityCard: {
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
@@ -770,59 +1032,69 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  badgesHeaderLeft: {
+  activityHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  activityTabs: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  sectionIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    color: Colors.heading,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  sectionSubtitle: {
-    color: Colors.subtext,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  badgesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingHorizontal: 20,
-    marginTop: 10,
-  },
-  badgeCard: {
-    width: (width - 60) / 3,
-    backgroundColor: Colors.white,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 8,
-  },
-  badgeIconWrap: {
-    width: 44,
-    height: 44,
+    backgroundColor: Colors.bg,
     borderRadius: 12,
-    backgroundColor: Colors.violetLight,
+    padding: 4,
+    marginBottom: 12,
+  },
+  activityTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  activityTabActive: {
+    backgroundColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  activityTabText: { color: Colors.subtext, fontSize: 13, fontWeight: '600' },
+  activityTabTextActive: { color: Colors.primary },
+  activityTabBadge: {
+    minWidth: 20,
+    height: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    backgroundColor: Colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  badgeName: {
-    color: Colors.text,
-    fontSize: 10,
-    textAlign: 'center',
-    fontWeight: '500',
+  activityTabBadgeActive: { backgroundColor: Colors.violetLight },
+  activityTabBadgeText: { color: Colors.subtext, fontSize: 10, fontWeight: '700' },
+  activityTabBadgeTextActive: { color: Colors.primary },
+  activityLoading: { paddingVertical: 28, alignItems: 'center' },
+  activityEmpty: { paddingVertical: 24, alignItems: 'center', gap: 6 },
+  activityEmptyText: { color: Colors.subtext, fontSize: 13, fontWeight: '600' },
+  activityEmptyAction: { color: Colors.primary, fontSize: 13, fontWeight: '700', marginTop: 4 },
+  activityItem: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.border },
+  activityItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
   },
+  activityItemTitle: { flex: 1, color: Colors.heading, fontSize: 14, fontWeight: '700' },
+  activityItemMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
+  activityMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '60%' },
+  activityMetaText: { color: Colors.subtext, fontSize: 12 },
+  severityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  severityPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginLeft: 'auto' },
+  statusPillActive: { backgroundColor: 'rgba(15,169,88,0.12)' },
+  statusPillPaused: { backgroundColor: Colors.bg },
+  statusPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  statusPillActiveText: { color: Colors.accent },
+  statusPillPausedText: { color: Colors.subtext },
 
   /* Settings menu */
   menuCard: {
@@ -1049,17 +1321,51 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   editAvatarCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: Colors.violetLight,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  editAvatarImage: {
+    width: '100%',
+    height: '100%',
   },
   editAvatarText: {
     color: Colors.primary,
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '800',
+  },
+  editAvatarCameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
+  },
+  editAvatarActions: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+  },
+  editAvatarActionText: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  editAvatarRemoveText: {
+    color: Colors.error,
+    fontSize: 14,
+    fontWeight: '600',
   },
   editLabel: {
     color: Colors.heading,

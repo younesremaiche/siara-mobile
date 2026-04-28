@@ -282,17 +282,27 @@ export default function LoginScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Remember Me */}
-          <TouchableOpacity
-            style={styles.rememberRow}
-            onPress={() => setRemember(!remember)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.checkbox, remember && styles.checkboxChecked]}>
-              {remember && <Ionicons name="checkmark" size={14} color={Colors.white} />}
-            </View>
-            <Text style={styles.rememberText}>Remember me</Text>
-          </TouchableOpacity>
+          {/* Remember Me + Forgot password */}
+          <View style={styles.rememberRowWrap}>
+            <TouchableOpacity
+              style={styles.rememberRow}
+              onPress={() => setRemember(!remember)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, remember && styles.checkboxChecked]}>
+                {remember && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+              </View>
+              <Text style={styles.rememberText}>Remember me</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ForgotPassword')}
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.forgotPasswordLink}>Forgot password?</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Sign In Button */}
           <Button
@@ -546,13 +556,23 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  /* ── Remember ── */
+  /* ── Remember + Forgot ── */
+  rememberRowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 22,
+    marginTop: 2,
+  },
   rememberRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 22,
-    marginTop: 2,
+  },
+  forgotPasswordLink: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   checkbox: {
     width: 22,

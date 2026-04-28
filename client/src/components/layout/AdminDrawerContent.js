@@ -171,6 +171,7 @@ function buildSections(incidentCounts, alertCounts) {
       label: 'System',
       links: [
         { screen: 'AdminSystem', icon: 'settings-outline', text: 'Configuration' },
+        { screen: 'AdminServiceControl', icon: 'pulse-outline', text: 'Service Control' },
       ],
     },
   ];

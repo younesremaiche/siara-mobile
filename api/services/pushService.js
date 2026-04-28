@@ -381,7 +381,37 @@ async function upsertPushSubscription(
   db = pool,
 ) {
   const subscription = normalizePushSubscriptionPayload(payload);
-  const result = await db.query(
+
+  // TODO(schema): app.push_subscriptions has no UNIQUE(endpoint), so a real
+  // ON CONFLICT cannot be used. Try UPDATE-by-endpoint first; fall back to
+  // INSERT when no row matched.
+  const updated = await db.query(
+    `
+      update app.push_subscriptions
+      set
+        user_id = $1,
+        p256dh = $3,
+        auth = $4,
+        user_agent = $5,
+        is_active = true,
+        disabled_at = null
+      where endpoint = $2
+      returning *
+    `,
+    [
+      userId,
+      subscription.endpoint,
+      subscription.p256dh,
+      subscription.auth,
+      userAgent,
+    ],
+  );
+
+  if (updated.rows[0]) {
+    return mapPushSubscriptionRow(updated.rows[0]);
+  }
+
+  const inserted = await db.query(
     `
       insert into app.push_subscriptions (
         user_id,
@@ -394,14 +424,6 @@ async function upsertPushSubscription(
         disabled_at
       )
       values ($1, $2, $3, $4, $5, true, now(), null)
-      on conflict (endpoint) do update
-      set
-        user_id = excluded.user_id,
-        p256dh = excluded.p256dh,
-        auth = excluded.auth,
-        user_agent = excluded.user_agent,
-        is_active = true,
-        disabled_at = null
       returning *
     `,
     [
@@ -413,7 +435,7 @@ async function upsertPushSubscription(
     ],
   );
 
-  return mapPushSubscriptionRow(result.rows[0] || null);
+  return mapPushSubscriptionRow(inserted.rows[0] || null);
 }
 
 async function deactivatePushSubscription(userId, endpoint, db = pool) {
@@ -435,7 +457,41 @@ async function deactivatePushSubscription(userId, endpoint, db = pool) {
 
 async function upsertMobilePushDevice(userId, payload, db = pool) {
   const device = normalizeMobilePushDevicePayload(payload);
-  const result = await db.query(
+
+  // TODO(schema): app.mobile_push_devices has no UNIQUE(token), so a real
+  // ON CONFLICT cannot be used. Try UPDATE-by-token first; fall back to INSERT.
+  const updated = await db.query(
+    `
+      update app.mobile_push_devices
+      set
+        user_id = $1,
+        platform = $3,
+        provider = $4,
+        app_version = $5,
+        device_name = $6,
+        is_active = true,
+        disabled_at = null,
+        meta = $7::jsonb,
+        updated_at = now()
+      where token = $2
+      returning *
+    `,
+    [
+      userId,
+      device.token,
+      device.platform,
+      device.provider,
+      device.appVersion,
+      device.deviceName,
+      JSON.stringify(device.meta),
+    ],
+  );
+
+  if (updated.rows[0]) {
+    return mapMobilePushDeviceRow(updated.rows[0]);
+  }
+
+  const inserted = await db.query(
     `
       insert into app.mobile_push_devices (
         user_id,
@@ -451,17 +507,6 @@ async function upsertMobilePushDevice(userId, payload, db = pool) {
         updated_at
       )
       values ($1, $2, $3, $4, $5, $6, true, null, $7::jsonb, now(), now())
-      on conflict (token) do update
-      set
-        user_id = excluded.user_id,
-        platform = excluded.platform,
-        provider = excluded.provider,
-        app_version = excluded.app_version,
-        device_name = excluded.device_name,
-        is_active = true,
-        disabled_at = null,
-        meta = excluded.meta,
-        updated_at = now()
       returning *
     `,
     [
@@ -475,7 +520,7 @@ async function upsertMobilePushDevice(userId, payload, db = pool) {
     ],
   );
 
-  return mapMobilePushDeviceRow(result.rows[0] || null);
+  return mapMobilePushDeviceRow(inserted.rows[0] || null);
 }
 
 async function deactivateMobilePushDevice(userId, token, db = pool) {
