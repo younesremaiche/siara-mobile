@@ -57,4 +57,45 @@ export async function fetchAlert(alertId, { includeGeometry = false } = {}) {
   return normalizeAlert(payload?.item);
 }
 
+export async function createAlert(payload) {
+  const response = await apiRequest('/api/alerts', {
+    method: 'POST',
+    withAuth: true,
+    body: JSON.stringify(payload),
+  });
+  return normalizeAlert(response?.item);
+}
+
+export async function updateAlertStatus(alertId, status) {
+  const response = await apiRequest(`/api/alerts/${alertId}/status`, {
+    method: 'PATCH',
+    withAuth: true,
+    body: JSON.stringify({ status }),
+  });
+  return normalizeAlert(response?.item);
+}
+
+export async function deleteMyAlert(alertId) {
+  await apiRequest(`/api/alerts/${alertId}`, {
+    method: 'DELETE',
+    withAuth: true,
+  });
+}
+
+export async function fetchWilayas() {
+  const payload = await apiRequest('/api/admin-areas/wilayas', {
+    method: 'GET',
+    withAuth: true,
+  });
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
+export async function fetchCommunesByWilaya(wilayaId) {
+  const payload = await apiRequest(`/api/admin-areas/${wilayaId}/communes`, {
+    method: 'GET',
+    withAuth: true,
+  });
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
 export { normalizeAlert };

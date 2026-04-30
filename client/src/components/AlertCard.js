@@ -29,7 +29,7 @@ function formatList(values = []) {
   return values.join(', ');
 }
 
-export default function AlertCard({ alert, onPress }) {
+export default function AlertCard({ alert, onPress, onPause, onResume, onDelete }) {
   const severity = severityMeta(alert?.severity);
   const areaName = alert?.zone?.displayName || alert?.area?.name || 'Configured area';
   const previewTriggers = Array.isArray(alert?.recentTriggers) ? alert.recentTriggers.slice(0, 2) : [];
@@ -90,6 +90,29 @@ export default function AlertCard({ alert, onPress }) {
               </Text>
             </View>
           ))}
+        </View>
+      ) : null}
+
+      {(onPause || onResume || onDelete) ? (
+        <View style={styles.actionRow}>
+          {alert?.status === 'active' && onPause ? (
+            <Pressable style={styles.actionBtnGhost} onPress={onPause} hitSlop={8}>
+              <Ionicons name="pause-circle-outline" size={15} color={Colors.primary} />
+              <Text style={styles.actionBtnGhostText}>Pause</Text>
+            </Pressable>
+          ) : null}
+          {alert?.status === 'paused' && onResume ? (
+            <Pressable style={[styles.actionBtnGhost, styles.actionBtnResume]} onPress={onResume} hitSlop={8}>
+              <Ionicons name="play-circle-outline" size={15} color={Colors.accent} />
+              <Text style={[styles.actionBtnGhostText, { color: Colors.accent }]}>Resume</Text>
+            </Pressable>
+          ) : null}
+          {onDelete ? (
+            <Pressable style={styles.actionBtnDanger} onPress={onDelete} hitSlop={8}>
+              <Ionicons name="trash-outline" size={15} color={Colors.btnDanger} />
+              <Text style={styles.actionBtnDangerText}>Delete</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </Pressable>
@@ -194,4 +217,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  actionBtnGhost: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1, borderColor: Colors.violetBorder,
+    backgroundColor: Colors.violetLight,
+  },
+  actionBtnResume: {
+    borderColor: 'rgba(15,169,88,0.3)',
+    backgroundColor: 'rgba(15,169,88,0.08)',
+  },
+  actionBtnGhostText: { fontSize: 12, fontWeight: '700', color: Colors.primary },
+  actionBtnDanger: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1, borderColor: 'rgba(220,38,38,0.2)',
+    backgroundColor: 'rgba(220,38,38,0.06)',
+    marginLeft: 'auto',
+  },
+  actionBtnDangerText: { fontSize: 12, fontWeight: '700', color: Colors.btnDanger },
 });

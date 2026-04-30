@@ -1,16 +1,21 @@
 import React from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
-import PoliceScreenFrame, { PoliceListItem, PoliceSectionCard } from '../../components/police/PoliceScreenFrame';
+import PoliceScreenFrame, {
+  PoliceEmptyState,
+  PoliceIncidentCard,
+  PoliceOfficerCard,
+  PoliceQuickActionTile,
+  PoliceSectionCard,
+  PoliceTimelineItem,
+} from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
 import { getPoliceDashboard, syncPoliceDeviceLocation } from '../../services/policeService';
-import { useAuthStore } from '../../stores/authStore';
 
 export default function PoliceDashboardScreen() {
   const navigation = useNavigation();
-  const switchToUserMode = useAuthStore((s) => s.switchToUserMode);
   const [dashboard, setDashboard] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -18,7 +23,6 @@ export default function PoliceDashboardScreen() {
   const loadDashboard = React.useCallback(async () => {
     setLoading(true);
     setError('');
-
     try {
       await syncPoliceDeviceLocation().catch(() => null);
       const payload = await getPoliceDashboard();
@@ -37,111 +41,217 @@ export default function PoliceDashboardScreen() {
   );
 
   const stats = [
-    { label: 'Active', value: dashboard?.stats?.activeCount || 0, tone: Colors.primary },
-    { label: 'Priority', value: dashboard?.stats?.highPriorityCount || 0, tone: Colors.severityHigh },
-    { label: 'Queue', value: dashboard?.stats?.pendingVerificationCount || 0, tone: Colors.secondary },
-    { label: 'Alerts', value: dashboard?.stats?.unreadAlertsCount || 0, tone: Colors.accent },
+    {
+      label: 'Active',
+      value: dashboard?.stats?.activeCount || 0,
+      sublabel: 'Open in zone',
+      tone: Colors.secondary,
+      icon: 'flash-outline',
+    },
+    {
+      label: 'Critical',
+      value: dashboard?.stats?.highPriorityCount || 0,
+      sublabel: 'High severity',
+      tone: Colors.severityCritical,
+      icon: 'flame-outline',
+    },
+    {
+      label: 'Queue',
+      value: dashboard?.stats?.pendingVerificationCount || 0,
+      sublabel: 'Awaiting review',
+      tone: Colors.severityMedium,
+      icon: 'hourglass-outline',
+    },
+    {
+      label: 'Alerts',
+      value: dashboard?.stats?.unreadAlertsCount || 0,
+      sublabel: 'Unread',
+      tone: Colors.accent,
+      icon: 'notifications-outline',
+    },
   ];
+
+  const priorityIncidents = (dashboard?.activeIncidents || [])
+    .filter((i) => ['high', 'critical'].includes(String(i.severity || '').toLowerCase()))
+    .slice(0, 3);
+  const recentHistory = (dashboard?.recentHistory || []).slice(0, 5);
 
   return (
     <PoliceScreenFrame
-      title="Police Dashboard"
-      subtitle={`Live overview for ${dashboard?.workZone?.commune?.name || dashboard?.workZone?.wilaya?.name || 'your zone'}`}
+      title="Command Center"
+      subtitle={`Live operations for ${dashboard?.workZone?.commune?.name || dashboard?.workZone?.wilaya?.name || 'your zone'}`}
+      liveLabel={loading ? 'SYNCING…' : 'LIVE · SYNCED'}
       stats={stats}
       loading={loading}
       error={error}
       onRefresh={loadDashboard}
     >
-      <PoliceSectionCard title="Officer Status">
-        <PoliceListItem
-          title={dashboard?.officer?.name || 'Officer'}
-          subtitle={dashboard?.officer?.rank || 'Police role'}
-          meta={[
-            `Badge: ${dashboard?.officer?.badgeNumber || 'Pending'}`,
-            `Wilaya: ${dashboard?.workZone?.wilaya?.name || 'Not selected'}`,
-            `Commune: ${dashboard?.workZone?.commune?.name || 'Not selected'}`,
-          ]}
-        />
-      </PoliceSectionCard>
+      <PoliceOfficerCard
+        name={dashboard?.officer?.name}
+        rank={dashboard?.officer?.rank}
+        badgeNumber={dashboard?.officer?.badgeNumber}
+        avatarUrl={dashboard?.officer?.avatarUrl}
+        isOnDuty={dashboard?.officer?.isOnDuty !== false}
+        wilaya={dashboard?.workZone?.wilaya?.name}
+        commune={dashboard?.workZone?.commune?.name}
+        onWorkZonePress={() => navigation.navigate('PoliceWorkZone')}
+      />
 
-      <PoliceSectionCard title="Active Incidents" actionLabel="Open" onActionPress={() => navigation.navigate('PoliceActiveIncidents')}>
-        {(dashboard?.activeIncidents || []).slice(0, 5).map((incident) => (
-          <PoliceListItem
-            key={incident.id}
-            title={incident.displayId}
-            subtitle={incident.title}
-            meta={[incident.locationText, `Status: ${incident.status}`, incident.timeAgo]}
-            onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: incident.id })}
-          />
-        ))}
-        {!loading && !(dashboard?.activeIncidents || []).length ? <Text style={{ color: Colors.subtext }}>No active incidents in your zone.</Text> : null}
-      </PoliceSectionCard>
-
-      <PoliceSectionCard title="Nearby Incidents" actionLabel="Open" onActionPress={() => navigation.navigate('PoliceNearbyIncidents')}>
-        {dashboard?.nearbyLocationRequired ? (
-          <Text style={{ color: Colors.subtext }}>Location is required to show incidents within 500 meters.</Text>
-        ) : (dashboard?.nearbyIncidents || []).slice(0, 5).map((incident) => (
-          <PoliceListItem
-            key={incident.id}
-            title={incident.displayId}
-            subtitle={incident.title}
-            meta={[incident.locationText, incident.distanceLabel || 'Nearby', `Status: ${incident.status}`]}
-            onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: incident.id })}
-          />
-        ))}
-        {!loading && !dashboard?.nearbyLocationRequired && !(dashboard?.nearbyIncidents || []).length ? (
-          <Text style={{ color: Colors.subtext }}>No nearby incidents were found.</Text>
-        ) : null}
-      </PoliceSectionCard>
-
-      <PoliceSectionCard title="Recent History" actionLabel="Full history" onActionPress={() => navigation.navigate('PoliceOperationHistory')}>
-        {(dashboard?.recentHistory || []).slice(0, 5).map((item) => (
-          <PoliceListItem
-            key={item.id}
-            title={item.actionType.replace(/_/g, ' ')}
-            subtitle={item.note || 'Police action recorded'}
-            meta={[item.createdAtLabel, item.reportId ? `Incident: ${item.reportId}` : null]}
-          />
-        ))}
-      </PoliceSectionCard>
-
-      {/* Switch to User Mode (web parity) */}
-      <TouchableOpacity
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          backgroundColor: Colors.violetLight,
-          borderRadius: 16,
-          paddingVertical: 14,
-          borderWidth: 1,
-          borderColor: Colors.violetBorder,
-        }}
-        onPress={switchToUserMode}
-        activeOpacity={0.85}
+      <PoliceSectionCard
+        title="Priority Incidents"
+        icon="alert-circle-outline"
+        count={priorityIncidents.length}
+        actionLabel="Open stream"
+        onActionPress={() => navigation.navigate('PoliceActiveIncidents')}
       >
-        <Ionicons name="swap-horizontal" size={16} color={Colors.primary} />
-        <Text style={{ color: Colors.primary, fontWeight: '800' }}>Switch to User Mode</Text>
-        <Ionicons name="arrow-forward" size={14} color={Colors.primary} />
-      </TouchableOpacity>
+        {priorityIncidents.length === 0 ? (
+          <PoliceEmptyState
+            icon="shield-checkmark-outline"
+            title="No priority incidents"
+            body="No high-severity reports are open in your zone right now."
+          />
+        ) : (
+          priorityIncidents.map((incident) => (
+            <PoliceIncidentCard
+              key={incident.id}
+              displayId={incident.displayId}
+              title={incident.title}
+              severity={incident.severity}
+              status={incident.status}
+              locationText={incident.locationText}
+              description={incident.description}
+              timeAgo={incident.timeAgo}
+              onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: incident.id })}
+              onSecondaryAction={() => navigation.navigate('PoliceIncidentDetail', { incidentId: incident.id })}
+              secondaryActionLabel="View"
+              onPrimaryAction={() => navigation.navigate('PoliceIncidentDetail', { incidentId: incident.id, autoStart: true })}
+              primaryActionLabel="Start Review"
+            />
+          ))
+        )}
+      </PoliceSectionCard>
 
-      <View style={{ flexDirection: 'row', gap: 12 }}>
+      <PoliceSectionCard title="Quick Actions" icon="grid-outline">
+        <View style={styles.actionGrid}>
+          <PoliceQuickActionTile
+            icon="shield-half-outline"
+            tone={Colors.severityMedium}
+            label="Verification"
+            sublabel="Review pending reports"
+            count={dashboard?.stats?.pendingVerificationCount || 0}
+            onPress={() => navigation.navigate('PoliceActiveIncidents')}
+          />
+          <PoliceQuickActionTile
+            icon="reader-outline"
+            tone={Colors.secondary}
+            label="All Incidents"
+            sublabel="Live active stream"
+            count={dashboard?.stats?.activeCount || 0}
+            onPress={() => navigation.navigate('PoliceActiveIncidents')}
+          />
+          <PoliceQuickActionTile
+            icon="briefcase-outline"
+            tone={Colors.primary}
+            label="My Assigned"
+            sublabel="Cases on me"
+            count={dashboard?.stats?.assignedToMeCount || 0}
+            onPress={() => navigation.navigate('PoliceMyIncidents')}
+          />
+          <PoliceQuickActionTile
+            icon="locate-outline"
+            tone={Colors.accent}
+            label="Nearby"
+            sublabel="Within 500 m"
+            count={(dashboard?.nearbyIncidents || []).length}
+            onPress={() => navigation.navigate('PoliceNearbyIncidents')}
+          />
+        </View>
+      </PoliceSectionCard>
+
+      <PoliceSectionCard
+        title="Activity"
+        icon="pulse-outline"
+        actionLabel="Full history"
+        onActionPress={() => navigation.navigate('PoliceOperationHistory')}
+      >
+        {recentHistory.length === 0 ? (
+          <PoliceEmptyState icon="time-outline" title="No recent activity" body="Police actions on this device will appear here." />
+        ) : (
+          recentHistory.map((item, idx) => (
+            <PoliceTimelineItem
+              key={item.id || idx}
+              icon={timelineIconFor(item.actionType)}
+              title={prettifyAction(item.actionType)}
+              subtitle={item.note || (item.reportId ? `Incident ${item.reportId}` : 'Police action recorded')}
+              timeLabel={item.createdAtLabel}
+              isLast={idx === recentHistory.length - 1}
+            />
+          ))
+        )}
+      </PoliceSectionCard>
+
+      <View style={styles.footerRow}>
         <TouchableOpacity
-          style={{ flex: 1, backgroundColor: Colors.primary, borderRadius: 16, paddingVertical: 14, alignItems: 'center' }}
+          style={styles.footerPrimary}
           onPress={() => navigation.navigate('PoliceAlerts')}
           activeOpacity={0.88}
         >
-          <Text style={{ color: Colors.white, fontWeight: '800' }}>Alert Center</Text>
+          <Ionicons name="notifications-outline" size={16} color={Colors.white} />
+          <Text style={styles.footerPrimaryText}>Alert Center</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ flex: 1, backgroundColor: Colors.white, borderRadius: 16, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: Colors.border }}
+          style={styles.footerGhost}
           onPress={() => navigation.navigate('PoliceMore')}
           activeOpacity={0.88}
         >
-          <Text style={{ color: Colors.heading, fontWeight: '800' }}>More Tools</Text>
+          <Ionicons name="ellipsis-horizontal-circle-outline" size={16} color={Colors.heading} />
+          <Text style={styles.footerGhostText}>More Tools</Text>
         </TouchableOpacity>
       </View>
     </PoliceScreenFrame>
   );
 }
+
+function prettifyAction(actionType) {
+  if (!actionType) return 'Activity';
+  return actionType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function timelineIconFor(actionType) {
+  const t = String(actionType || '').toLowerCase();
+  if (t.includes('verify')) return 'checkmark-circle';
+  if (t.includes('reject')) return 'close-circle';
+  if (t.includes('assign')) return 'person-add';
+  if (t.includes('note')) return 'document-text';
+  if (t.includes('manual')) return 'pencil';
+  return 'ellipse';
+}
+
+const styles = StyleSheet.create({
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  footerRow: { flexDirection: 'row', gap: 12 },
+  footerPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 16,
+    paddingVertical: 14,
+  },
+  footerPrimaryText: { color: Colors.white, fontWeight: '800', fontSize: 14 },
+  footerGhost: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  footerGhostText: { color: Colors.heading, fontWeight: '800', fontSize: 14 },
+});

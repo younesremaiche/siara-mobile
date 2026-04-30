@@ -407,4 +407,16 @@ export async function createManualPoliceHistoryEntry(payload = {}) {
   };
 }
 
+export async function createPoliceAlert(payload = {}) {
+  const response = await apiRequest('/api/police/supervisor/alerts', {
+    method: 'POST',
+    withAuth: true,
+    body: JSON.stringify(payload),
+  });
+
+  return {
+    alert: response?.alert || null,
+  };
+}
+
 
