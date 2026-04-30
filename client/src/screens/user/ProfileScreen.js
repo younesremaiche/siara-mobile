@@ -33,7 +33,6 @@ const STATS = [
 
 const MENU_ITEMS = [
   { key: 'editProfile', icon: 'person-outline', label: 'Edit Profile', chevron: true, color: Colors.primary },
-  { key: 'myReports', icon: 'document-text-outline', label: 'My Reports', chevron: true, color: Colors.secondary },
   { key: 'notifications', icon: 'notifications-outline', label: 'Notification Preferences', chevron: true, color: Colors.secondary },
   { key: 'privacy', icon: 'lock-closed-outline', label: 'Privacy & Security', chevron: true, color: Colors.accent },
   { key: 'help', icon: 'help-circle-outline', label: 'Help & Support', chevron: true, color: Colors.warning },
@@ -512,7 +511,6 @@ export default function ProfileScreen({ navigation }) {
             ]}
             onPress={() => {
               if (item.key === 'editProfile') openEditProfile();
-              if (item.key === 'myReports') navigation.navigate('MyReports');
               if (item.key === 'notifications') navigation.navigate('Settings');
               if (item.key === 'privacy') navigation.navigate('Settings');
               if (item.key === 'help') navigation.navigate('Contact');

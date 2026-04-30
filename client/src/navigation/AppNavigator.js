@@ -69,6 +69,7 @@ function buildTabScreenOptions(route) {
     Map: 'map',
     News: 'newspaper',
     Dashboard: 'grid',
+    Reports: 'document-text',
     Profile: 'person',
     PoliceDashboard: 'shield-checkmark',
     PoliceActiveIncidents: 'warning',
@@ -140,6 +141,7 @@ function UserTabs() {
       <Tab.Screen name="Dashboard" component={UserDashboardScreen} />
       <Tab.Screen name="Map" component={MapScreen} />
       <Tab.Screen name="News" component={NewsScreen} />
+      <Tab.Screen name="Reports" component={MyReportsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
