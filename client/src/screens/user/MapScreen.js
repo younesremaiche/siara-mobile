@@ -32,6 +32,7 @@ const { height } = Dimensions.get('window');
 const LAYER_OPTIONS = [
   { key: 'points', icon: 'location', label: 'Points' },
   { key: 'heatmap', icon: 'flame', label: 'Heatmap' },
+  { key: 'zones', icon: 'shield-checkmark', label: 'Zones' },
   { key: 'ai', icon: 'analytics', label: 'AI Risks' },
   { key: 'nearbyRoads', icon: 'car', label: 'Nearby Roads' },
 ];
@@ -97,6 +98,192 @@ function severityColor(level) {
   if (level === 'medium') return '#eab308';
   return '#22c55e';
 }
+
+function extractXaiReasons(explanation) {
+  if (explanation?.xai?.top_reasons?.length) {
+    return explanation.xai.top_reasons.slice(0, 8).map((r) => ({
+      name: String(r.feature || '').replace(/_/g, ' '),
+      direction: String(r.direction || ''),
+      impact: Math.abs(parseFloat(r.impact) || 0),
+      rawValue: r.value,
+    }));
+  }
+  const fallback = explanation?.shap_features || explanation?.features || [];
+  return fallback.slice(0, 8).map((f) => {
+    const numeric = parseFloat(f.value ?? f.importance ?? 0);
+    return {
+      name: String(f.feature || f.name || '').replace(/_/g, ' '),
+      direction: numeric >= 0 ? 'increases_risk' : 'decreases_risk',
+      impact: Math.abs(numeric),
+      rawValue: numeric,
+    };
+  });
+}
+
+function xaiDangerColor(level) {
+  const l = String(level || '').toLowerCase();
+  if (l === 'extreme') return '#b91c1c';
+  if (l === 'high') return '#ef4444';
+  if (l === 'moderate' || l === 'medium') return '#f59e0b';
+  return '#22c55e';
+}
+
+function SegmentXaiPanel({ explanation, onClose }) {
+  const dangerPct = explanation?.danger_percent ?? explanation?.dangerPercent ?? null;
+  const rawLevel = explanation?.danger_level || explanation?.dangerLevel || '';
+  const level = (() => {
+    const t = rawLevel.toLowerCase();
+    if (['extreme', 'high', 'moderate', 'low'].includes(t)) return t;
+    const p = parseFloat(dangerPct);
+    if (!Number.isFinite(p)) return 'low';
+    if (p < 25) return 'low';
+    if (p < 50) return 'moderate';
+    if (p < 75) return 'high';
+    return 'extreme';
+  })();
+  const dangerColor = xaiDangerColor(level);
+  const confidence = explanation?.confidence ?? null;
+  const quality = explanation?.quality ?? null;
+  const summary = explanation?.summary || explanation?.text || '';
+  const reasons = extractXaiReasons(explanation);
+
+  return (
+    <ScrollView style={xaiStyles.scroll} contentContainerStyle={xaiStyles.scrollContent} showsVerticalScrollIndicator={false}>
+      <View style={xaiStyles.headerRow}>
+        <Text style={xaiStyles.title}>Segment Risk Analysis</Text>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="close-circle" size={22} color="#9CA3AF" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={xaiStyles.metaRow}>
+        {dangerPct != null && (
+          <View style={[xaiStyles.dangerPill, { backgroundColor: `${dangerColor}18`, borderColor: dangerColor }]}>
+            <Text style={[xaiStyles.dangerPillText, { color: dangerColor }]}>
+              {Math.round(dangerPct)}% {level.charAt(0).toUpperCase() + level.slice(1)}
+            </Text>
+          </View>
+        )}
+        {confidence != null && (
+          <View style={xaiStyles.metaBadge}>
+            <Text style={xaiStyles.metaBadgeText}>confidence {Number(confidence).toFixed(2)}</Text>
+          </View>
+        )}
+        {quality != null && (
+          <View style={xaiStyles.metaBadge}>
+            <Text style={xaiStyles.metaBadgeText}>{quality}</Text>
+          </View>
+        )}
+      </View>
+
+      {summary ? <Text style={xaiStyles.summary}>{summary}</Text> : null}
+
+      {reasons.length > 0 && (
+        <View style={xaiStyles.reasonsSection}>
+          <Text style={xaiStyles.reasonsTitle}>TOP CONTRIBUTING FACTORS</Text>
+          {reasons.map((r, i) => {
+            const increases = r.direction === 'increases_risk';
+            const badgeColor = increases ? '#dc2626' : '#16a34a';
+            const badgeBg = increases ? '#fef2f2' : '#f0fdf4';
+            const maxImpact = Math.max(...reasons.map((x) => x.impact), 0.001);
+            const barPct = Math.min((r.impact / maxImpact) * 100, 100);
+            return (
+              <View key={i} style={[xaiStyles.reasonRow, i % 2 === 0 && xaiStyles.reasonRowEven]}>
+                <Text style={xaiStyles.reasonName} numberOfLines={1}>{r.name}</Text>
+                <View style={xaiStyles.reasonRight}>
+                  <View style={[xaiStyles.impactBar, { width: `${barPct}%`, backgroundColor: badgeColor + '55' }]} />
+                  <View style={[xaiStyles.dirBadge, { backgroundColor: badgeBg, borderColor: badgeColor + '40' }]}>
+                    <Text style={[xaiStyles.dirBadgeText, { color: badgeColor }]}>
+                      {increases ? '↑ increases' : '↓ decreases'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+const xaiStyles = StyleSheet.create({
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 12 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  title: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  dangerPill: {
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  dangerPillText: { fontSize: 12, fontWeight: '700' },
+  metaBadge: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  metaBadgeText: { fontSize: 11, color: '#6B7280', fontWeight: '500' },
+  summary: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 18,
+    marginBottom: 12,
+    backgroundColor: 'rgba(124,58,237,0.04)',
+    borderRadius: 8,
+    padding: 10,
+  },
+  reasonsSection: { marginTop: 4 },
+  reasonsTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#7c3aed',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  reasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  reasonRowEven: { backgroundColor: 'rgba(124,58,237,0.025)' },
+  reasonName: {
+    flex: 1,
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
+    marginRight: 8,
+    textTransform: 'capitalize',
+  },
+  reasonRight: {
+    alignItems: 'flex-end',
+    gap: 3,
+    minWidth: 100,
+  },
+  impactBar: {
+    height: 3,
+    borderRadius: 2,
+    alignSelf: 'stretch',
+  },
+  dirBadge: {
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  dirBadgeText: { fontSize: 10, fontWeight: '600' },
+});
 
 export default function MapScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -532,9 +719,14 @@ export default function MapScreen({ navigation }) {
 
       <Modal visible={!!selectedIncident && selectedIncident?.kind !== 'report'} transparent animationType="slide" onRequestClose={() => setSelectedIncident(null)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setSelectedIncident(null)}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, selectedIncident?.explanation && styles.modalCardXai]}>
             <View style={styles.handle} />
-            {selectedIncident ? (
+            {selectedIncident?.explanation ? (
+              <SegmentXaiPanel
+                explanation={selectedIncident.explanation}
+                onClose={() => setSelectedIncident(null)}
+              />
+            ) : selectedIncident ? (
               <>
                 <View style={styles.incidentBadgeRow}>
                   <View
@@ -616,6 +808,7 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: Colors.error, fontSize: 13, fontWeight: '800' },
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.36)', justifyContent: 'flex-end' },
   modalCard: { backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 24, gap: 12 },
+  modalCardXai: { maxHeight: '72%' },
   handle: { alignSelf: 'center', width: 52, height: 6, borderRadius: 999, backgroundColor: '#CBD5E1', marginBottom: 8 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '800', color: Colors.heading },

@@ -159,6 +159,7 @@ function buildMarkerPayload(marker, risk) {
   return { ...marker, risk };
 }
 
+
 // ── Main Component ──
 
 const SiaraMap = React.forwardRef(function SiaraMap({
@@ -186,6 +187,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
   const pendingCameraActionRef = useRef(0);
   const markerSelectRef = useRef(null);
   const guidedSegmentPressRef = useRef(null);
+  const hasBoundsRef = useRef(false);
 
   const [locationStatus, setLocationStatus] = useState('idle');
   const [userLocation, setUserLocation] = useState(null);
@@ -221,6 +223,13 @@ const SiaraMap = React.forwardRef(function SiaraMap({
   const [guidanceRefreshTick, setGuidanceRefreshTick] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [mapViewport, setMapViewport] = useState(null);
+  const [mapBounds, setMapBounds] = useState(null);
+  const [heatClusters, setHeatClusters] = useState([]);
+  const [heatClustersState, setHeatClustersState] = useState('idle');
+  const [heatClustersError, setHeatClustersError] = useState('');
+  const [alertZones, setAlertZones] = useState([]);
+  const [alertZonesState, setAlertZonesState] = useState('idle');
+  const [pendingMapClick, setPendingMapClick] = useState(null);
 
   // ── Timestamp computation ──
   const selectedTimestampIso = useMemo(() => {
@@ -285,6 +294,15 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     doLocation();
     return () => { cancelled = true; };
   }, [showUserLocation]);
+
+  // ── Initialize map bounds from user location ──
+  useEffect(() => {
+    if (!userLocation || hasBoundsRef.current) return;
+    hasBoundsRef.current = true;
+    const lat = userLocation.latitude;
+    const lng = userLocation.longitude;
+    setMapBounds({ north: lat + 0.3, south: lat - 0.3, east: lng + 0.45, west: lng - 0.45, zoom: 12 });
+  }, [userLocation]);
 
   // ── API: Current risk ──
   useEffect(() => {
@@ -415,6 +433,73 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
     return () => { cancelled = true; };
   }, [mapLayer, userLocation, locationStatus, selectedTimestampIso]);
+
+  // ── API: DBSCAN heatmap clusters ──
+  useEffect(() => {
+    if (mapLayer !== 'heatmap' || !mapBounds) {
+      setHeatClusters([]);
+      setHeatClustersState('idle');
+      setHeatClustersError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setHeatClustersState('loading');
+      const params = new URLSearchParams({
+        north: mapBounds.north,
+        south: mapBounds.south,
+        east: mapBounds.east,
+        west: mapBounds.west,
+        hours: 24,
+        zoom: mapBounds.zoom || mapViewport?.zoom || 10,
+      });
+      fetch(`${API_BASE_URL}/api/map/report-danger-heatmap?${params}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return;
+          const clusters = Array.isArray(data?.clusters) ? data.clusters : Array.isArray(data) ? data : [];
+          setHeatClusters(clusters);
+          setHeatClustersState('success');
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setHeatClustersState('error');
+            setHeatClustersError(err.message || 'Heatmap data error');
+          }
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mapLayer, mapBounds, selectedTimestampIso, mapViewport?.zoom]);
+
+  // ── API: Alert zones ──
+  useEffect(() => {
+    if (mapLayer !== 'zones') {
+      setAlertZones([]);
+      setAlertZonesState('idle');
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAlertZonesState('loading');
+    fetch(`${API_BASE_URL}/alerts`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const zones = Array.isArray(data?.alerts) ? data.alerts : Array.isArray(data) ? data : [];
+        setAlertZones(zones);
+        setAlertZonesState('success');
+      })
+      .catch(() => {
+        if (!cancelled) setAlertZonesState('error');
+      });
+
+    return () => { cancelled = true; };
+  }, [mapLayer]);
 
   // ── Memoized data ──
   const heatmapPoints = useMemo(
@@ -632,6 +717,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     if (reportsState === 'error') messages.push({ key: 'reports', text: `Reports: ${reportsError}`, isWarning: false });
     if (guidedRouteState === 'error') messages.push({ key: 'route', text: `Guidance: ${guidedRouteError}`, isWarning: false });
     if (routeExplainState === 'error') messages.push({ key: 'explain', text: `Explanation: ${routeExplainError}`, isWarning: false });
+    if (heatClustersState === 'error' && heatClustersError) messages.push({ key: 'heatmap', text: `Heatmap: ${heatClustersError}`, isWarning: false });
     routeWarnings.forEach((warning, index) => {
       messages.push({ key: `warn-${index}`, text: warning, isWarning: true });
     });
@@ -658,6 +744,8 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
   const leafletCircles = useMemo(() => {
     if (mapLayer !== 'heatmap') return [];
+    // When DBSCAN clusters are available, skip simple circles (clusters handle rendering)
+    if (heatClusters.length > 0) return [];
     return heatmapPoints.map((p) => ({
       lat: p.latitude,
       lng: p.longitude,
@@ -667,7 +755,49 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       opacity: 0.4,
       weight: 1,
     }));
-  }, [mapLayer, heatmapPoints]);
+  }, [mapLayer, heatmapPoints, heatClusters.length]);
+
+  const leafletHeatClusters = useMemo(() => {
+    if (mapLayer !== 'heatmap' || !heatClusters.length) return [];
+    const zoom = mapBounds?.zoom || mapViewport?.zoom || 10;
+    const baseRadius = Math.max(150, 2500 / Math.pow(2, Math.max(0, zoom - 10)));
+    return heatClusters
+      .filter((c) => c.lat != null && c.lng != null)
+      .map((c) => {
+        const severity = c.severity || 'low';
+        const count = c.count || 1;
+        return {
+          lat: Number(c.lat),
+          lng: Number(c.lng),
+          count,
+          severity,
+          radius: Math.round(baseRadius * (1 + Math.min(count - 1, 9) * 0.08)),
+          color: getDangerColor(severity),
+          fillOpacity: Math.min(0.18 + count * 0.01, 0.35),
+        };
+      });
+  }, [mapLayer, heatClusters, mapBounds?.zoom, mapViewport?.zoom]);
+
+  const leafletAlertZones = useMemo(() => {
+    if (mapLayer !== 'zones') return [];
+    return alertZones
+      .filter((z) => {
+        const lat = z.lat ?? z.latitude ?? z.zone?.lat ?? z.zone?.latitude;
+        const lng = z.lng ?? z.longitude ?? z.zone?.lng ?? z.zone?.longitude;
+        return lat != null && lng != null;
+      })
+      .map((z) => {
+        const lat = Number(z.lat ?? z.latitude ?? z.zone?.lat ?? z.zone?.latitude);
+        const lng = Number(z.lng ?? z.longitude ?? z.zone?.lng ?? z.zone?.longitude);
+        const severity = z.severity ?? z.zone?.severity ?? 'medium';
+        const name = z.name ?? z.zone?.name ?? z.title ?? 'Alert Zone';
+        const radius = Number(z.radius_m ?? z.zone?.radius_m ?? z.radius ?? 1000);
+        const count = z.incident_count ?? z.count ?? null;
+        return { lat, lng, severity, name, radius, count, color: getDangerColor(severity) };
+      });
+  }, [mapLayer, alertZones]);
+
+  const mapClickEnabled = mapLayer === 'nearbyRoads';
 
   const leafletPolylines = useMemo(() => {
     const lines = [];
@@ -743,8 +873,11 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       polylines: leafletPolylines,
       userLocation: isValidCoordinate(userLocation) ? userLocation : null,
       mapLayer,
+      heatClusters: leafletHeatClusters,
+      alertZones: leafletAlertZones,
+      mapClickEnabled,
     });
-  }, [mapCenter, mapZoom, tileLayer, allLeafletMarkers, leafletCircles, leafletPolylines, userLocation, mapLayer]);
+  }, [mapCenter, mapZoom, tileLayer, allLeafletMarkers, leafletCircles, leafletPolylines, userLocation, mapLayer, leafletHeatClusters, leafletAlertZones, mapClickEnabled]);
 
   // ── Send message to WebView ──
   const postToWebView = useCallback((message) => {
@@ -814,17 +947,31 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       if (msg.type === 'mapRegionChange' && msg.center) {
         const center = normalizePosition(msg.center);
         if (center) {
+          const z = Number.isFinite(Number(msg.zoom)) ? Number(msg.zoom) : mapViewport?.zoom || DEFAULT_ZOOM;
           setMapViewport({
             latitude: center.latitude,
             longitude: center.longitude,
-            zoom: Number.isFinite(Number(msg.zoom)) ? Number(msg.zoom) : mapViewport?.zoom || DEFAULT_ZOOM,
+            zoom: z,
           });
+          if (msg.bounds) {
+            setMapBounds({
+              north: msg.bounds.north,
+              south: msg.bounds.south,
+              east: msg.bounds.east,
+              west: msg.bounds.west,
+              zoom: z,
+            });
+          }
           if (pendingCameraActionRef.current > 0) {
             pendingCameraActionRef.current -= 1;
           } else if (hasCenteredUserRef.current || hasUserInteractedWithMapRef.current) {
             hasUserInteractedWithMapRef.current = true;
           }
         }
+      }
+      if (msg.type === 'mapClick' && msg.lat != null && msg.lng != null) {
+        const clickCoord = normalizePosition({ lat: msg.lat, lng: msg.lng });
+        if (clickCoord) setPendingMapClick(clickCoord);
       }
       if (msg.type === 'markerPress' && msg.marker) {
         const marker = mapMarkers.find((m) => String(m.id) === String(msg.marker.id));
@@ -945,6 +1092,43 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     setDestinationSearchError('');
     setShowSearchResults(false);
   }, []);
+
+  // ── Map-tap → reverse geocode → destination ──
+  useEffect(() => {
+    if (!pendingMapClick || mapLayer !== 'nearbyRoads') {
+      setPendingMapClick(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${pendingMapClick.latitude}&lon=${pendingMapClick.longitude}&format=json`,
+      { headers: { 'Accept-Language': 'en' } },
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const result = normalizeNominatimResult({
+          ...data,
+          lat: pendingMapClick.latitude,
+          lon: pendingMapClick.longitude,
+        });
+        if (result) selectDestination(result);
+        setPendingMapClick(null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          selectDestination({
+            id: `${pendingMapClick.latitude}:${pendingMapClick.longitude}`,
+            name: `${pendingMapClick.latitude.toFixed(4)}, ${pendingMapClick.longitude.toFixed(4)}`,
+            full_name: 'Selected location',
+            lat: pendingMapClick.latitude,
+            lon: pendingMapClick.longitude,
+          });
+          setPendingMapClick(null);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [pendingMapClick, mapLayer, selectDestination]);
 
   // ── Guided segment explanation ──
   const handleGuidedSegmentClick = useCallback(async (segment) => {
@@ -1370,15 +1554,19 @@ const SiaraMap = React.forwardRef(function SiaraMap({
         </View>
       )}
 
-      {(overlayState === 'loading' || nearbyRoutesState === 'loading' || guidedRouteState === 'loading' || guidedRouteState === 'refreshing') && (
+      {(overlayState === 'loading' || nearbyRoutesState === 'loading' || guidedRouteState === 'loading' || guidedRouteState === 'refreshing' || heatClustersState === 'loading' || alertZonesState === 'loading') && (
         <View style={styles.layerLoadingBadge}>
           <ActivityIndicator size="small" color={Colors.white} />
           <Text style={styles.layerLoadingText}>
-            {overlayState === 'loading'
-              ? 'Analyzing AI risk...'
-              : guidedRouteState === 'loading' || guidedRouteState === 'refreshing'
-                ? 'Calculating route options...'
-                : 'Scanning nearby roads...'}
+            {heatClustersState === 'loading'
+              ? 'Loading heatmap clusters...'
+              : alertZonesState === 'loading'
+                ? 'Loading alert zones...'
+                : overlayState === 'loading'
+                  ? 'Analyzing AI risk...'
+                  : guidedRouteState === 'loading' || guidedRouteState === 'refreshing'
+                    ? 'Calculating route options...'
+                    : 'Scanning nearby roads...'}
           </Text>
         </View>
       )}
@@ -1488,6 +1676,7 @@ const SHADOW = Platform.select({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
+
 
   webviewLoading: {
     ...StyleSheet.absoluteFillObject,

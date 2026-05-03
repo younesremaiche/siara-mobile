@@ -9,6 +9,7 @@ import {
   StyleSheet,
   StatusBar,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { loginUser, loginWithGoogle } from '../../services/authService';
@@ -192,10 +193,11 @@ export default function LoginScreen({ navigation }) {
           <View style={styles.heroCircleBottomLeft} />
 
           <View style={styles.logoRow}>
-            <View style={styles.logoIcon}>
-              <Ionicons name="navigate" size={22} color={Colors.white} />
-            </View>
-            <Text style={styles.logoText}>SIARA</Text>
+            <Image
+              source={require('../../assets/logos/siara-logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
 
           <Text style={styles.heroSubtitle}>Road Accident Risk Visualizer</Text>
@@ -430,22 +432,13 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
     marginBottom: 8,
   },
-  logoIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    color: Colors.white,
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: 3,
+  logoImage: {
+    width: 120,
+    height: 80,
   },
   heroSubtitle: {
     color: 'rgba(255,255,255,0.8)',
@@ -479,68 +472,72 @@ const styles = StyleSheet.create({
   formCard: {
     flex: 1,
     backgroundColor: Colors.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 32,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 28,
+    paddingTop: 40,
     paddingBottom: 36,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 16,
   },
   formTitle: {
-    fontSize: 26,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '900',
     color: Colors.heading,
-    marginBottom: 6,
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   formSubtitle: {
     color: Colors.subtext,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 24,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 28,
   },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(220,38,38,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(220,38,38,0.15)',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 18,
+    gap: 10,
+    backgroundColor: 'rgba(220,38,38,0.08)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(220,38,38,0.2)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 24,
   },
   errorText: {
     color: Colors.error,
-    fontSize: 13,
+    fontSize: 14,
     flex: 1,
-    fontWeight: '500',
+    fontWeight: '600',
+    lineHeight: 20,
   },
 
   /* ── Input styling ── */
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   inputLabel: {
     color: Colors.textDark,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 7,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 10,
+    letterSpacing: -0.3,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.bg,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 2,
   },
   inputIcon: {
-    marginRight: 4,
+    marginRight: 6,
   },
   inputNoMargin: {
     flex: 1,
@@ -549,11 +546,12 @@ const styles = StyleSheet.create({
   inputWithIcon: {
     backgroundColor: 'transparent',
     borderWidth: 0,
-    paddingHorizontal: 6,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
+    fontSize: 15,
   },
   eyeBtn: {
-    padding: 4,
+    padding: 6,
   },
 
   /* ── Remember + Forgot ── */
@@ -561,8 +559,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 22,
-    marginTop: 2,
+    marginBottom: 26,
+    marginTop: 4,
   },
   rememberRow: {
     flexDirection: 'row',
@@ -571,15 +569,15 @@ const styles = StyleSheet.create({
   },
   forgotPasswordLink: {
     color: Colors.primary,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 8,
     borderWidth: 2,
-    borderColor: Colors.border,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.white,
@@ -590,37 +588,37 @@ const styles = StyleSheet.create({
   },
   rememberText: {
     color: Colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
   },
 
   /* ── CTA ── */
   ctaBtn: {
     width: '100%',
-    paddingVertical: 15,
-    borderRadius: 14,
+    paddingVertical: 16,
+    borderRadius: 16,
     shadowColor: Colors.btnPrimary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 12,
     elevation: 6,
   },
 
   /* ── Social / Google ── */
   socialSection: {
-    marginTop: 24,
-    marginBottom: 20,
+    marginTop: 28,
+    marginBottom: 24,
   },
   googleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
     backgroundColor: Colors.white,
     borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    paddingVertical: 13,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingVertical: 14,
     paddingHorizontal: 16,
   },
   googleBtnDisabled: {
@@ -628,31 +626,31 @@ const styles = StyleSheet.create({
   },
   googleBtnText: {
     color: Colors.primary,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
   },
 
   /* ── Demo Section ── */
   demoSection: {
-    marginTop: 28,
+    marginTop: 32,
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 18,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: Colors.border,
+    backgroundColor: '#E2E8F0',
   },
   dividerText: {
     color: Colors.subtext,
     fontSize: 12,
-    fontWeight: '600',
-    marginHorizontal: 12,
+    fontWeight: '700',
+    marginHorizontal: 14,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   demoRow: {
     flexDirection: 'row',
@@ -665,10 +663,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: Colors.violetLight,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: Colors.violetBorder,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 13,
     paddingHorizontal: 14,
   },
   demoBtnBlue: {
@@ -676,9 +674,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.blueBorder,
   },
   demoBtnIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: 'rgba(124,58,237,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -688,7 +686,7 @@ const styles = StyleSheet.create({
   },
   demoBtnText: {
     color: Colors.primary,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
   demoBtnTextBlue: {
@@ -700,13 +698,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 28,
+    marginTop: 32,
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
   },
   footerLink: {
     color: Colors.subtext,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 20,
   },
   footerHighlight: {
     color: Colors.primary,
@@ -716,6 +715,6 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: '#E2E8F0',
   },
 });

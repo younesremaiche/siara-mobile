@@ -299,12 +299,17 @@ export function buildLeafletHTML({
   polylines = [],
   userLocation = null,
   mapLayer = 'points',
+  heatClusters = [],
+  alertZones = [],
+  mapClickEnabled = false,
 } = {}) {
   const tile = TILE_LAYERS[tileLayer] || TILE_LAYERS.voyager;
   const markersJSON = JSON.stringify(markers);
   const circlesJSON = JSON.stringify(circles);
   const polylinesJSON = JSON.stringify(polylines);
   const userJSON = JSON.stringify(userLocation);
+  const heatClustersJSON = JSON.stringify(heatClusters);
+  const alertZonesJSON = JSON.stringify(alertZones);
 
   return `<!DOCTYPE html>
 <html>
@@ -328,6 +333,8 @@ export function buildLeafletHTML({
     .legend-item{display:flex;align-items:center;margin:3px 0}
     .legend-dot{width:10px;height:10px;border-radius:50%;margin-right:8px;border:1.5px solid rgba(255,255,255,.8);box-shadow:0 1px 3px rgba(0,0,0,.2)}
     .legend-label{color:#4A4A4A;font-weight:500}
+    .cluster-lbl{background:rgba(255,255,255,.92);border-radius:10px;padding:2px 7px;font-size:11px;font-weight:700;color:#232323;box-shadow:0 1px 4px rgba(0,0,0,.2);pointer-events:none;text-align:center;white-space:nowrap}
+    .zone-tap-hint{font-size:11px;color:#4A4A4A;padding:2px 0}
   </style>
 </head>
 <body>
@@ -366,6 +373,47 @@ export function buildLeafletHTML({
         color:c.color||getColor(c.severity),
         weight:c.weight||1.5,
         opacity:c.opacity||0.4,
+      }).addTo(map);
+    });
+
+    // ── Render DBSCAN heat clusters ──
+    var heatData=${heatClustersJSON};
+    heatData.forEach(function(c){
+      if(c.lat==null||c.lng==null) return;
+      var clr=c.color||getColor(c.severity);
+      L.circle([c.lat,c.lng],{
+        radius:c.radius||600,
+        fillColor:clr,
+        fillOpacity:c.fillOpacity||0.2,
+        color:clr,
+        weight:1.5,
+        opacity:0.55,
+      }).addTo(map);
+      if(c.count>1){
+        var n=c.count;
+        var lbl=n>=10000?Math.round(n/1000)+'k':n>=1000?(n/1000).toFixed(1)+'k':String(n);
+        L.marker([c.lat,c.lng],{
+          icon:L.divIcon({className:'',html:'<div class="cluster-lbl">'+lbl+'</div>',iconSize:[36,20],iconAnchor:[18,10]}),
+          interactive:false,
+          zIndexOffset:500,
+        }).addTo(map);
+      }
+    });
+
+    // ── Render alert zones ──
+    var zoneData=${alertZonesJSON};
+    zoneData.forEach(function(z){
+      if(z.lat==null||z.lng==null) return;
+      var zClr=z.color||getColor(z.severity);
+      L.circle([z.lat,z.lng],{
+        radius:z.radius||1000,
+        fillColor:zClr,
+        fillOpacity:0.12,
+        color:zClr,
+        weight:2,
+        opacity:0.7,
+      }).bindTooltip((z.name||'Alert Zone')+(z.count?' ('+z.count+' reports)':''),{
+        permanent:false,direction:'top',offset:[0,-8],className:'marker-tooltip',
       }).addTo(map);
     });
 
@@ -459,12 +507,20 @@ export function buildLeafletHTML({
     }
 
     map.on('moveend',function(){
-      var center=map.getCenter();
+      var c=map.getCenter();
+      var b=map.getBounds();
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type:'mapRegionChange',
-        center:{lat:center.lat,lng:center.lng},
+        center:{lat:c.lat,lng:c.lng},
         zoom:map.getZoom(),
+        bounds:{north:b.getNorth(),south:b.getSouth(),east:b.getEast(),west:b.getWest()},
       }));
+    });
+
+    var mapClickEnabled=${mapClickEnabled ? 'true' : 'false'};
+    map.on('click',function(e){
+      if(!mapClickEnabled) return;
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'mapClick',lat:e.latlng.lat,lng:e.latlng.lng}));
     });
 
     // Notify RN that the map is ready
