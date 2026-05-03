@@ -128,7 +128,16 @@ function xaiDangerColor(level) {
   return '#22c55e';
 }
 
-function SegmentXaiPanel({ explanation, onClose }) {
+function SegmentXaiPanel({ explanation, onClose, loading }) {
+  if (loading) {
+    return (
+      <View style={xaiStyles.loadingWrap}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={xaiStyles.loadingText}>Analyzing segment…</Text>
+      </View>
+    );
+  }
+
   const dangerPct = explanation?.danger_percent ?? explanation?.dangerPercent ?? null;
   const rawLevel = explanation?.danger_level || explanation?.dangerLevel || '';
   const level = (() => {
@@ -144,60 +153,61 @@ function SegmentXaiPanel({ explanation, onClose }) {
   const dangerColor = xaiDangerColor(level);
   const confidence = explanation?.confidence ?? null;
   const quality = explanation?.quality ?? null;
-  const summary = explanation?.summary || explanation?.text || '';
   const reasons = extractXaiReasons(explanation);
 
   return (
     <ScrollView style={xaiStyles.scroll} contentContainerStyle={xaiStyles.scrollContent} showsVerticalScrollIndicator={false}>
+      {/* ── Header ── */}
       <View style={xaiStyles.headerRow}>
-        <Text style={xaiStyles.title}>Segment Risk Analysis</Text>
-        <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close-circle" size={22} color="#9CA3AF" />
+        <Text style={xaiStyles.title}>Segment Explanation</Text>
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={xaiStyles.closeBtn}
+        >
+          <Text style={xaiStyles.closeBtnText}>✕</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={xaiStyles.metaRow}>
+      {/* ── Stats block ── */}
+      <View style={xaiStyles.statsBlock}>
         {dangerPct != null && (
-          <View style={[xaiStyles.dangerPill, { backgroundColor: `${dangerColor}18`, borderColor: dangerColor }]}>
-            <Text style={[xaiStyles.dangerPillText, { color: dangerColor }]}>
-              {Math.round(dangerPct)}% {level.charAt(0).toUpperCase() + level.slice(1)}
+          <Text style={xaiStyles.statLine}>
+            {'danger: '}
+            <Text style={[xaiStyles.statHighlight, { color: dangerColor }]}>
+              {Math.round(dangerPct)}% ({level})
             </Text>
-          </View>
+          </Text>
         )}
         {confidence != null && (
-          <View style={xaiStyles.metaBadge}>
-            <Text style={xaiStyles.metaBadgeText}>confidence {Number(confidence).toFixed(2)}</Text>
-          </View>
+          <Text style={xaiStyles.statLine}>
+            {'confidence: '}
+            <Text style={xaiStyles.statMuted}>{Number(confidence).toFixed(0)}</Text>
+          </Text>
         )}
         {quality != null && (
-          <View style={xaiStyles.metaBadge}>
-            <Text style={xaiStyles.metaBadgeText}>{quality}</Text>
-          </View>
+          <Text style={xaiStyles.statLine}>
+            {'quality: '}
+            <Text style={xaiStyles.statMuted}>{quality}</Text>
+          </Text>
         )}
       </View>
 
-      {summary ? <Text style={xaiStyles.summary}>{summary}</Text> : null}
-
+      {/* ── SHAP reasons ── */}
       {reasons.length > 0 && (
         <View style={xaiStyles.reasonsSection}>
-          <Text style={xaiStyles.reasonsTitle}>TOP CONTRIBUTING FACTORS</Text>
+          <Text style={xaiStyles.reasonsHeader}>TOP SHAP REASONS</Text>
           {reasons.map((r, i) => {
             const increases = r.direction === 'increases_risk';
-            const badgeColor = increases ? '#dc2626' : '#16a34a';
-            const badgeBg = increases ? '#fef2f2' : '#f0fdf4';
-            const maxImpact = Math.max(...reasons.map((x) => x.impact), 0.001);
-            const barPct = Math.min((r.impact / maxImpact) * 100, 100);
             return (
-              <View key={i} style={[xaiStyles.reasonRow, i % 2 === 0 && xaiStyles.reasonRowEven]}>
+              <View key={i} style={[xaiStyles.reasonRow, i % 2 !== 0 && xaiStyles.reasonRowOdd]}>
                 <Text style={xaiStyles.reasonName} numberOfLines={1}>{r.name}</Text>
-                <View style={xaiStyles.reasonRight}>
-                  <View style={[xaiStyles.impactBar, { width: `${barPct}%`, backgroundColor: badgeColor + '55' }]} />
-                  <View style={[xaiStyles.dirBadge, { backgroundColor: badgeBg, borderColor: badgeColor + '40' }]}>
-                    <Text style={[xaiStyles.dirBadgeText, { color: badgeColor }]}>
-                      {increases ? '↑ increases' : '↓ decreases'}
-                    </Text>
-                  </View>
+                <View style={[xaiStyles.dirBadge, increases ? xaiStyles.badgeRed : xaiStyles.badgeGreen]}>
+                  <Text style={[xaiStyles.dirText, { color: increases ? '#dc2626' : '#16a34a' }]}>
+                    {increases ? 'increases' : 'decreases'}
+                  </Text>
                 </View>
+                <Text style={xaiStyles.reasonValue}>{Number(r.impact).toFixed(2)}</Text>
               </View>
             );
           })}
@@ -209,80 +219,117 @@ function SegmentXaiPanel({ explanation, onClose }) {
 
 const xaiStyles = StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 12 },
+  scrollContent: { paddingBottom: 16 },
+
+  /* Loading state */
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+
+  /* Header */
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  title: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  dangerPill: {
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  dangerPillText: { fontSize: 12, fontWeight: '700' },
-  metaBadge: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  metaBadgeText: { fontSize: 11, color: '#6B7280', fontWeight: '500' },
-  summary: {
-    fontSize: 12,
-    color: '#4B5563',
-    lineHeight: 18,
-    marginBottom: 12,
-    backgroundColor: 'rgba(124,58,237,0.04)',
-    borderRadius: 8,
-    padding: 10,
-  },
-  reasonsSection: { marginTop: 4 },
-  reasonsTitle: {
-    fontSize: 10,
+  title: {
+    fontSize: 17,
     fontWeight: '700',
+    color: '#111827',
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+
+  /* Stats */
+  statsBlock: {
+    gap: 6,
+    marginBottom: 18,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  statLine: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '400',
+  },
+  statHighlight: {
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  statMuted: {
+    fontWeight: '600',
+    color: '#111827',
+    fontSize: 14,
+  },
+
+  /* SHAP reasons */
+  reasonsSection: { gap: 2 },
+  reasonsHeader: {
+    fontSize: 11,
+    fontWeight: '800',
     color: '#7c3aed',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     textTransform: 'uppercase',
-    marginBottom: 6,
+    marginBottom: 10,
   },
   reasonRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  reasonRowEven: { backgroundColor: 'rgba(124,58,237,0.025)' },
+  reasonRowOdd: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
   reasonName: {
     flex: 1,
-    fontSize: 12,
-    color: '#374151',
-    fontWeight: '500',
-    marginRight: 8,
+    fontSize: 13,
+    color: '#1F2937',
+    fontWeight: '600',
     textTransform: 'capitalize',
-  },
-  reasonRight: {
-    alignItems: 'flex-end',
-    gap: 3,
-    minWidth: 100,
-  },
-  impactBar: {
-    height: 3,
-    borderRadius: 2,
-    alignSelf: 'stretch',
   },
   dirBadge: {
     borderRadius: 6,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  dirBadgeText: { fontSize: 10, fontWeight: '600' },
+  badgeRed: { backgroundColor: '#FEF2F2' },
+  badgeGreen: { backgroundColor: '#F0FDF4' },
+  dirText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reasonValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+    minWidth: 40,
+    textAlign: 'right',
+  },
 });
 
 export default function MapScreen({ navigation }) {
@@ -318,6 +365,7 @@ export default function MapScreen({ navigation }) {
 
   const mapRef = useRef(null);
   const previousGuidanceActiveRef = useRef(false);
+  const prevSheetRef = useRef({ mode: 'map', index: 0, height: 112 });
   const sheetBottomOffset = 0;
   const sheetContentBottomPadding = useMemo(() => insets.bottom + 24, [insets.bottom]);
   const usableHeight = useMemo(() => Math.max(320, height - sheetBottomOffset), [sheetBottomOffset]);
@@ -394,6 +442,24 @@ export default function MapScreen({ navigation }) {
       clearTimeout(timer);
     };
   }, [selectedTimestampIso, userPosition]);
+
+  // When a segment is tapped → save current sheet state and expand to show XAI
+  useEffect(() => {
+    const isXai = selectedIncident?.loading || selectedIncident?.explanation;
+    if (isXai && mapDisplayMode !== 'xai') {
+      prevSheetRef.current = { mode: mapDisplayMode, index: bottomSheetIndex, height: bottomSheetHeight };
+      handleSheetModeChange('xai', 1, snapHeights[1]);
+    }
+    if (!isXai && mapDisplayMode === 'xai') {
+      const prev = prevSheetRef.current;
+      handleSheetModeChange(prev.mode, prev.index, prev.height);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIncident]);
+
+  const handleCloseXai = useCallback(() => {
+    setSelectedIncident(null);
+  }, []);
 
   const filteredMarkers = useMemo(() => (
     MOCK_MARKERS.filter((marker) => {
@@ -522,95 +588,107 @@ export default function MapScreen({ navigation }) {
         bottomOffset={sheetBottomOffset}
         contentBottomPadding={sheetContentBottomPadding}
       >
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{selectedRoute ? `${selectedRoute.route_label} guidance` : 'Route guidance'}</Text>
-          <Text style={styles.sectionText}>
-            {selectedRoute
-              ? `${destination?.full_name || destination?.name || 'Destination'} | ${selectedRoute.comparisonText}`
-              : 'Search a destination and request guidance to compare the fastest, safest, and balanced routes.'}
-          </Text>
-        </View>
-
-        <GuidanceSearchSection
-          destinationQuery={mapSnapshot.destinationQuery || ''}
-          destinationResults={mapSnapshot.showSearchResults ? (mapSnapshot.destinationResults || []) : []}
-          destinationSearchState={mapSnapshot.destinationSearchState || 'idle'}
-          destinationSearchError={mapSnapshot.destinationSearchError || ''}
-          guidedRouteError={mapSnapshot.guidedRouteError || ''}
-          selectedDestination={destination}
-          onDestinationQueryChange={(text) => mapRef.current?.setDestinationQuery?.(text)}
-          onDestinationFocus={() => mapRef.current?.setShowSearchResults?.(true)}
-          onSelectDestination={(item) => mapRef.current?.selectDestination?.(item)}
-          onClearDestination={() => mapRef.current?.clearDestination?.()}
-        />
-
-        <GuidanceTimeControls
-          presetKey={mapSnapshot.presetKey || '0'}
-          customDate={mapSnapshot.customDate || ''}
-          onSelectPreset={(value) => mapRef.current?.setTimePreset?.(value)}
-          onChangeCustomDate={(value) => mapRef.current?.setCustomDate?.(value)}
-        />
-
-        {!guidanceActive || mapDisplayMode === 'info' ? (
-          <CurrentRiskSection
-            riskDisplay={mapSnapshot.riskDisplay}
-            currentRiskState={mapSnapshot.currentRiskState || 'idle'}
-            currentRiskError={mapSnapshot.currentRiskError || ''}
-            sentinelInfo={mapSnapshot.sentinelInfo}
-            onExplain={() => mapRef.current?.showRiskExplanation?.()}
+        {(selectedIncident?.loading || selectedIncident?.explanation) && selectedIncident?.kind !== 'report' ? (
+          /* ── XAI segment explanation panel ── */
+          <SegmentXaiPanel
+            explanation={selectedIncident.explanation}
+            loading={selectedIncident.loading}
+            onClose={handleCloseXai}
           />
-        ) : null}
+        ) : (
+          /* ── Normal guidance content ── */
+          <>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{selectedRoute ? `${selectedRoute.route_label} guidance` : 'Route guidance'}</Text>
+              <Text style={styles.sectionText}>
+                {selectedRoute
+                  ? `${destination?.full_name || destination?.name || 'Destination'} | ${selectedRoute.comparisonText}`
+                  : 'Search a destination and request guidance to compare the fastest, safest, and balanced routes.'}
+              </Text>
+            </View>
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, (!destination || mapSnapshot.isGuidanceBusy) && styles.disabledBtn]}
-            onPress={() => mapRef.current?.startGuidance?.()}
-            disabled={!destination || mapSnapshot.isGuidanceBusy}
-          >
-            {mapSnapshot.isGuidanceBusy ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="navigate" size={16} color={Colors.white} />}
-            <Text style={styles.primaryBtnText}>{guidanceActive ? 'Refresh guidance' : 'Start guidance'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={handleClearGuidance}>
-            <Ionicons name="close" size={16} color={Colors.error} />
-            <Text style={styles.secondaryBtnText}>Clear</Text>
-          </TouchableOpacity>
-        </View>
+            <GuidanceSearchSection
+              destinationQuery={mapSnapshot.destinationQuery || ''}
+              destinationResults={mapSnapshot.showSearchResults ? (mapSnapshot.destinationResults || []) : []}
+              destinationSearchState={mapSnapshot.destinationSearchState || 'idle'}
+              destinationSearchError={mapSnapshot.destinationSearchError || ''}
+              guidedRouteError={mapSnapshot.guidedRouteError || ''}
+              selectedDestination={destination}
+              onDestinationQueryChange={(text) => mapRef.current?.setDestinationQuery?.(text)}
+              onDestinationFocus={() => mapRef.current?.setShowSearchResults?.(true)}
+              onSelectDestination={(item) => mapRef.current?.selectDestination?.(item)}
+              onClearDestination={() => mapRef.current?.clearDestination?.()}
+            />
 
-        <RouteAlternativesList
-          routes={mapSnapshot.guidedRoutes || []}
-          selectedRouteType={selectedRouteType}
-          onSelectRouteType={(type) => {
-            setSelectedRouteType(type);
-            mapRef.current?.setSelectedRouteType?.(type);
-          }}
-        />
+            <GuidanceTimeControls
+              presetKey={mapSnapshot.presetKey || '0'}
+              customDate={mapSnapshot.customDate || ''}
+              onSelectPreset={(value) => mapRef.current?.setTimePreset?.(value)}
+              onChangeCustomDate={(value) => mapRef.current?.setCustomDate?.(value)}
+            />
 
-        <RouteDetailsSection
-          route={selectedRoute}
-          sentinelInfo={mapSnapshot.sentinelInfo}
-          mode={mapDisplayMode === 'info' ? 'info' : 'guidance'}
-          onSegmentPress={(segment) => mapRef.current?.openSegmentExplanation?.(segment)}
-        />
+            {!guidanceActive || mapDisplayMode === 'info' ? (
+              <CurrentRiskSection
+                riskDisplay={mapSnapshot.riskDisplay}
+                currentRiskState={mapSnapshot.currentRiskState || 'idle'}
+                currentRiskError={mapSnapshot.currentRiskError || ''}
+                sentinelInfo={mapSnapshot.sentinelInfo}
+                onExplain={() => mapRef.current?.showRiskExplanation?.()}
+              />
+            ) : null}
 
-        {mapDisplayMode === 'info' ? (
-          <ForecastTabsSection
-            forecastTab={forecastTab}
-            onChangeTab={setForecastTab}
-            forecastPoints={forecastPoints}
-            forecastLoading={forecastLoading}
-            userPosition={userPosition}
-            weatherTemp={weatherTemp}
-            weatherDesc={weatherDesc}
-            weatherWind={weatherWind}
-            weatherHumidity={weatherHumidity}
-            weatherVisibility={weatherVisibility}
-            weatherPressure={weatherPressure}
-            weatherIconName={weatherIconName}
-            trendingZones={TRENDING_ZONES}
-            activeAlerts={ACTIVE_ALERTS}
-            onManageAlerts={() => navigation.navigate('Alerts')}
-          />
-        ) : null}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, (!destination || mapSnapshot.isGuidanceBusy) && styles.disabledBtn]}
+                onPress={() => mapRef.current?.startGuidance?.()}
+                disabled={!destination || mapSnapshot.isGuidanceBusy}
+              >
+                {mapSnapshot.isGuidanceBusy ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="navigate" size={16} color={Colors.white} />}
+                <Text style={styles.primaryBtnText}>{guidanceActive ? 'Refresh guidance' : 'Start guidance'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={handleClearGuidance}>
+                <Ionicons name="close" size={16} color={Colors.error} />
+                <Text style={styles.secondaryBtnText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+
+            <RouteAlternativesList
+              routes={mapSnapshot.guidedRoutes || []}
+              selectedRouteType={selectedRouteType}
+              onSelectRouteType={(type) => {
+                setSelectedRouteType(type);
+                mapRef.current?.setSelectedRouteType?.(type);
+              }}
+            />
+
+            <RouteDetailsSection
+              route={selectedRoute}
+              sentinelInfo={mapSnapshot.sentinelInfo}
+              mode={mapDisplayMode === 'info' ? 'info' : 'guidance'}
+              onSegmentPress={(segment) => mapRef.current?.openSegmentExplanation?.(segment)}
+            />
+
+            {mapDisplayMode === 'info' ? (
+              <ForecastTabsSection
+                forecastTab={forecastTab}
+                onChangeTab={setForecastTab}
+                forecastPoints={forecastPoints}
+                forecastLoading={forecastLoading}
+                userPosition={userPosition}
+                weatherTemp={weatherTemp}
+                weatherDesc={weatherDesc}
+                weatherWind={weatherWind}
+                weatherHumidity={weatherHumidity}
+                weatherVisibility={weatherVisibility}
+                weatherPressure={weatherPressure}
+                weatherIconName={weatherIconName}
+                trendingZones={TRENDING_ZONES}
+                activeAlerts={ACTIVE_ALERTS}
+                onManageAlerts={() => navigation.navigate('Alerts')}
+              />
+            ) : null}
+          </>
+        )}
       </GuidanceBottomSheet>
 
       <Modal visible={showFilterSheet} transparent animationType="slide" onRequestClose={() => setShowFilterSheet(false)}>
@@ -717,35 +795,26 @@ export default function MapScreen({ navigation }) {
         onClose={() => setSelectedIncident(null)}
       />
 
-      <Modal visible={!!selectedIncident && selectedIncident?.kind !== 'report'} transparent animationType="slide" onRequestClose={() => setSelectedIncident(null)}>
+      <Modal visible={!!selectedIncident && selectedIncident?.kind !== 'report' && !selectedIncident?.explanation && !selectedIncident?.loading} transparent animationType="slide" onRequestClose={() => setSelectedIncident(null)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setSelectedIncident(null)}>
-          <View style={[styles.modalCard, selectedIncident?.explanation && styles.modalCardXai]}>
+          <View style={styles.modalCard}>
             <View style={styles.handle} />
-            {selectedIncident?.explanation ? (
-              <SegmentXaiPanel
-                explanation={selectedIncident.explanation}
-                onClose={() => setSelectedIncident(null)}
-              />
-            ) : selectedIncident ? (
-              <>
-                <View style={styles.incidentBadgeRow}>
-                  <View
-                    style={[
-                      styles.incidentBadge,
-                      {
-                        borderColor: severityColor(selectedIncident.severity),
-                        backgroundColor: `${severityColor(selectedIncident.severity)}22`,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.incidentBadgeText, { color: severityColor(selectedIncident.severity) }]}>
-                      {(selectedIncident.severity || 'info').toUpperCase()}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.modalTitle}>{selectedIncident.title || 'Incident'}</Text>
-              </>
-            ) : null}
+            <View style={styles.incidentBadgeRow}>
+              <View
+                style={[
+                  styles.incidentBadge,
+                  {
+                    borderColor: severityColor(selectedIncident?.severity),
+                    backgroundColor: `${severityColor(selectedIncident?.severity)}22`,
+                  },
+                ]}
+              >
+                <Text style={[styles.incidentBadgeText, { color: severityColor(selectedIncident?.severity) }]}>
+                  {(selectedIncident?.severity || 'info').toUpperCase()}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.modalTitle}>{selectedIncident?.title || 'Incident'}</Text>
           </View>
         </TouchableOpacity>
       </Modal>

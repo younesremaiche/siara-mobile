@@ -6,16 +6,15 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
-  Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../theme/colors';
-
-const { width } = Dimensions.get('window');
 
 const SERVICES = [
   {
-    icon: 'analytics',
+    icon: 'analytics-outline',
     title: 'Risk Analysis',
     description: 'AI-powered analysis of road accident risk factors in real-time across Algeria.',
     color: Colors.primary,
@@ -23,7 +22,7 @@ const SERVICES = [
     borderColor: Colors.violetBorder,
   },
   {
-    icon: 'map',
+    icon: 'map-outline',
     title: 'Prediction Map',
     description: 'Interactive heatmap showing predicted danger zones based on historical and live data.',
     color: Colors.secondary,
@@ -31,15 +30,15 @@ const SERVICES = [
     borderColor: Colors.blueBorder,
   },
   {
-    icon: 'notifications',
+    icon: 'notifications-outline',
     title: 'Real-Time Alerts',
     description: 'Instant notifications when risk levels change in your monitored areas and routes.',
-    color: Colors.severityHigh,
+    color: '#F97316',
     bg: 'rgba(249,115,22,0.08)',
     borderColor: 'rgba(249,115,22,0.18)',
   },
   {
-    icon: 'people',
+    icon: 'people-outline',
     title: 'Community Reporting',
     description: 'Crowdsourced incident reporting system with AI verification and trust scoring.',
     color: Colors.accent,
@@ -47,7 +46,7 @@ const SERVICES = [
     borderColor: 'rgba(15,169,88,0.18)',
   },
   {
-    icon: 'bar-chart',
+    icon: 'bar-chart-outline',
     title: 'Analytics Dashboard',
     description: 'Comprehensive charts and insights into road safety trends and patterns.',
     color: '#8B5CF6',
@@ -55,7 +54,7 @@ const SERVICES = [
     borderColor: 'rgba(139,92,246,0.18)',
   },
   {
-    icon: 'phone-portrait',
+    icon: 'phone-portrait-outline',
     title: 'Mobile Notifications',
     description: 'Push notifications, SMS, and email alerts customizable to your preferences.',
     color: Colors.secondary,
@@ -66,190 +65,262 @@ const SERVICES = [
 
 export default function ServicesScreen({ navigation }) {
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={Colors.heading} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Services</Text>
-        <View style={{ width: 38 }} />
-      </View>
+    <View style={styles.root}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Gradient Hero Header ── */}
+        <LinearGradient
+          colors={[Colors.gradientFrom, Colors.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
+        >
+          <View style={styles.heroDecor1} />
+          <View style={styles.heroDecor2} />
 
-      {/* Hero section */}
-      <View style={styles.hero}>
-        <View style={styles.heroIconRow}>
-          <View style={[styles.heroIcon, { backgroundColor: Colors.btnPrimary }]}>
-            <Ionicons name="shield-checkmark" size={28} color={Colors.white} />
+          {/* Back button */}
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={20} color={Colors.white} />
+          </TouchableOpacity>
+
+          {/* Icon */}
+          <Image
+            source={require('../../assets/logos/siara-logo.png')}
+            style={styles.heroLogo}
+            resizeMode="contain"
+          />
+
+          <Text style={styles.heroTitle}>SIARA Services</Text>
+          <Text style={styles.heroSubtitle}>
+            Empowering road safety through AI,{'\n'}community, and real-time data.
+          </Text>
+
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>6</Text>
+              <Text style={styles.statLbl}>Services</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>58</Text>
+              <Text style={styles.statLbl}>Wilayas</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>24/7</Text>
+              <Text style={styles.statLbl}>Monitoring</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* ── Section label ── */}
+        <View style={styles.sectionLabelRow}>
+          <View style={styles.sectionLabelBadge}>
+            <Text style={styles.sectionLabelText}>ALL SERVICES</Text>
           </View>
         </View>
-        <Text style={styles.heroTitle}>SIARA Services</Text>
-        <Text style={styles.heroSubtitle}>
-          Empowering road safety through AI, community, and real-time data.
-        </Text>
-      </View>
 
-      {/* Services grid */}
-      <View style={styles.servicesSection}>
-        {SERVICES.map((service, index) => (
-          <TouchableOpacity
-            key={service.title}
-            style={styles.serviceCard}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.serviceIconWrap, { backgroundColor: service.bg, borderColor: service.borderColor }]}>
-              <Ionicons name={service.icon} size={28} color={service.color} />
-            </View>
-            <View style={styles.serviceInfo}>
-              <Text style={styles.serviceTitle}>{service.title}</Text>
-              <Text style={styles.serviceDesc}>{service.description}</Text>
-              <View style={styles.learnMoreRow}>
-                <Text style={[styles.learnMore, { color: service.color }]}>Learn More</Text>
-                <Ionicons name="arrow-forward" size={14} color={service.color} />
+        {/* ── Service cards ── */}
+        <View style={styles.cardList}>
+          {SERVICES.map((service) => (
+            <TouchableOpacity
+              key={service.title}
+              style={styles.card}
+              activeOpacity={0.75}
+            >
+              {/* Colored left accent */}
+              <View style={[styles.cardAccent, { backgroundColor: service.color }]} />
+
+              <View style={[styles.cardIconWrap, { backgroundColor: service.bg }]}>
+                <Ionicons name={service.icon} size={26} color={service.color} />
               </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
 
-      {/* CTA */}
-      <View style={styles.ctaCard}>
-        <View style={styles.ctaIconWrap}>
-          <Ionicons name="rocket" size={24} color={Colors.primary} />
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle}>{service.title}</Text>
+                <Text style={styles.cardDesc}>{service.description}</Text>
+                <View style={styles.learnMoreRow}>
+                  <Text style={[styles.learnMoreText, { color: service.color }]}>Learn More</Text>
+                  <Ionicons name="arrow-forward" size={13} color={service.color} />
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
         </View>
-        <Text style={styles.ctaTitle}>Ready to get started?</Text>
-        <Text style={styles.ctaDesc}>
-          Explore the map and set up your first safety alert today.
-        </Text>
-        <TouchableOpacity
-          style={styles.ctaBtn}
-          onPress={() => navigation.navigate('Map')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.ctaBtnText}>Open Map</Text>
-          <Ionicons name="arrow-forward" size={16} color={Colors.white} />
-        </TouchableOpacity>
-      </View>
 
-      <View style={styles.bottomSpacer} />
-    </ScrollView>
+        <View style={styles.bottomSpacer} />
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
+  root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
-  container: {
-    paddingBottom: 40,
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 0,
   },
 
-  /* Header */
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+  /* ── Hero ── */
+  hero: {
     paddingTop: Platform.OS === 'ios' ? 60 : 48,
-    paddingBottom: 14,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingBottom: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  heroDecor1: {
+    position: 'absolute',
+    top: -40,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  heroDecor2: {
+    position: 'absolute',
+    bottom: -20,
+    left: -40,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   backBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 58 : 46,
+    left: 20,
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
-    color: Colors.heading,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-
-  /* Hero */
-  hero: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 28,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  heroIconRow: {
+  heroLogo: {
+    width: 200,
+    height: 100,
     marginBottom: 16,
   },
-  heroIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.btnPrimary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
-  },
   heroTitle: {
-    color: Colors.heading,
+    color: Colors.white,
     fontSize: 26,
     fontWeight: '800',
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   heroSubtitle: {
-    color: Colors.subtext,
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 0,
+    width: '100%',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statNum: {
+    color: Colors.white,
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  statLbl: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
 
-  /* Services */
-  servicesSection: {
+  /* ── Section label ── */
+  sectionLabelRow: {
     paddingHorizontal: 20,
-    marginTop: 20,
+    paddingTop: 24,
+    paddingBottom: 4,
+  },
+  sectionLabelBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.violetLight,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  sectionLabelText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+
+  /* ── Cards ── */
+  cardList: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
     gap: 12,
   },
-  serviceCard: {
+  card: {
     flexDirection: 'row',
     backgroundColor: Colors.white,
     borderRadius: 18,
-    padding: 18,
+    overflow: 'hidden',
+    alignItems: 'center',
     gap: 16,
+    paddingRight: 18,
+    paddingVertical: 18,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.borderLight,
     shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 1,
-    shadowRadius: 8,
+    shadowRadius: 10,
     elevation: 3,
   },
-  serviceIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+  cardAccent: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 0,
+  },
+  cardIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
   },
-  serviceInfo: {
+  cardBody: {
     flex: 1,
   },
-  serviceTitle: {
+  cardTitle: {
     color: Colors.heading,
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 4,
   },
-  serviceDesc: {
+  cardDesc: {
     color: Colors.subtext,
     fontSize: 13,
     lineHeight: 18,
@@ -260,70 +331,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  learnMore: {
+  learnMoreText: {
     fontSize: 13,
-    fontWeight: '600',
-  },
-
-  /* CTA */
-  ctaCard: {
-    marginHorizontal: 20,
-    marginTop: 24,
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.violetBorder,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  ctaIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: Colors.violetLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  ctaTitle: {
-    color: Colors.heading,
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  ctaDesc: {
-    color: Colors.subtext,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  ctaBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.btnPrimary,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 14,
-    shadowColor: Colors.btnPrimary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  ctaBtnText: {
-    color: Colors.white,
-    fontSize: 15,
     fontWeight: '700',
   },
 
   bottomSpacer: {
-    height: 20,
+    height: 32,
   },
 });

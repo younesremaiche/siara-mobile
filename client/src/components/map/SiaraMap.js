@@ -1132,10 +1132,16 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
   // ── Guided segment explanation ──
   const handleGuidedSegmentClick = useCallback(async (segment) => {
-    if (!segment?.segment_id) return;
+    const segId = segment?.segment_id || segment?.id;
+    if (!segId) return;
     if (!userLocation || locationStatus !== 'granted') {
       setRouteExplainError('Location required for segment explanation.');
       return;
+    }
+
+    // Show modal immediately with loading state
+    if (setSelectedIncident) {
+      setSelectedIncident({ id: segId, loading: true });
     }
 
     setRouteExplainState('loading');
@@ -1146,7 +1152,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          segment_id: String(segment.segment_id),
+          segment_id: String(segId),
           timestamp: selectedTimestampIso,
           top_k: 8,
         }),
@@ -1164,14 +1170,14 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       setRouteExplainState('success');
       if (setSelectedIncident) {
         setSelectedIncident({
-          id: segment.segment_id,
-          title: `Route segment ${segment.segment_id}`,
+          id: segId,
           explanation: enriched,
         });
       }
     } catch (error) {
       setRouteExplainState('error');
       setRouteExplainError(error.message || 'Segment explanation failed');
+      if (setSelectedIncident) setSelectedIncident(null);
     } finally {
       setShapLoading(false);
     }
