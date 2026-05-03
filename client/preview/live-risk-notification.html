@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SIARA — Live Road Risk Notification (UI preview)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* Matches src/theme/colors.js */
+  :root{
+    --primary:#7A3DF0;
+    --secondary:#1D4ED8;
+    --accent:#0FA958;
+    --bg:#F6F7FB;
+    --surface:#FFFFFF;
+    --heading:#232323;
+    --textDark:#353535;
+    --text:#4A4A4A;
+    --subtext:#6B7280;
+    --btnPrimary:#7C3AED;
+    --btnDanger:#DC2626;
+    --border:#E5E7EB;
+    --violetLight:rgba(124,58,237,0.08);
+    --violetBorder:rgba(124,58,237,0.2);
+    --blueLight:rgba(59,130,246,0.08);
+    --severityLow:#22c55e;
+    --severityMedium:#eab308;
+    --severityHigh:#f97316;
+    --severityCritical:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a}
+  .page{min-height:100vh;padding:32px 16px;display:flex;flex-direction:column;align-items:center;gap:24px}
+  h1.title{color:#fff;font-weight:700;font-size:20px;margin:0;text-align:center}
+  p.lede{color:#cbd5e1;margin:0;font-size:13px;text-align:center;max-width:680px}
+  .row{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .col-label{color:#94a3b8;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;margin:0 0 10px 4px}
+
+  /* ----- Phone frame ----- */
+  .phone{
+    width:360px;background:var(--bg);border-radius:36px;padding:14px;
+    box-shadow:0 30px 60px rgba(0,0,0,0.45),0 0 0 6px #1e293b,0 0 0 7px #334155;
+    overflow:hidden;
+  }
+  .notch{height:24px;display:flex;justify-content:center;align-items:center}
+  .notch::after{content:"";width:90px;height:18px;background:#000;border-radius:12px}
+
+  /* ----- Settings screen mock (matches SettingsScreen.js) ----- */
+  .header{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--surface);padding:14px 16px;border-bottom:1px solid var(--border);
+    border-radius:18px 18px 0 0;
+  }
+  .iconBtn{width:38px;height:38px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;color:var(--heading);font-size:18px}
+  .headerTitle{font-size:18px;font-weight:700;color:var(--heading)}
+  .sectionCard{
+    margin:14px 12px 0 12px;background:var(--surface);border-radius:16px;border:1px solid var(--border);
+    box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;
+  }
+  .sectionHeader{display:flex;align-items:center;gap:10px;padding:14px 14px 8px}
+  .sectionIcon{width:34px;height:34px;border-radius:9px;background:var(--violetLight);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:16px}
+  .sectionTitle{font-size:15px;font-weight:700;color:var(--heading)}
+  .settingRow{display:flex;align-items:center;justify-content:space-between;padding:12px 14px}
+  .settingRowBorder{border-bottom:1px solid var(--border)}
+  .settingLeft{display:flex;align-items:center;gap:12px;flex:1}
+  .settingIcon{width:32px;height:32px;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;color:var(--text);font-size:15px}
+  .settingLabel{font-size:14px;font-weight:500;color:var(--textDark)}
+  .settingHint{font-size:11px;color:var(--subtext);margin-top:2px}
+  /* Switch */
+  .switch{position:relative;width:46px;height:28px;background:var(--border);border-radius:999px;cursor:pointer;transition:background .15s}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:transform .15s}
+  .switch.on{background:var(--btnPrimary)}
+  .switch.on::after{transform:translateX(18px)}
+  .newBadge{background:var(--violetLight);color:var(--primary);font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px}
+
+  /* Status pill under the row when ON */
+  .liveChip{
+    display:flex;align-items:center;gap:8px;margin:0 14px 12px;padding:10px 12px;
+    background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:10px;
+    font-size:12px;color:#0f5132;
+  }
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--severityLow);box-shadow:0 0 0 0 rgba(34,197,94,0.6);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.6)}70%{box-shadow:0 0 0 10px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+  /* ----- Android notification preview ----- */
+  .androidShade{
+    width:360px;background:#0b1220;border-radius:28px;padding:18px 14px 22px;
+    box-shadow:0 30px 60px rgba(0,0,0,0.45);
+    background-image:linear-gradient(180deg,#0b1220 0%,#111827 100%);
+  }
+  .shadeHeader{display:flex;justify-content:space-between;align-items:center;color:#cbd5e1;font-size:12px;margin-bottom:14px;padding:0 6px}
+  .shadeHeader .left{display:flex;gap:10px;align-items:center}
+  .quickToggles{display:flex;gap:8px;margin-bottom:14px;padding:0 4px}
+  .qt{width:38px;height:38px;border-radius:50%;background:#1e293b;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:14px}
+  .qt.on{background:#7C3AED;color:#fff}
+
+  .notif{
+    background:#1f2937;border-radius:18px;padding:14px;color:#e5e7eb;
+    box-shadow:0 4px 12px rgba(0,0,0,0.4);
+  }
+  .notifHead{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:#94a3b8}
+  .appIcon{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#7A3DF0,#1D4ED8);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800}
+  .ongoingDot{font-size:10px;color:#94a3b8}
+  .notifTitle{font-size:14px;font-weight:700;color:#fff;margin:0 0 4px}
+  .notifBody{font-size:13px;line-height:1.45;color:#cbd5e1;margin:0}
+  .notifBody b{color:#fff}
+  .riskBar{height:6px;background:#374151;border-radius:3px;overflow:hidden;margin:10px 0 8px}
+  .riskBar > div{height:100%;border-radius:3px;background:var(--severityMedium);transition:width .4s,background .4s}
+  .meta{display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-top:2px}
+  .actions{display:flex;border-top:1px solid #374151;margin:12px -14px -14px;padding-top:6px}
+  .actions button{
+    flex:1;background:transparent;border:none;color:#a78bfa;font-size:13px;font-weight:600;
+    padding:10px;cursor:pointer;letter-spacing:0.4px;text-transform:uppercase;
+  }
+  .actions button.danger{color:#f87171}
+  .actions .sep{width:1px;background:#374151;margin:6px 0}
+
+  /* ----- State controls ----- */
+  .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+  .ctrlBtn{
+    background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:999px;
+    padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;
+  }
+  .ctrlBtn.active{background:#7C3AED;border-color:#7C3AED;color:#fff}
+
+  .legend{color:#94a3b8;font-size:11px;text-align:center;margin-top:8px;max-width:340px}
+
+  /* iOS fallback note */
+  .iosNote{
+    width:360px;background:#0f172a;border:1px dashed #334155;border-radius:14px;padding:14px;color:#cbd5e1;font-size:12px;line-height:1.5
+  }
+  .iosNote b{color:#fff}
+
+  /* ----- Dedicated Live Risk card ----- */
+  .liveCard{
+    margin:14px 12px 0;background:#fff;border-radius:16px;border:1px solid var(--border);
+    box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;
+  }
+  .liveCardHead{
+    display:flex;align-items:flex-start;gap:12px;padding:16px 14px 12px;
+    background:linear-gradient(135deg,rgba(124,58,237,0.08) 0%,rgba(29,78,216,0.06) 100%);
+    border-bottom:1px solid var(--border);
+  }
+  .liveCardIcon{
+    width:46px;height:46px;border-radius:12px;
+    background:linear-gradient(135deg,var(--primary),var(--secondary));
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;
+    box-shadow:0 4px 10px rgba(124,58,237,0.25);
+    flex-shrink:0;
+  }
+  .liveCardTitleWrap{flex:1;min-width:0}
+  .liveCardTitleRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .liveCardTitle{font-size:15px;font-weight:700;color:var(--heading);margin:0}
+  .liveCardDesc{font-size:12px;line-height:1.5;color:var(--subtext);margin:6px 0 0}
+  .liveCardBody{padding:14px}
+  .liveCardRow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .liveCardSwitchLabel{font-size:13px;font-weight:600;color:var(--textDark)}
+  .liveCardHint{font-size:11px;color:var(--subtext);margin-top:8px;display:flex;align-items:center;gap:6px}
+  .liveCardHint .dot{width:4px;height:4px;border-radius:50%;background:var(--subtext);display:inline-block}
+
+  /* Status pill — mirrors states */
+  .statusPill{
+    display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;
+    font-size:12px;font-weight:600;margin-top:12px;
+  }
+  .statusPill.active   {background:rgba(34,197,94,0.10);color:#15803d;border:1px solid rgba(34,197,94,0.25)}
+  .statusPill.waiting  {background:rgba(124,58,237,0.08);color:var(--primary);border:1px solid var(--violetBorder)}
+  .statusPill.disabled {background:#f1f5f9;color:var(--subtext);border:1px solid var(--border)}
+  .statusPill.permreq  {background:rgba(244,162,97,0.10);color:#b45309;border:1px solid rgba(244,162,97,0.35)}
+  .statusPill .stPulse{width:8px;height:8px;border-radius:50%;background:var(--severityLow);box-shadow:0 0 0 0 rgba(34,197,94,0.6);animation:pulse 1.6s infinite}
+  .statusPill .stSpin {width:10px;height:10px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .stateBtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:10px}
+  .stateBtn{
+    background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:999px;
+    padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;
+  }
+  .stateBtn.active{background:#7C3AED;border-color:#7C3AED;color:#fff}
+</style>
+</head>
+<body>
+  <div class="page">
+    <h1 class="title">Live Road Risk Notification — UI preview</h1>
+    <p class="lede">Three pieces of UI ship with this feature: a dedicated card in <i>Settings</i>, a status pill that updates in real time, and the Android foreground-service notification. Click the buttons below each preview to flip between states.</p>
+
+    <div class="row">
+      <!-- ============ SETTINGS PHONE ============ -->
+      <div>
+        <p class="col-label">Settings screen</p>
+        <div class="phone">
+          <div class="notch"></div>
+          <div class="header">
+            <div class="iconBtn">←</div>
+            <div class="headerTitle">Settings</div>
+            <div style="width:38px"></div>
+          </div>
+
+          <!-- Existing Notifications card stays (push/in-app rows only) -->
+          <div class="sectionCard">
+            <div class="sectionHeader">
+              <div class="sectionIcon">🔔</div>
+              <div class="sectionTitle">Notifications</div>
+            </div>
+            <div class="settingRow settingRowBorder">
+              <div class="settingLeft">
+                <div class="settingIcon">📱</div>
+                <div><div class="settingLabel">Phone Push Notifications</div></div>
+              </div>
+              <div class="switch on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="settingRow">
+              <div class="settingLeft">
+                <div class="settingIcon">🔔</div>
+                <div><div class="settingLabel">In-App Notifications</div></div>
+              </div>
+              <div class="switch on" onclick="this.classList.toggle('on')"></div>
+            </div>
+          </div>
+
+          <!-- DEDICATED LIVE ROAD RISK CARD -->
+          <div class="liveCard">
+            <div class="liveCardHead">
+              <div class="liveCardIcon">🛣️</div>
+              <div class="liveCardTitleWrap">
+                <div class="liveCardTitleRow">
+                  <p class="liveCardTitle">Live Road Risk Notification</p>
+                  <span class="newBadge">NEW</span>
+                </div>
+                <p class="liveCardDesc">Keep SIARA active in your notification panel and update your current road-risk level while you are outside the app.</p>
+              </div>
+            </div>
+            <div class="liveCardBody">
+              <div class="liveCardRow">
+                <span class="liveCardSwitchLabel">Enable</span>
+                <div id="liveSwitch" class="switch on" onclick="toggleLive()"></div>
+              </div>
+              <div class="liveCardHint">
+                <span>⏱</span><span>Updates every 60 seconds while active.</span>
+              </div>
+              <div id="statusPill" class="statusPill active">
+                <span class="stPulse"></span>
+                <span id="statusText">Active — monitoring road risk</span>
+              </div>
+              <div class="stateBtns">
+                <button class="stateBtn active" data-st="active"   onclick="setUiState('active')">Active</button>
+                <button class="stateBtn"        data-st="waiting"  onclick="setUiState('waiting')">Waiting for live data</button>
+                <button class="stateBtn"        data-st="disabled" onclick="setUiState('disabled')">Disabled</button>
+                <button class="stateBtn"        data-st="permreq"  onclick="setUiState('permreq')">Permissions required</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ANDROID NOTIFICATION ============ -->
+      <div>
+        <p class="col-label">Android lock-screen notification</p>
+        <div class="androidShade">
+          <div class="shadeHeader">
+            <div class="left"><span>Tue · 14:30</span></div>
+            <div>📶 📡 🔋 84%</div>
+          </div>
+          <div class="quickToggles">
+            <div class="qt on">📶</div><div class="qt on">🔵</div><div class="qt">🔇</div><div class="qt">🔦</div><div class="qt on">📍</div>
+          </div>
+
+          <div class="notif">
+            <div class="notifHead">
+              <span class="appIcon">S</span>
+              <span>SIARA</span>
+              <span class="ongoingDot">· now · ongoing</span>
+            </div>
+            <p class="notifTitle">SIARA Live Road Risk</p>
+            <p id="notifBody" class="notifBody">
+              Current risk: <b><span id="riskPct">42%</span> · <span id="riskLevel">Moderate</span></b><br/>
+              Location: <span id="riskPlace">Ain Smara</span><br/>
+              <span id="riskWeather">Clear · 22°C</span>
+            </p>
+            <div class="riskBar"><div id="riskFill" style="width:42%"></div></div>
+            <div class="meta">
+              <span>Updated <span id="riskTime">14:30</span></span>
+              <span id="riskSource">via /api/risk/current</span>
+            </div>
+            <div class="actions">
+              <button>Open SIARA</button>
+              <div class="sep"></div>
+              <button class="danger">Stop</button>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button class="ctrlBtn active" data-state="moderate" onclick="setState('moderate')">Moderate 42%</button>
+            <button class="ctrlBtn" data-state="high" onclick="setState('high')">High 71%</button>
+            <button class="ctrlBtn" data-state="critical" onclick="setState('critical')">Critical 92%</button>
+            <button class="ctrlBtn" data-state="low" onclick="setState('low')">Low 12%</button>
+            <button class="ctrlBtn" data-state="waiting" onclick="setState('waiting')">API failed (fallback)</button>
+          </div>
+          <p class="legend">channelId <code>siara_live_risk</code> · importance <code>LOW</code> · ongoing · onlyAlertOnce · category <code>service</code> · asForegroundService <code>true</code></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- iOS fallback -->
+    <div class="iosNote">
+      <b>iOS fallback:</b> Persistent live notification is only available on Android for now.<br/>
+      The card on iOS shows the disabled toggle, the message above, and a small "Live Activities coming soon" hint. Tapping does nothing.
+    </div>
+  </div>
+
+<script>
+  const STATES = {
+    low:      { pct:12, level:'Low',      color:'#22c55e', place:'Constantine center', weather:'Clear · 24°C',  body:null },
+    moderate: { pct:42, level:'Moderate', color:'#eab308', place:'Ain Smara',          weather:'Clear · 22°C',  body:null },
+    high:     { pct:71, level:'High',     color:'#f97316', place:'RN5 km 12',          weather:'Light rain · 18°C', body:null },
+    critical: { pct:92, level:'Critical', color:'#ef4444', place:'Ali Mendjeli bypass', weather:'Heavy rain · 16°C', body:null },
+    waiting:  { pct:0,  level:'—',         color:'#64748b', place:'—',                  weather:'—',
+                body:'Monitoring road risk · waiting for live data' }
+  };
+
+  function setState(key){
+    const s = STATES[key];
+    document.querySelectorAll('.ctrlBtn').forEach(b=>b.classList.toggle('active', b.dataset.state===key));
+    const fill = document.getElementById('riskFill');
+    fill.style.width = (s.pct||3) + '%';
+    fill.style.background = s.color;
+
+    const body = document.getElementById('notifBody');
+    if (s.body){
+      body.innerHTML = s.body;
+      document.getElementById('riskSource').textContent = 'retrying every 60s';
+    } else {
+      body.innerHTML =
+        'Current risk: <b>'+s.pct+'% · '+s.level+'</b><br/>'+
+        'Location: '+s.place+'<br/>'+s.weather;
+      document.getElementById('riskSource').textContent = 'via /api/risk/current';
+    }
+    const now = new Date();
+    const t = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('riskTime').textContent = t;
+    document.getElementById('chipTime').textContent = t;
+    document.getElementById('chipPlace').textContent = s.body ? 'waiting…' : s.place;
+  }
+
+  function toggleLive(){
+    const sw = document.getElementById('liveSwitch');
+    sw.classList.toggle('on');
+    setUiState(sw.classList.contains('on') ? 'waiting' : 'disabled');
+  }
+
+  const STATUS = {
+    active:   { cls:'active',   icon:'<span class="stPulse"></span>', text:'Active — monitoring road risk', on:true  },
+    waiting:  { cls:'waiting',  icon:'<span class="stSpin"></span>',  text:'Waiting for live data',          on:true  },
+    disabled: { cls:'disabled', icon:'',                              text:'Disabled',                       on:false },
+    permreq:  { cls:'permreq',  icon:'<span>⚠</span>',                text:'Permissions required',           on:false }
+  };
+  function setUiState(key){
+    const s = STATUS[key];
+    document.querySelectorAll('.stateBtn').forEach(b=>b.classList.toggle('active', b.dataset.st===key));
+    const pill = document.getElementById('statusPill');
+    pill.className = 'statusPill ' + s.cls;
+    pill.innerHTML = s.icon + ' <span>' + s.text + '</span>';
+    document.getElementById('liveSwitch').classList.toggle('on', s.on);
+  }
+</script>
+</body>
+</html>

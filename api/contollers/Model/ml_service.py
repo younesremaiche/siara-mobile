@@ -1149,6 +1149,23 @@ def predict_stream():
 
     quiz_result_data = response_payload["quiz_result_data"]
 
+    # Ollama-related codes produced by stream_quiz_explanation. Failures with
+    # these codes must NOT take down the whole quiz submission — the prediction
+    # itself succeeded, only the optional AI-generated explanation failed.
+    OLLAMA_FALLBACK_CODES = {
+        "OLLAMA_TIMEOUT",
+        "OLLAMA_REQUEST_FAILED",
+        "OLLAMA_ERROR",
+        "OLLAMA_STREAM_ERROR",
+        "OLLAMA_UNEXPECTED_ERROR",
+        "LLM_PROVIDER_UNSUPPORTED",
+    }
+    FALLBACK_EXPLANATION_TEXT = (
+        "Your result was calculated successfully. SIARA could not generate a "
+        "detailed AI explanation right now, so this summary is based on your "
+        "quiz score and risk category."
+    )
+
     @stream_with_context
     def generate():
         explanation_parts = []
@@ -1168,6 +1185,43 @@ def predict_stream():
                 payload["elapsed_ms"] = payload.get("elapsed_ms") or int(
                     (time.monotonic() - request_started_at) * 1000
                 )
+                error_code = payload.get("code")
+                if error_code in OLLAMA_FALLBACK_CODES:
+                    # Optional AI explanation failed. Complete the stream with a
+                    # synthesized done event carrying a fallback explanation so
+                    # the client still gets the calculated quiz result.
+                    print(
+                        "[quiz-stream] explanation failed, sending fallback "
+                        f"after {payload['elapsed_ms']} ms: "
+                        f"{payload.get('details') or payload.get('error')}"
+                    )
+                    fallback_text = FALLBACK_EXPLANATION_TEXT
+                    final_payload = {
+                        **response_payload,
+                        "explanation_text": fallback_text,
+                        "structured_explanation": structure_quiz_explanation(fallback_text),
+                        "explanation_source": "fallback",
+                        "fallback": True,
+                        "explanation_error": {
+                            "code": error_code,
+                            "message": payload.get("error"),
+                            "details": payload.get("details"),
+                        },
+                    }
+                    yield sse_event(
+                        "done",
+                        {
+                            "result": final_payload,
+                            "explanation_text": fallback_text,
+                            "structured_explanation": final_payload["structured_explanation"],
+                            "explanation_source": "fallback",
+                            "fallback": True,
+                            "explanation_error": final_payload["explanation_error"],
+                            "elapsed_ms": payload["elapsed_ms"],
+                        },
+                    )
+                    return
+                # Non-recoverable error (e.g. config). Preserve fatal behavior.
                 print(
                     "[quiz-stream] stream failed "
                     f"after {payload['elapsed_ms']} ms: {payload.get('details') or payload.get('error')}"

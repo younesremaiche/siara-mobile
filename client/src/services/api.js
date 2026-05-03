@@ -151,8 +151,8 @@ export async function getRouteGuide(data) {
 
 // ─── Weather endpoints ───────────────────────────────────
 
-export async function getCurrentWeather(lat, lon) {
-  return request(`/api/weather/current?lat=${lat}&lon=${lon}`);
+export async function getCurrentWeather(lat, lng) {
+  return request(`/api/weather/current?lat=${lat}&lng=${lng}`);
 }
 
 export async function getRiskForecast24h(lat, lon) {

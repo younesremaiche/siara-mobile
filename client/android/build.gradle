@@ -18,6 +18,10 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+    // Notifee ships its `app.notifee:core` Android library as a local AAR
+    // bundle. Without this repo entry Gradle can't resolve it from any of
+    // the public registries.
+    maven { url "$rootDir/../node_modules/@notifee/react-native/android/libs" }
   }
 }
 

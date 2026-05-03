@@ -6,6 +6,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { maybeCompleteAuthSession } from './src/services/googleAuth';
 import { logResolvedApiBaseUrl } from './src/config/api';
 import { initializeNotificationPresentationAsync } from './src/services/mobilePushService';
+import { tryResumeSiaraLiveRiskNotification } from './src/services/siaraRiskNotificationService';
 
 export default function App() {
   useEffect(() => {
@@ -17,6 +18,11 @@ export default function App() {
         console.warn('[push] notification_presentation_init_failed', {
           message: error?.message || 'Unknown notification init error',
         });
+      }
+    });
+    tryResumeSiaraLiveRiskNotification().catch((error) => {
+      if (__DEV__) {
+        console.warn('[siaraLiveRisk] resume_failed', error?.message);
       }
     });
   }, []);

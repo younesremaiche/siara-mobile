@@ -1,4 +1,4 @@
-import React, { useState, useContext, useCallback } from 'react';
+import React, { useState, useContext, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,58 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationsContext';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
+import {
+  startSiaraLiveRiskNotification,
+  stopSiaraLiveRiskNotification,
+  isSiaraRiskNotificationEnabled,
+  subscribeLiveRiskStatus,
+  LIVE_RISK_STATUS,
+} from '../../services/siaraRiskNotificationService';
+
+function LiveRiskStatusPill({ status, busy }) {
+  const map = {
+    [LIVE_RISK_STATUS.ACTIVE]: {
+      label: 'Active — monitoring road risk',
+      bg: 'rgba(34,197,94,0.10)',
+      border: 'rgba(34,197,94,0.25)',
+      color: '#15803d',
+      icon: 'pulse',
+    },
+    [LIVE_RISK_STATUS.WAITING]: {
+      label: busy ? 'Starting…' : 'Waiting for live data',
+      bg: Colors.violetLight,
+      border: Colors.violetBorder,
+      color: Colors.primary,
+      icon: 'sync',
+    },
+    [LIVE_RISK_STATUS.PERMREQ]: {
+      label: 'Permissions required',
+      bg: 'rgba(244,162,97,0.12)',
+      border: 'rgba(244,162,97,0.40)',
+      color: '#b45309',
+      icon: 'warning-outline',
+    },
+    [LIVE_RISK_STATUS.DISABLED]: {
+      label: 'Disabled',
+      bg: '#F1F5F9',
+      border: Colors.border,
+      color: Colors.subtext,
+      icon: 'pause-circle-outline',
+    },
+  };
+  const cfg = map[status] || map[LIVE_RISK_STATUS.DISABLED];
+  return (
+    <View style={[styles.statusPill, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+      <Ionicons name={cfg.icon} size={14} color={cfg.color} />
+      <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
 
 const SECTIONS = [
   {
@@ -103,6 +151,30 @@ export default function SettingsScreen({ navigation }) {
     darkMode: false,
   });
 
+  const [liveRiskEnabled, setLiveRiskEnabled] = useState(false);
+  const [liveRiskBusy, setLiveRiskBusy] = useState(false);
+  const [liveRiskStatus, setLiveRiskStatus] = useState(LIVE_RISK_STATUS.DISABLED);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const enabled = await isSiaraRiskNotificationEnabled();
+      if (!cancelled) setLiveRiskEnabled(enabled);
+    })();
+    const unsub = subscribeLiveRiskStatus((next) => {
+      if (cancelled) return;
+      setLiveRiskStatus(next);
+      // Auto-resume can flip the persisted flag back to false on permreq;
+      // mirror that here so the toggle reflects reality.
+      if (next === LIVE_RISK_STATUS.PERMREQ || next === LIVE_RISK_STATUS.DISABLED) {
+        setLiveRiskEnabled(false);
+      } else {
+        setLiveRiskEnabled(true);
+      }
+    });
+    return () => { cancelled = true; unsub(); };
+  }, []);
+
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [showDanger, setShowDanger] = useState(false);
 
@@ -121,6 +193,44 @@ export default function SettingsScreen({ navigation }) {
     }
 
     setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function handleLiveRiskToggle() {
+    if (Platform.OS !== 'android') {
+      Alert.alert(
+        'Live Road Risk',
+        'Persistent live notification is only available on Android for now.',
+      );
+      return;
+    }
+    if (liveRiskBusy) return;
+    setLiveRiskBusy(true);
+    try {
+      if (liveRiskEnabled) {
+        await stopSiaraLiveRiskNotification();
+      } else {
+        const result = await startSiaraLiveRiskNotification();
+        if (!result?.ok) {
+          if (result?.reason === 'location_denied') {
+            Alert.alert(
+              'Location required',
+              'SIARA needs location permission to monitor road risk in real time. Enable it in Settings and try again.',
+            );
+          } else if (result?.reason === 'notification_denied') {
+            Alert.alert(
+              'Notifications disabled',
+              'SIARA needs permission to show the live risk notification. Enable notifications in Settings.',
+            );
+          } else {
+            Alert.alert('Live Road Risk', 'Could not start the live notification right now.');
+          }
+        }
+      }
+    } catch (error) {
+      Alert.alert('Live Road Risk', error?.message || 'Something went wrong.');
+    } finally {
+      setLiveRiskBusy(false);
+    }
   }
 
   function handleLogout() {
@@ -254,6 +364,60 @@ export default function SettingsScreen({ navigation }) {
           ) : null}
         </View>
       ))}
+
+      {/* Live Road Risk Notification — dedicated card */}
+      <View style={styles.liveCard}>
+        <LinearGradient
+          colors={[Colors.gradientFrom, Colors.gradientTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.liveCardHead}
+        >
+          <View style={styles.liveCardIcon}>
+            <Ionicons name="speedometer" size={22} color={Colors.white} />
+          </View>
+          <View style={styles.liveCardTitleWrap}>
+            <View style={styles.liveCardTitleRow}>
+              <Text style={styles.liveCardTitle}>Live Road Risk Notification</Text>
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            </View>
+            <Text style={styles.liveCardDesc}>
+              Keep SIARA active in your notification panel and update your current road-risk level while you are outside the app.
+            </Text>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.liveCardBody}>
+          <View style={styles.liveCardRow}>
+            <Text style={styles.liveCardSwitchLabel}>Enable</Text>
+            <Switch
+              value={Boolean(liveRiskEnabled)}
+              onValueChange={handleLiveRiskToggle}
+              trackColor={{ true: Colors.btnPrimary, false: Colors.border }}
+              thumbColor={Colors.white}
+              disabled={Platform.OS !== 'android' || liveRiskBusy}
+            />
+          </View>
+
+          <View style={styles.liveCardHint}>
+            <Ionicons name="time-outline" size={12} color={Colors.subtext} />
+            <Text style={styles.liveCardHintText}>Updates every 60 seconds while active.</Text>
+          </View>
+
+          {Platform.OS === 'android' ? (
+            <LiveRiskStatusPill status={liveRiskStatus} busy={liveRiskBusy} />
+          ) : (
+            <View style={[styles.statusPill, styles.statusPillIos]}>
+              <Ionicons name="information-circle-outline" size={14} color={Colors.subtext} />
+              <Text style={styles.statusPillTextIos}>
+                Persistent live notification is only available on Android for now.
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
 
       {__DEV__ ? (
         <View style={styles.sectionCard}>
@@ -517,6 +681,123 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
     fontSize: 14,
     fontWeight: '500',
+  },
+  /* Live Road Risk dedicated card */
+  liveCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  liveCardHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  liveCardIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  liveCardTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  liveCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  liveCardTitle: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  newBadge: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  newBadgeText: {
+    color: Colors.white,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  liveCardDesc: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  liveCardBody: {
+    padding: 14,
+  },
+  liveCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  liveCardSwitchLabel: {
+    color: Colors.textDark,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  liveCardHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  liveCardHintText: {
+    color: Colors.subtext,
+    fontSize: 11,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statusPillIos: {
+    backgroundColor: '#F1F5F9',
+    borderColor: Colors.border,
+    alignSelf: 'stretch',
+  },
+  statusPillTextIos: {
+    color: Colors.subtext,
+    fontSize: 12,
+    flex: 1,
+    flexShrink: 1,
   },
   comingSoonBadge: {
     backgroundColor: Colors.violetLight,

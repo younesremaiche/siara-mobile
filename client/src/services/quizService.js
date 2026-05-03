@@ -10,6 +10,21 @@ const STILL_WAITING_MS = 10_000;
 const STREAM_HARD_TIMEOUT_MS = 120_000;
 const PREDICT_HARD_TIMEOUT_MS = 120_000;
 
+// Ollama explanation generation can fail (model offline, timeout, 500). The
+// quiz prediction itself is independent and may already be in hand via the
+// interim `result` event. Treat these codes as recoverable: complete the quiz
+// with a fallback explanation rather than failing the submission.
+const OLLAMA_FALLBACK_CODES = new Set([
+  'OLLAMA_REQUEST_FAILED',
+  'OLLAMA_TIMEOUT',
+  'OLLAMA_ERROR',
+  'OLLAMA_STREAM_ERROR',
+  'OLLAMA_UNEXPECTED_ERROR',
+  'LLM_PROVIDER_UNSUPPORTED',
+]);
+const FALLBACK_EXPLANATION_TEXT =
+  'Your result was calculated successfully. SIARA could not generate a detailed AI explanation right now, so this summary is based on your quiz score and risk category.';
+
 function logQuizDebug(label, payload) {
   if (!__DEV__) {
     return;
@@ -150,6 +165,10 @@ export function normalizeQuizPredictionResponse(response) {
       ?? mergedPayload.used_fallback
       ?? mergedPayload.usedFallback
       ?? null,
+    explanation_source:
+      mergedPayload.explanation_source
+      || mergedPayload.explanationSource
+      || null,
     deterministic_advice:
       mergedPayload.deterministic_advice
       || mergedPayload.deterministicAdvice
@@ -488,6 +507,7 @@ function createStreamState() {
   return {
     streamedExplanation: '',
     finalResult: null,
+    interimResult: null,
     streamError: null,
     streamErrorCode: null,
     streamErrorData: null,
@@ -521,6 +541,7 @@ function handleStreamEvent(event, data, state, handlers) {
 
   if (event === 'result') {
     const normalizedResult = normalizeQuizPredictionResponse(data);
+    state.interimResult = normalizedResult;
     handlers?.onResult?.(normalizedResult, { interim: true });
     emitDiagnostics(handlers, {
       streamStarted: true,
@@ -577,8 +598,49 @@ function handleStreamEvent(event, data, state, handlers) {
   }
 
   if (event === 'error') {
+    const code = data?.code || null;
+    // Ollama-only failures are recoverable: the prediction succeeded (interim
+    // result was already received), only the optional AI explanation failed.
+    // Synthesize a fallback `done` so the quiz still completes normally. This
+    // mirrors the backend fix for clients running against an older backend
+    // that hasn't been redeployed yet.
+    if (OLLAMA_FALLBACK_CODES.has(code) && state.interimResult) {
+      const fallbackText = data?.fallback_text || FALLBACK_EXPLANATION_TEXT;
+      const merged = mergeExplanationFields(
+        { ...(state.interimResult.raw || {}), ...data },
+        {
+          explanation_text: fallbackText,
+          structured_explanation: null,
+          explanation_status: STREAM_STATUS_LABELS.done,
+          fallback: true,
+          explanation_source: 'fallback',
+          explanation_error: { code, message: data?.error, details: data?.details },
+        },
+      );
+      const fallbackResult = normalizeQuizPredictionResponse(merged);
+      state.streamedExplanation = fallbackText;
+      state.finalResult = fallbackResult;
+      logQuizDebug('stream_fallback_after_error', {
+        code,
+        message: data?.error || null,
+      });
+      handlers?.onChunk?.({
+        content: fallbackText,
+        explanationText: fallbackText,
+      });
+      handlers?.onStatus?.(STREAM_STATUS_LABELS.done);
+      handlers?.onDone?.(fallbackResult);
+      emitDiagnostics(handlers, {
+        finalResultReceived: true,
+        fallbackTriggered: true,
+        requestMode: 'stream',
+        currentStatus: STREAM_STATUS_LABELS.done,
+      });
+      return;
+    }
+
     state.streamError = data?.error || data?.message || 'Live explanation stream failed';
-    state.streamErrorCode = data?.code || 'STREAM_ERROR_EVENT';
+    state.streamErrorCode = code || 'STREAM_ERROR_EVENT';
     state.streamErrorData = data;
     handlers?.onError?.(state.streamError, data);
     logQuizError('stream_error_event', {
