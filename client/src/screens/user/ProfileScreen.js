@@ -15,6 +15,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -259,19 +260,21 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Return to Police mode — only when a police officer is currently in user view */}
       {isPolice && activeMode === 'user' ? (
-        <TouchableOpacity
-          style={styles.policeBanner}
-          activeOpacity={0.85}
-          onPress={switchToPoliceMode}
-        >
-          <View style={styles.policeBannerIcon}>
-            <Ionicons name="shield" size={18} color={Colors.white} />
-          </View>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={styles.policeBannerTitle}>You're viewing as a citizen</Text>
-            <Text style={styles.policeBannerSub}>Tap to return to Police mode</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={Colors.white} />
+        <TouchableOpacity style={styles.policeBanner} activeOpacity={0.85} onPress={switchToPoliceMode}>
+          <LinearGradient
+            colors={['#0D1B2A', '#1A3251', '#1E4976']}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={styles.policeBannerGrad}
+          >
+            <View style={styles.policeBannerIcon}>
+              <Ionicons name="shield-checkmark" size={18} color="#93C5FD" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.policeBannerTitle}>You're viewing as a citizen</Text>
+              <Text style={styles.policeBannerSub}>Tap to return to Police mode</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(147,197,253,0.7)" />
+          </LinearGradient>
         </TouchableOpacity>
       ) : null}
 
@@ -288,24 +291,6 @@ export default function ProfileScreen({ navigation }) {
         ))}
       </View>
 
-      {showPoliceModeSwitch ? (
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.modeSwitchCard}
-          onPress={switchToPoliceMode}
-        >
-          <View style={styles.modeSwitchIconWrap}>
-            <Ionicons name="shield-checkmark-outline" size={22} color={Colors.secondary} />
-          </View>
-          <View style={styles.modeSwitchCopy}>
-            <Text style={styles.modeSwitchTitle}>Switch to Police Mode</Text>
-            <Text style={styles.modeSwitchSubtitle}>
-              Open police tools without leaving your normal user access behind.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={Colors.greyLight} />
-        </TouchableOpacity>
-      ) : null}
 
       {/* Profile Completion */}
       <View style={styles.completionCard}>
@@ -789,31 +774,36 @@ const styles = StyleSheet.create({
 
   /* Police banner */
   policeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
     marginHorizontal: 20,
     marginTop: 12,
     marginBottom: 4,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#0D1B2A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  policeBannerGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   policeBannerIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: 'rgba(147,197,253,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  policeBannerTitle: { color: Colors.white, fontSize: 13, fontWeight: '800' },
-  policeBannerSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 2 },
+  policeBannerTitle: { color: '#F1F5F9', fontSize: 13, fontWeight: '800' },
+  policeBannerSub: { color: 'rgba(241,245,249,0.55)', fontSize: 11, marginTop: 2 },
 
   /* Stats */
   statsRow: {
@@ -825,25 +815,28 @@ const styles = StyleSheet.create({
   modeSwitchCard: {
     marginHorizontal: 20,
     marginTop: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.blueBorder,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: '#0D1B2A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  modeSwitchGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
   },
   modeSwitchIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: Colors.blueLight,
+    width: 50,
+    height: 50,
+    borderRadius: 15,
+    backgroundColor: 'rgba(147,197,253,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.25)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -851,12 +844,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modeSwitchTitle: {
-    color: Colors.heading,
+    color: '#F1F5F9',
     fontSize: 15,
     fontWeight: '800',
   },
   modeSwitchSubtitle: {
-    color: Colors.subtext,
+    color: 'rgba(241,245,249,0.55)',
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,

@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 import PoliceScreenFrame, { PoliceSectionCard } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
+import { useAuthStore } from '../../stores/authStore';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const ITEMS = [
   { route: 'PoliceMyIncidents', icon: 'briefcase-outline', title: 'My Incidents', subtitle: 'Reports created by you or assigned to you' },
@@ -13,6 +15,8 @@ const ITEMS = [
 ];
 
 export default function PoliceMoreScreen({ navigation }) {
+  const switchToUserMode = useAuthStore(st => st.switchToUserMode);
+
   return (
     <PoliceScreenFrame
       title="Police Tools"
@@ -21,51 +25,80 @@ export default function PoliceMoreScreen({ navigation }) {
         { label: 'Sections', value: ITEMS.length, tone: Colors.primary },
       ]}
     >
-      <PoliceSectionCard title="More">
+      <PoliceSectionCard title="Tools" icon="grid-outline">
         <View style={styles.grid}>
           {ITEMS.map((item) => (
             <TouchableOpacity key={item.route} style={styles.tile} onPress={() => navigation.navigate(item.route)} activeOpacity={0.88}>
-              <View style={styles.iconWrap}>
-                <Ionicons name={item.icon} size={22} color={Colors.primary} />
+              <View style={styles.tileLeft}>
+                <View style={styles.iconWrap}>
+                  <Ionicons name={item.icon} size={20} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tileTitle}>{item.title}</Text>
+                  <Text style={styles.tileSub}>{item.subtitle}</Text>
+                </View>
               </View>
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.subtitle}>{item.subtitle}</Text>
+              <Ionicons name="chevron-forward" size={16} color={Colors.subtext} />
             </TouchableOpacity>
           ))}
         </View>
       </PoliceSectionCard>
+
+      {/* Switch to User Mode */}
+      <TouchableOpacity style={styles.switchCard} onPress={switchToUserMode} activeOpacity={0.85}>
+        <LinearGradient
+          colors={[Colors.gradientFrom, Colors.gradientTo]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+          style={styles.switchGrad}
+        >
+          <View style={styles.switchIconWrap}>
+            <Ionicons name="people-outline" size={20} color={Colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchTitle}>Switch to User Mode</Text>
+            <Text style={styles.switchSub}>Return to the standard SIARA experience</Text>
+          </View>
+          <Ionicons name="arrow-forward-circle" size={24} color="rgba(255,255,255,0.7)" />
+        </LinearGradient>
+      </TouchableOpacity>
     </PoliceScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  grid: {
-    gap: 12,
-  },
+  grid: { gap: 2 },
+
   tile: {
-    backgroundColor: Colors.bg,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-    padding: 16,
-    gap: 8,
-  },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: Colors.violetLight,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
   },
-  title: {
-    color: Colors.heading,
-    fontSize: 15,
-    fontWeight: '800',
+  tileLeft: { flexDirection: 'row', alignItems: 'center', gap: 14, flex: 1 },
+  iconWrap: {
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: Colors.violetLight,
+    alignItems: 'center', justifyContent: 'center',
   },
-  subtitle: {
-    color: Colors.subtext,
-    fontSize: 12,
-    lineHeight: 18,
+  tileTitle: { color: Colors.heading, fontSize: 14, fontWeight: '800' },
+  tileSub: { color: Colors.subtext, fontSize: 12, lineHeight: 17, marginTop: 1 },
+
+  switchCard: { borderRadius: 18, overflow: 'hidden' },
+  switchGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
   },
+  switchIconWrap: {
+    width: 44, height: 44, borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  switchTitle: { color: Colors.white, fontSize: 15, fontWeight: '800' },
+  switchSub: { color: 'rgba(255,255,255,0.72)', fontSize: 12, marginTop: 2 },
 });

@@ -1,12 +1,33 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import notifee, {
-  AndroidImportance,
-  AndroidCategory,
-  AndroidColor,
-  EventType,
-} from '@notifee/react-native';
+let notifee;
+let AndroidImportance = { LOW: 4, DEFAULT: 3, HIGH: 4, MAX: 5 };
+let AndroidCategory = { SERVICE: 'service', ALARM: 'alarm' };
+let AndroidColor = { PURPLE: '#7A3DF0' };
+let EventType = { ACTION_PRESS: 2, DISMISSED: 0, DELIVERED: 3 };
+
+try {
+  const _n = require('@notifee/react-native');
+  notifee = _n.default;
+  AndroidImportance = _n.AndroidImportance;
+  AndroidCategory = _n.AndroidCategory;
+  AndroidColor = _n.AndroidColor;
+  EventType = _n.EventType;
+} catch {
+  if (__DEV__) console.warn('[siaraRiskNotification] notifee native module not available — live notifications disabled');
+  notifee = {
+    createChannel: async () => {},
+    displayNotification: async () => {},
+    cancelNotification: async () => {},
+    stopForegroundService: async () => {},
+    registerForegroundService: () => {},
+    onForegroundEvent: () => () => {},
+    onBackgroundEvent: () => {},
+    requestPermission: async () => ({ authorizationStatus: 0 }),
+    getNotificationSettings: async () => ({ authorizationStatus: 0 }),
+  };
+}
 
 import { fetchCurrentRisk, fetchCurrentWeather, pickRiskSummary, pickWeatherSummary } from './siaraRiskApi';
 

@@ -12,6 +12,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
@@ -24,69 +25,65 @@ import {
 } from '../../services/reportsService';
 
 const INCIDENT_TYPE_META = {
-  accident: { icon: 'car-outline', label: 'Accident' },
-  traffic: { icon: 'trail-sign-outline', label: 'Traffic' },
-  danger: { icon: 'warning-outline', label: 'Danger' },
-  weather: { icon: 'rainy-outline', label: 'Weather' },
-  roadworks: { icon: 'construct-outline', label: 'Roadworks' },
-  other: { icon: 'ellipsis-horizontal-circle-outline', label: 'Other' },
+  accident:  { icon: 'car-outline',                        label: 'Accident',  color: '#EF4444', bg: 'rgba(239,68,68,0.09)',    border: 'rgba(239,68,68,0.22)'    },
+  traffic:   { icon: 'trail-sign-outline',                  label: 'Traffic',   color: '#3B82F6', bg: 'rgba(59,130,246,0.09)',   border: 'rgba(59,130,246,0.22)'   },
+  danger:    { icon: 'warning-outline',                     label: 'Danger',    color: '#F97316', bg: 'rgba(249,115,22,0.09)',   border: 'rgba(249,115,22,0.22)'   },
+  weather:   { icon: 'rainy-outline',                       label: 'Weather',   color: '#06B6D4', bg: 'rgba(6,182,212,0.09)',    border: 'rgba(6,182,212,0.22)'    },
+  roadworks: { icon: 'construct-outline',                   label: 'Roadworks', color: '#F59E0B', bg: 'rgba(245,158,11,0.09)',   border: 'rgba(245,158,11,0.22)'   },
+  other:     { icon: 'ellipsis-horizontal-circle-outline',  label: 'Other',     color: '#8B5CF6', bg: 'rgba(139,92,246,0.09)',   border: 'rgba(139,92,246,0.22)'   },
 };
 
 const SEVERITY_META = {
-  low: { color: Colors.severityLow, icon: 'shield-checkmark-outline', label: 'Low' },
-  medium: { color: Colors.severityMedium, icon: 'alert-circle-outline', label: 'Medium' },
-  high: { color: Colors.severityHigh, icon: 'warning-outline', label: 'High' },
+  low:    { color: Colors.severityLow,    icon: 'shield-checkmark-outline', label: 'Low',    bg: 'rgba(34,197,94,0.09)'   },
+  medium: { color: Colors.severityMedium, icon: 'alert-circle-outline',     label: 'Medium', bg: 'rgba(234,179,8,0.09)'   },
+  high:   { color: Colors.severityHigh,   icon: 'warning-outline',          label: 'High',   bg: 'rgba(249,115,22,0.09)'  },
 };
 
 function formatDetectedAddress(places = []) {
   const firstPlace = Array.isArray(places) ? places[0] : null;
   if (!firstPlace) return '';
-
   const segments = [
     firstPlace.name,
     firstPlace.street,
     firstPlace.city || firstPlace.subregion,
     firstPlace.region,
   ].filter(Boolean);
-
   return segments.join(', ');
 }
 
 function buildErrors({ title, incidentType, severity, latitude, longitude, occurredAt }) {
   const nextErrors = {};
-
-  if (!String(title || '').trim()) {
-    nextErrors.title = 'Title is required.';
-  }
-  if (!incidentType) {
-    nextErrors.incidentType = 'Select an incident type.';
-  }
-  if (!severity) {
-    nextErrors.severity = 'Select a severity.';
-  }
-  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
-    nextErrors.location = 'A valid latitude and longitude are required.';
-  }
-  if (occurredAt && Number.isNaN(new Date(occurredAt).getTime())) {
-    nextErrors.occurredAt = 'Occurred time must be a valid datetime.';
-  }
-
+  if (!String(title || '').trim())                                             nextErrors.title        = 'Title is required.';
+  if (!incidentType)                                                           nextErrors.incidentType = 'Select an incident type.';
+  if (!severity)                                                               nextErrors.severity     = 'Select a severity.';
+  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) nextErrors.location  = 'A valid latitude and longitude are required.';
+  if (occurredAt && Number.isNaN(new Date(occurredAt).getTime()))             nextErrors.occurredAt   = 'Occurred time must be a valid datetime.';
   return nextErrors;
 }
 
+function SectionBadge({ label }) {
+  return (
+    <View style={styles.sectionBadgeWrap}>
+      <View style={styles.sectionBadge}>
+        <Text style={styles.sectionBadgeText}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function ReportCreateScreen({ navigation }) {
-  const [title, setTitle] = useState('');
+  const [title, setTitle]               = useState('');
   const [incidentType, setIncidentType] = useState('');
-  const [severity, setSeverity] = useState('medium');
-  const [description, setDescription] = useState('');
+  const [severity, setSeverity]         = useState('medium');
+  const [description, setDescription]   = useState('');
   const [locationLabel, setLocationLabel] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [occurredAt, setOccurredAt] = useState('');
-  const [images, setImages] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({});
+  const [latitude, setLatitude]         = useState('');
+  const [longitude, setLongitude]       = useState('');
+  const [occurredAt, setOccurredAt]     = useState('');
+  const [images, setImages]             = useState([]);
+  const [submitting, setSubmitting]     = useState(false);
+  const [submitError, setSubmitError]   = useState('');
+  const [fieldErrors, setFieldErrors]   = useState({});
   const [successReport, setSuccessReport] = useState(null);
 
   const occurredSummary = useMemo(
@@ -95,26 +92,16 @@ export default function ReportCreateScreen({ navigation }) {
   );
 
   const resetForm = () => {
-    setTitle('');
-    setIncidentType('');
-    setSeverity('medium');
-    setDescription('');
-    setLocationLabel('');
-    setLatitude('');
-    setLongitude('');
-    setOccurredAt('');
-    setImages([]);
-    setSubmitError('');
-    setFieldErrors({});
+    setTitle(''); setIncidentType(''); setSeverity('medium');
+    setDescription(''); setLocationLabel('');
+    setLatitude(''); setLongitude(''); setOccurredAt('');
+    setImages([]); setSubmitError(''); setFieldErrors({});
     setSuccessReport(null);
   };
 
   const navigateToNews = () => {
-    if (navigation?.navigate) {
-      navigation.navigate('UserTabs', { screen: 'News' });
-    } else {
-      navigation.goBack();
-    }
+    if (navigation?.navigate) navigation.navigate('UserTabs', { screen: 'News' });
+    else navigation.goBack();
   };
 
   const handleUseCurrentLocation = async () => {
@@ -124,68 +111,35 @@ export default function ReportCreateScreen({ navigation }) {
         Alert.alert('Location permission needed', 'Please allow location access to attach your current coordinates.');
         return;
       }
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-
       setLatitude(String(lat));
       setLongitude(String(lng));
-
       try {
-        const addresses = await Location.reverseGeocodeAsync({
-          latitude: lat,
-          longitude: lng,
-        });
+        const addresses = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
         const detectedAddress = formatDetectedAddress(addresses);
-        if (detectedAddress) {
-          setLocationLabel(detectedAddress);
-        }
-      } catch (_error) {
-        // Keep coordinates even if reverse geocoding fails.
-      }
-    } catch (_error) {
+        if (detectedAddress) setLocationLabel(detectedAddress);
+      } catch (_) {}
+    } catch (_) {
       Alert.alert('Location unavailable', 'Could not read your current position right now.');
     }
   };
 
   const handlePickImage = async () => {
-    if (images.length >= 5) {
-      Alert.alert('Limit reached', 'You can upload up to 5 images.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    });
-
+    if (images.length >= 5) { Alert.alert('Limit reached', 'You can upload up to 5 images.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!result.canceled && result.assets?.[0]) {
       setImages((current) => [...current, result.assets[0]].slice(0, 5));
     }
   };
 
   const handleSubmit = async () => {
-    const nextErrors = buildErrors({
-      title,
-      incidentType,
-      severity,
-      latitude,
-      longitude,
-      occurredAt,
-    });
+    const nextErrors = buildErrors({ title, incidentType, severity, latitude, longitude, occurredAt });
     setFieldErrors(nextErrors);
     setSubmitError('');
-
-    if (Object.keys(nextErrors).length > 0) {
-      return;
-    }
-
+    if (Object.keys(nextErrors).length > 0) return;
     setSubmitting(true);
-
     try {
       const created = await createReport({
         incidentType,
@@ -193,17 +147,9 @@ export default function ReportCreateScreen({ navigation }) {
         description: description.trim(),
         severity,
         occurredAt: occurredAt.trim() || undefined,
-        location: {
-          lat: Number(latitude),
-          lng: Number(longitude),
-          label: locationLabel.trim(),
-        },
+        location: { lat: Number(latitude), lng: Number(longitude), label: locationLabel.trim() },
       });
-
-      const finalReport = images.length > 0
-        ? await uploadReportMedia(created.id, images)
-        : created;
-
+      const finalReport = images.length > 0 ? await uploadReportMedia(created.id, images) : created;
       setSuccessReport(finalReport);
     } catch (error) {
       setSubmitError(error.message || 'Failed to submit report.');
@@ -212,88 +158,127 @@ export default function ReportCreateScreen({ navigation }) {
     }
   };
 
+  /* ── Success Screen ── */
   if (successReport) {
     return (
-      <View style={styles.successScreen}>
-        <View style={styles.successBadge}>
-          <Ionicons name="checkmark" size={44} color={Colors.white} />
-        </View>
-        <Text style={styles.successTitle}>Report submitted</Text>
-        <Text style={styles.successBody}>
-          Your report has been sent to SIARA and is now pending review.
-        </Text>
-        <View style={styles.successCard}>
-          <Text style={styles.successLabel}>Report ID</Text>
-          <Text style={styles.successValue}>{successReport.id}</Text>
-          <Text style={styles.successMeta}>Status: {successReport.status}</Text>
-        </View>
-        <View style={styles.successActions}>
-          <Button variant="secondary" style={styles.flexButton} onPress={resetForm}>
-            Create another
-          </Button>
-          <Button style={styles.flexButton} onPress={navigateToNews}>
-            Open News
-          </Button>
+      <View style={styles.successRoot}>
+        <LinearGradient
+          colors={[Colors.gradientFrom, Colors.gradientTo]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={styles.successHero}
+        >
+          <View style={styles.successDecor1} />
+          <View style={styles.successDecor2} />
+          <View style={styles.successIconRing}>
+            <View style={styles.successIconInner}>
+              <Ionicons name="checkmark" size={38} color={Colors.white} />
+            </View>
+          </View>
+          <Text style={styles.successHeroTitle}>Report Submitted!</Text>
+          <Text style={styles.successHeroSub}>Your report is now pending review by SIARA</Text>
+        </LinearGradient>
+
+        <View style={styles.successBody}>
+          <View style={styles.successCard}>
+            <View style={styles.successCardRow}>
+              <View style={styles.successCardIcon}>
+                <Ionicons name="receipt-outline" size={18} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.successCardLabel}>Report ID</Text>
+                <Text style={styles.successCardValue}>{successReport.id}</Text>
+              </View>
+            </View>
+            <View style={styles.successCardDivider} />
+            <View style={styles.successCardRow}>
+              <View style={[styles.successCardIcon, { backgroundColor: 'rgba(34,197,94,0.1)' }]}>
+                <Ionicons name="time-outline" size={18} color={Colors.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.successCardLabel}>Status</Text>
+                <Text style={[styles.successCardValue, { color: Colors.accent, textTransform: 'capitalize' }]}>{successReport.status}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.successActions}>
+            <TouchableOpacity style={styles.successBtnOutline} onPress={resetForm} activeOpacity={0.8}>
+              <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+              <Text style={styles.successBtnOutlineText}>New Report</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.successBtnSolid} onPress={navigateToNews} activeOpacity={0.8}>
+              <LinearGradient colors={[Colors.gradientFrom, Colors.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.successBtnGrad}>
+                <Ionicons name="newspaper-outline" size={18} color={Colors.white} />
+                <Text style={styles.successBtnSolidText}>Open News</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   }
 
+  /* ── Main Form ── */
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={Colors.heading} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Report</Text>
-        <TouchableOpacity style={styles.iconButton} onPress={resetForm}>
-          <Ionicons name="refresh" size={20} color={Colors.heading} />
-        </TouchableOpacity>
-      </View>
+    <View style={styles.root}>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+      {/* Gradient Hero Header */}
+      <LinearGradient
+        colors={[Colors.gradientFrom, Colors.gradientTo]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={styles.hero}
       >
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Report details</Text>
-          <Input
-            label="Title"
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Short headline for the incident"
-            error={fieldErrors.title}
-          />
-          <Input
-            label="Description"
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Add any useful context for responders or nearby drivers"
-            multiline
-          />
+        <View style={styles.heroDecor1} />
+        <View style={styles.heroDecor2} />
+
+        <TouchableOpacity style={styles.heroBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={20} color={Colors.white} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.heroBtn, styles.heroBtnRight]} onPress={resetForm}>
+          <Ionicons name="refresh" size={18} color={Colors.white} />
+        </TouchableOpacity>
+
+        <View style={styles.heroIconWrap}>
+          <Ionicons name="document-text-outline" size={26} color={Colors.white} />
+        </View>
+        <Text style={styles.heroTitle}>Create Report</Text>
+        <Text style={styles.heroSubtitle}>Help the community by reporting incidents in real time</Text>
+      </LinearGradient>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+        {/* ── Report Details ── */}
+        <SectionBadge label="REPORT DETAILS" />
+        <View style={styles.card}>
+          <Input label="Title" value={title} onChangeText={setTitle}
+            placeholder="Short headline for the incident" error={fieldErrors.title} />
+          <Input label="Description" value={description} onChangeText={setDescription}
+            placeholder="Add any useful context for responders or nearby drivers" multiline />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Incident type</Text>
-          <View style={styles.choiceGrid}>
+        {/* ── Incident Type ── */}
+        <SectionBadge label="INCIDENT TYPE" />
+        <View style={styles.card}>
+          <View style={styles.typeGrid}>
             {INCIDENT_TYPES.map((type) => {
               const meta = INCIDENT_TYPE_META[type];
               const selected = incidentType === type;
               return (
                 <TouchableOpacity
                   key={type}
-                  style={[styles.choiceCard, selected && styles.choiceCardActive]}
+                  style={[
+                    styles.typeCard,
+                    selected
+                      ? { backgroundColor: meta.color, borderColor: meta.color }
+                      : { backgroundColor: meta.bg, borderColor: meta.border },
+                  ]}
                   onPress={() => setIncidentType(type)}
+                  activeOpacity={0.75}
                 >
-                  <Ionicons
-                    name={meta.icon}
-                    size={20}
-                    color={selected ? Colors.white : Colors.primary}
-                  />
-                  <Text style={[styles.choiceLabel, selected && styles.choiceLabelActive]}>
-                    {meta.label}
-                  </Text>
+                  <View style={[styles.typeIconWrap, selected ? { backgroundColor: 'rgba(255,255,255,0.2)' } : { backgroundColor: 'rgba(255,255,255,0.7)' }]}>
+                    <Ionicons name={meta.icon} size={20} color={selected ? Colors.white : meta.color} />
+                  </View>
+                  <Text style={[styles.typeLabel, { color: selected ? Colors.white : meta.color }]}>{meta.label}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -301,8 +286,9 @@ export default function ReportCreateScreen({ navigation }) {
           {fieldErrors.incidentType ? <Text style={styles.errorText}>{fieldErrors.incidentType}</Text> : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Severity</Text>
+        {/* ── Severity ── */}
+        <SectionBadge label="SEVERITY" />
+        <View style={styles.card}>
           <View style={styles.severityRow}>
             {REPORT_SEVERITIES.map((level) => {
               const meta = SEVERITY_META[level];
@@ -312,18 +298,18 @@ export default function ReportCreateScreen({ navigation }) {
                   key={level}
                   style={[
                     styles.severityCard,
-                    selected && { borderColor: meta.color, backgroundColor: `${meta.color}12` },
+                    selected
+                      ? { borderColor: meta.color, backgroundColor: meta.bg }
+                      : { borderColor: Colors.border, backgroundColor: Colors.bg },
                   ]}
                   onPress={() => setSeverity(level)}
+                  activeOpacity={0.75}
                 >
-                  <Ionicons
-                    name={meta.icon}
-                    size={18}
-                    color={selected ? meta.color : Colors.subtext}
-                  />
-                  <Text style={[styles.severityLabel, selected && { color: meta.color }]}>
-                    {meta.label}
-                  </Text>
+                  <View style={[styles.severityIconWrap, { backgroundColor: selected ? `${meta.color}22` : Colors.borderLight }]}>
+                    <Ionicons name={meta.icon} size={22} color={selected ? meta.color : Colors.subtext} />
+                  </View>
+                  <Text style={[styles.severityLabel, { color: selected ? meta.color : Colors.subtext }]}>{meta.label}</Text>
+                  {selected && <View style={[styles.severityDot, { backgroundColor: meta.color }]} />}
                 </TouchableOpacity>
               );
             })}
@@ -331,78 +317,73 @@ export default function ReportCreateScreen({ navigation }) {
           {fieldErrors.severity ? <Text style={styles.errorText}>{fieldErrors.severity}</Text> : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Location</Text>
-          <TouchableOpacity style={styles.locationButton} onPress={handleUseCurrentLocation}>
-            <Ionicons name="locate-outline" size={18} color={Colors.primary} />
-            <Text style={styles.locationButtonText}>Use current location</Text>
+        {/* ── Location ── */}
+        <SectionBadge label="LOCATION" />
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.gpsButton} onPress={handleUseCurrentLocation} activeOpacity={0.8}>
+            <LinearGradient colors={[Colors.gradientFrom, Colors.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gpsGrad}>
+              <Ionicons name="locate-outline" size={18} color={Colors.white} />
+              <Text style={styles.gpsText}>Use Current GPS Location</Text>
+            </LinearGradient>
           </TouchableOpacity>
-          <Input
-            label="Location label"
-            value={locationLabel}
-            onChangeText={setLocationLabel}
-            placeholder="Street, landmark, or area"
-          />
-          <View style={styles.coordinateRow}>
-            <Input
-              style={styles.coordinateInput}
-              label="Latitude"
-              value={latitude}
-              onChangeText={setLatitude}
-              placeholder="36.7525"
-              keyboardType="decimal-pad"
-            />
-            <Input
-              style={styles.coordinateInput}
-              label="Longitude"
-              value={longitude}
-              onChangeText={setLongitude}
-              placeholder="3.0420"
-              keyboardType="decimal-pad"
-            />
+          {(latitude || longitude) ? (
+            <View style={styles.coordsDetected}>
+              <Ionicons name="checkmark-circle" size={16} color={Colors.accent} />
+              <Text style={styles.coordsDetectedText}>
+                {latitude && longitude ? `${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}` : 'Coordinates set'}
+              </Text>
+            </View>
+          ) : null}
+          <Input label="Location label" value={locationLabel} onChangeText={setLocationLabel}
+            placeholder="Street, landmark, or area" />
+          <View style={styles.coordRow}>
+            <View style={styles.coordField}>
+              <Input label="Latitude" value={latitude} onChangeText={setLatitude}
+                placeholder="36.7525" keyboardType="decimal-pad" />
+            </View>
+            <View style={styles.coordField}>
+              <Input label="Longitude" value={longitude} onChangeText={setLongitude}
+                placeholder="3.0420" keyboardType="decimal-pad" />
+            </View>
           </View>
           {fieldErrors.location ? <Text style={styles.errorText}>{fieldErrors.location}</Text> : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>When did it happen?</Text>
-          <Input
-            label="Occurred at"
-            value={occurredAt}
-            onChangeText={setOccurredAt}
-            placeholder="Optional ISO datetime, e.g. 2026-03-28T14:30:00Z"
-            autoCapitalize="none"
-            error={fieldErrors.occurredAt}
-          />
+        {/* ── Time ── */}
+        <SectionBadge label="WHEN DID IT HAPPEN?" />
+        <View style={styles.card}>
+          <Input label="Occurred at (optional)" value={occurredAt} onChangeText={setOccurredAt}
+            placeholder="e.g. 2026-03-28T14:30:00Z" autoCapitalize="none" error={fieldErrors.occurredAt} />
           <View style={styles.helperCard}>
             <Ionicons name="time-outline" size={16} color={Colors.primary} />
             <Text style={styles.helperText}>{occurredSummary}</Text>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Photos</Text>
+        {/* ── Photos ── */}
+        <SectionBadge label="PHOTOS" />
+        <View style={styles.card}>
           <View style={styles.mediaGrid}>
             {images.map((asset, index) => (
               <View key={`${asset.uri}-${index}`} style={styles.mediaThumbWrap}>
                 <Image source={{ uri: asset.uri }} style={styles.mediaThumb} />
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                >
-                  <Ionicons name="close" size={14} color={Colors.white} />
+                <TouchableOpacity style={styles.removeBtn}
+                  onPress={() => setImages((c) => c.filter((_, i) => i !== index))}>
+                  <Ionicons name="close" size={13} color={Colors.white} />
                 </TouchableOpacity>
               </View>
             ))}
-            {images.length < 5 ? (
-              <TouchableOpacity style={styles.addMediaCard} onPress={handlePickImage}>
-                <Ionicons name="camera-outline" size={22} color={Colors.primary} />
-                <Text style={styles.addMediaText}>Add image</Text>
+            {images.length < 5 && (
+              <TouchableOpacity style={styles.addMediaCard} onPress={handlePickImage} activeOpacity={0.75}>
+                <Ionicons name="camera-outline" size={24} color={Colors.primary} />
+                <Text style={styles.addMediaText}>Add Photo</Text>
+                <Text style={styles.addMediaCount}>{images.length}/5</Text>
               </TouchableOpacity>
-            ) : null}
+            )}
           </View>
         </View>
 
+        {/* Error banner */}
         {submitError ? (
           <View style={styles.errorBanner}>
             <Ionicons name="alert-circle-outline" size={18} color={Colors.btnDanger} />
@@ -410,281 +391,252 @@ export default function ReportCreateScreen({ navigation }) {
           </View>
         ) : null}
 
-        <Button loading={submitting} onPress={handleSubmit} style={styles.submitButton}>
-          Submit report
-        </Button>
+        {/* Submit */}
+        <TouchableOpacity onPress={handleSubmit} disabled={submitting} activeOpacity={0.85} style={styles.submitWrap}>
+          <LinearGradient colors={[Colors.gradientFrom, Colors.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitGrad}>
+            {submitting ? (
+              <Text style={styles.submitText}>Submitting…</Text>
+            ) : (
+              <>
+                <Ionicons name="send-outline" size={18} color={Colors.white} />
+                <Text style={styles.submitText}>Submit Report</Text>
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <View style={{ height: 32 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  root: { flex: 1, backgroundColor: Colors.bg },
+
+  /* ── Hero ── */
+  hero: {
+    paddingTop: Platform.OS === 'ios' ? 58 : 44,
+    paddingBottom: 28,
+    paddingHorizontal: 24,
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 44,
-    paddingBottom: 14,
+    overflow: 'hidden',
+  },
+  heroDecor1: {
+    position: 'absolute', top: -40, right: -40,
+    width: 160, height: 160, borderRadius: 80,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  heroDecor2: {
+    position: 'absolute', bottom: -20, left: -40,
+    width: 120, height: 120, borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  heroBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 56 : 42,
+    left: 20,
+    width: 38, height: 38, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  heroBtnRight: { left: undefined, right: 20 },
+  heroIconWrap: {
+    width: 58, height: 58, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 12,
+  },
+  heroTitle: { color: Colors.white, fontSize: 24, fontWeight: '800', marginBottom: 6, letterSpacing: -0.3 },
+  heroSubtitle: { color: 'rgba(255,255,255,0.78)', fontSize: 13, textAlign: 'center', lineHeight: 20 },
+
+  /* ── Section badge ── */
+  sectionBadgeWrap: { paddingHorizontal: 4, paddingBottom: 6 },
+  sectionBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.violetLight,
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 20,
+  },
+  sectionBadgeText: { color: Colors.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1.1 },
+
+  /* ── Card ── */
+  scroll: { flex: 1 },
+  content: { padding: 20, paddingTop: 18, gap: 4 },
+  card: {
     backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    color: Colors.heading,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 18,
-  },
-  section: {
-    backgroundColor: Colors.white,
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 16,
+    gap: 12,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: Colors.borderLight,
-    gap: 12,
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  sectionTitle: {
-    color: Colors.heading,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  choiceGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  choiceCard: {
-    minWidth: '30%',
-    flexDirection: 'row',
+
+  /* ── Incident type grid ── */
+  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  typeCard: {
+    width: '30%',
+    flexGrow: 1,
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.violetBorder,
-    backgroundColor: Colors.violetLight,
+    gap: 8,
   },
-  choiceCardActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+  typeIconWrap: {
+    width: 40, height: 40, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center',
   },
-  choiceLabel: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  choiceLabelActive: {
-    color: Colors.white,
-  },
-  severityRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  typeLabel: { fontSize: 12, fontWeight: '700', textAlign: 'center' },
+
+  /* ── Severity ── */
+  severityRow: { flexDirection: 'row', gap: 10 },
   severityCard: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.bg,
+    flex: 1, alignItems: 'center', paddingVertical: 16,
+    borderRadius: 16, borderWidth: 1.5, gap: 8, position: 'relative',
   },
-  severityLabel: {
-    color: Colors.subtext,
-    fontSize: 13,
-    fontWeight: '700',
+  severityIconWrap: {
+    width: 44, height: 44, borderRadius: 13,
+    justifyContent: 'center', alignItems: 'center',
   },
-  locationButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.violetLight,
-    borderWidth: 1,
-    borderColor: Colors.violetBorder,
+  severityLabel: { fontSize: 13, fontWeight: '700' },
+  severityDot: {
+    position: 'absolute', top: 8, right: 8,
+    width: 8, height: 8, borderRadius: 4,
   },
-  locationButtonText: {
-    color: Colors.primary,
-    fontWeight: '700',
+
+  /* ── Location ── */
+  gpsButton: { borderRadius: 14, overflow: 'hidden' },
+  gpsGrad: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8,
+    paddingVertical: 14,
   },
-  coordinateRow: {
-    flexDirection: 'row',
-    gap: 12,
+  gpsText: { color: Colors.white, fontWeight: '700', fontSize: 14 },
+  coordsDetected: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(15,169,88,0.08)',
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
   },
-  coordinateInput: {
-    flex: 1,
-    marginBottom: 0,
-  },
+  coordsDetectedText: { color: Colors.accent, fontSize: 12, fontWeight: '600' },
+  coordRow: { flexDirection: 'row', gap: 12 },
+  coordField: { flex: 1 },
+
+  /* ── Time helper ── */
   helperCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.bg,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    padding: 12, borderRadius: 12, backgroundColor: Colors.violetLight,
   },
-  helperText: {
-    flex: 1,
-    color: Colors.subtext,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  mediaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
+  helperText: { flex: 1, color: Colors.primary, fontSize: 12, lineHeight: 18 },
+
+  /* ── Photos ── */
+  mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   mediaThumbWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 14,
-    overflow: 'hidden',
-    position: 'relative',
+    width: 88, height: 88, borderRadius: 14,
+    overflow: 'hidden', position: 'relative',
   },
-  mediaThumb: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#E5E7EB',
-  },
-  removeButton: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  mediaThumb: { width: '100%', height: '100%', backgroundColor: '#E5E7EB' },
+  removeBtn: {
+    position: 'absolute', top: 6, right: 6,
+    width: 22, height: 22, borderRadius: 11,
     backgroundColor: Colors.btnDanger,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   addMediaCard: {
-    width: 88,
-    height: 88,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
+    width: 88, height: 88, borderRadius: 14,
+    borderWidth: 1.5, borderStyle: 'dashed',
     borderColor: Colors.violetBorder,
     backgroundColor: Colors.violetLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    alignItems: 'center', justifyContent: 'center', gap: 4,
   },
-  addMediaText: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  errorText: {
-    color: Colors.btnDanger,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: -4,
-  },
+  addMediaText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
+  addMediaCount: { color: Colors.primary, fontSize: 10, opacity: 0.6 },
+
+  /* ── Errors ── */
+  errorText: { color: Colors.btnDanger, fontSize: 12, fontWeight: '600', marginTop: -4 },
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    borderRadius: 14,
-    padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
+    borderRadius: 14, padding: 12, marginBottom: 4,
   },
-  errorBannerText: {
-    flex: 1,
-    color: Colors.btnDanger,
-    fontSize: 13,
+  errorBannerText: { flex: 1, color: Colors.btnDanger, fontSize: 13 },
+
+  /* ── Submit ── */
+  submitWrap: { borderRadius: 16, overflow: 'hidden', marginTop: 4 },
+  submitGrad: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 10,
+    paddingVertical: 16,
   },
-  submitButton: {
-    marginTop: 8,
+  submitText: { color: Colors.white, fontSize: 16, fontWeight: '800' },
+
+  /* ── Success Screen ── */
+  successRoot: { flex: 1, backgroundColor: Colors.bg },
+  successHero: {
+    paddingTop: Platform.OS === 'ios' ? 70 : 60,
+    paddingBottom: 40, paddingHorizontal: 24,
+    alignItems: 'center', overflow: 'hidden',
   },
-  successScreen: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
+  successDecor1: {
+    position: 'absolute', top: -30, right: -30,
+    width: 140, height: 140, borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
-  successBadge: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
+  successDecor2: {
+    position: 'absolute', bottom: -10, left: -30,
+    width: 100, height: 100, borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  successIconRing: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 16,
+  },
+  successIconInner: {
+    width: 68, height: 68, borderRadius: 34,
     backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
+    justifyContent: 'center', alignItems: 'center',
   },
-  successTitle: {
-    color: Colors.heading,
-    fontSize: 24,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  successBody: {
-    color: Colors.subtext,
-    fontSize: 14,
-    lineHeight: 22,
-    textAlign: 'center',
-    marginBottom: 18,
-  },
+  successHeroTitle: { color: Colors.white, fontSize: 26, fontWeight: '800', marginBottom: 6 },
+  successHeroSub: { color: 'rgba(255,255,255,0.78)', fontSize: 13, textAlign: 'center' },
+  successBody: { flex: 1, padding: 24, gap: 16 },
   successCard: {
-    width: '100%',
-    backgroundColor: Colors.white,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    marginBottom: 18,
-    gap: 6,
+    backgroundColor: Colors.white, borderRadius: 20,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    padding: 16, gap: 0,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1, shadowRadius: 12, elevation: 3,
   },
-  successLabel: {
-    color: Colors.subtext,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+  successCardRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10 },
+  successCardIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: Colors.violetLight,
+    justifyContent: 'center', alignItems: 'center',
   },
-  successValue: {
-    color: Colors.heading,
-    fontSize: 16,
-    fontWeight: '800',
+  successCardLabel: { color: Colors.subtext, fontSize: 11, fontWeight: '600', marginBottom: 2, textTransform: 'uppercase' },
+  successCardValue: { color: Colors.heading, fontSize: 15, fontWeight: '800' },
+  successCardDivider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 2 },
+  successActions: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  successBtnOutline: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8,
+    paddingVertical: 14, borderRadius: 14,
+    borderWidth: 1.5, borderColor: Colors.violetBorder,
+    backgroundColor: Colors.violetLight,
   },
-  successMeta: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'capitalize',
+  successBtnOutlineText: { color: Colors.primary, fontWeight: '700', fontSize: 14 },
+  successBtnSolid: { flex: 1, borderRadius: 14, overflow: 'hidden' },
+  successBtnGrad: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 14,
   },
-  successActions: {
-    width: '100%',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  flexButton: {
-    flex: 1,
-  },
+  successBtnSolidText: { color: Colors.white, fontWeight: '700', fontSize: 14 },
 });

@@ -134,6 +134,7 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
       <View style={xaiStyles.loadingWrap}>
         <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={xaiStyles.loadingText}>Analyzing segment…</Text>
+        <Text style={xaiStyles.loadingSubtext}>Fetching SHAP explanations from AI model</Text>
       </View>
     );
   }
@@ -154,60 +155,87 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
   const confidence = explanation?.confidence ?? null;
   const quality = explanation?.quality ?? null;
   const reasons = extractXaiReasons(explanation);
+  const maxImpact = reasons.length > 0 ? Math.max(...reasons.map((r) => r.impact)) : 1;
 
   return (
     <ScrollView style={xaiStyles.scroll} contentContainerStyle={xaiStyles.scrollContent} showsVerticalScrollIndicator={false}>
+
       {/* ── Header ── */}
       <View style={xaiStyles.headerRow}>
-        <Text style={xaiStyles.title}>Segment Explanation</Text>
-        <TouchableOpacity
-          onPress={onClose}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={xaiStyles.closeBtn}
-        >
-          <Text style={xaiStyles.closeBtnText}>✕</Text>
+        <View style={xaiStyles.headerLeft}>
+          <View style={[xaiStyles.headerDot, { backgroundColor: dangerColor }]} />
+          <Text style={xaiStyles.title}>Segment Explanation</Text>
+        </View>
+        <TouchableOpacity onPress={onClose} style={xaiStyles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="close" size={16} color={Colors.subtext} />
         </TouchableOpacity>
       </View>
 
-      {/* ── Stats block ── */}
-      <View style={xaiStyles.statsBlock}>
-        {dangerPct != null && (
-          <Text style={xaiStyles.statLine}>
-            {'danger: '}
-            <Text style={[xaiStyles.statHighlight, { color: dangerColor }]}>
-              {Math.round(dangerPct)}% ({level})
-            </Text>
-          </Text>
-        )}
-        {confidence != null && (
-          <Text style={xaiStyles.statLine}>
-            {'confidence: '}
-            <Text style={xaiStyles.statMuted}>{Number(confidence).toFixed(0)}</Text>
-          </Text>
-        )}
-        {quality != null && (
-          <Text style={xaiStyles.statLine}>
-            {'quality: '}
-            <Text style={xaiStyles.statMuted}>{quality}</Text>
-          </Text>
-        )}
-      </View>
+      {/* ── Danger gauge card ── */}
+      {dangerPct != null && (
+        <View style={[xaiStyles.gaugeCard, { borderColor: `${dangerColor}30` }]}>
+          <View style={xaiStyles.gaugeLeft}>
+            <Text style={xaiStyles.gaugeLabel}>DANGER</Text>
+            <Text style={[xaiStyles.gaugePct, { color: dangerColor }]}>{Math.round(dangerPct)}%</Text>
+            <View style={[xaiStyles.levelBadge, { backgroundColor: `${dangerColor}15`, borderColor: `${dangerColor}35` }]}>
+              <Text style={[xaiStyles.levelBadgeText, { color: dangerColor }]}>{level.toUpperCase()}</Text>
+            </View>
+          </View>
+          <View style={xaiStyles.gaugeRight}>
+            <View style={xaiStyles.progressTrack}>
+              <View style={[xaiStyles.progressFill, { width: `${Math.min(dangerPct, 100)}%`, backgroundColor: dangerColor }]} />
+            </View>
+            <View style={xaiStyles.miniStatsRow}>
+              {confidence != null && (
+                <View style={xaiStyles.miniStat}>
+                  <Text style={xaiStyles.miniStatLabel}>Confidence</Text>
+                  <Text style={xaiStyles.miniStatValue}>{Number(confidence).toFixed(0)}%</Text>
+                </View>
+              )}
+              {quality != null && (
+                <View style={xaiStyles.miniStat}>
+                  <Text style={xaiStyles.miniStatLabel}>Quality</Text>
+                  <Text style={[xaiStyles.miniStatValue, { textTransform: 'capitalize' }]}>{quality}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* ── SHAP reasons ── */}
       {reasons.length > 0 && (
         <View style={xaiStyles.reasonsSection}>
-          <Text style={xaiStyles.reasonsHeader}>TOP SHAP REASONS</Text>
+          <View style={xaiStyles.reasonsHeaderRow}>
+            <View style={xaiStyles.reasonsHeaderBadge}>
+              <Text style={xaiStyles.reasonsHeaderText}>TOP SHAP REASONS</Text>
+            </View>
+            <Text style={xaiStyles.reasonsCount}>{reasons.length} factors</Text>
+          </View>
+
           {reasons.map((r, i) => {
             const increases = r.direction === 'increases_risk';
+            const barPct = maxImpact > 0 ? (r.impact / maxImpact) * 100 : 0;
             return (
-              <View key={i} style={[xaiStyles.reasonRow, i % 2 !== 0 && xaiStyles.reasonRowOdd]}>
-                <Text style={xaiStyles.reasonName} numberOfLines={1}>{r.name}</Text>
-                <View style={[xaiStyles.dirBadge, increases ? xaiStyles.badgeRed : xaiStyles.badgeGreen]}>
-                  <Text style={[xaiStyles.dirText, { color: increases ? '#dc2626' : '#16a34a' }]}>
-                    {increases ? 'increases' : 'decreases'}
-                  </Text>
+              <View key={i} style={xaiStyles.reasonRow}>
+                <View style={[xaiStyles.reasonAccent, { backgroundColor: increases ? '#ef444440' : '#22c55e40' }]} />
+                <View style={xaiStyles.reasonContent}>
+                  <View style={xaiStyles.reasonTopRow}>
+                    <Text style={xaiStyles.reasonName} numberOfLines={1}>{r.name}</Text>
+                    <View style={xaiStyles.reasonRight}>
+                      <View style={[xaiStyles.dirBadge, increases ? xaiStyles.badgeRed : xaiStyles.badgeGreen]}>
+                        <Ionicons name={increases ? 'trending-up' : 'trending-down'} size={11} color={increases ? '#dc2626' : '#16a34a'} />
+                        <Text style={[xaiStyles.dirText, { color: increases ? '#dc2626' : '#16a34a' }]}>
+                          {increases ? 'increases' : 'decreases'}
+                        </Text>
+                      </View>
+                      <Text style={xaiStyles.reasonValue}>{Number(r.impact).toFixed(2)}</Text>
+                    </View>
+                  </View>
+                  <View style={xaiStyles.impactBarTrack}>
+                    <View style={[xaiStyles.impactBarFill, { width: `${barPct}%`, backgroundColor: increases ? '#ef4444' : '#22c55e' }]} />
+                  </View>
                 </View>
-                <Text style={xaiStyles.reasonValue}>{Number(r.impact).toFixed(2)}</Text>
               </View>
             );
           })}
@@ -219,117 +247,68 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
 
 const xaiStyles = StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 16 },
+  scrollContent: { paddingBottom: 20 },
 
-  /* Loading state */
-  loadingWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
+  /* Loading */
+  loadingWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12 },
+  loadingText: { fontSize: 15, color: Colors.heading, fontWeight: '700' },
+  loadingSubtext: { fontSize: 12, color: Colors.subtext, textAlign: 'center' },
 
   /* Header */
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#111827',
-  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerDot: { width: 10, height: 10, borderRadius: 5 },
+  title: { fontSize: 17, fontWeight: '800', color: Colors.heading },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeBtnText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '700',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.border,
   },
 
-  /* Stats */
-  statsBlock: {
-    gap: 6,
-    marginBottom: 18,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+  /* Gauge card */
+  gaugeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    backgroundColor: Colors.white, borderRadius: 16, padding: 16,
+    borderWidth: 1, marginBottom: 16,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1, shadowRadius: 8, elevation: 2,
   },
-  statLine: {
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '400',
-  },
-  statHighlight: {
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  statMuted: {
-    fontWeight: '600',
-    color: '#111827',
-    fontSize: 14,
-  },
+  gaugeLeft: { alignItems: 'center', gap: 4, minWidth: 76 },
+  gaugeLabel: { fontSize: 9, fontWeight: '800', color: Colors.subtext, letterSpacing: 0.8, textTransform: 'uppercase' },
+  gaugePct: { fontSize: 36, fontWeight: '800', lineHeight: 42 },
+  levelBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  levelBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  gaugeRight: { flex: 1, gap: 12 },
+  progressTrack: { height: 8, borderRadius: 4, backgroundColor: Colors.bg, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4 },
+  miniStatsRow: { flexDirection: 'row', gap: 20 },
+  miniStat: { gap: 2 },
+  miniStatLabel: { fontSize: 10, fontWeight: '600', color: Colors.subtext, textTransform: 'uppercase', letterSpacing: 0.4 },
+  miniStatValue: { fontSize: 13, fontWeight: '800', color: Colors.heading },
 
   /* SHAP reasons */
-  reasonsSection: { gap: 2 },
-  reasonsHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#7c3aed',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-  },
+  reasonsSection: { gap: 8 },
+  reasonsHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  reasonsHeaderBadge: { backgroundColor: Colors.violetLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  reasonsHeaderText: { fontSize: 10, fontWeight: '800', color: Colors.primary, letterSpacing: 1 },
+  reasonsCount: { fontSize: 11, fontWeight: '600', color: Colors.subtext },
   reasonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    flexDirection: 'row', backgroundColor: Colors.white,
+    borderRadius: 12, overflow: 'hidden',
+    borderWidth: 1, borderColor: Colors.borderLight,
   },
-  reasonRowOdd: {
-    backgroundColor: '#FAFAFA',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-  },
-  reasonName: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1F2937',
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  dirBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
+  reasonAccent: { width: 4 },
+  reasonContent: { flex: 1, padding: 10, gap: 6 },
+  reasonTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reasonName: { flex: 1, fontSize: 13, color: Colors.heading, fontWeight: '600', textTransform: 'capitalize' },
+  reasonRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dirBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
   badgeRed: { backgroundColor: '#FEF2F2' },
   badgeGreen: { backgroundColor: '#F0FDF4' },
-  dirText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  reasonValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#374151',
-    minWidth: 40,
-    textAlign: 'right',
-  },
+  dirText: { fontSize: 11, fontWeight: '700' },
+  reasonValue: { fontSize: 13, fontWeight: '800', color: Colors.heading, minWidth: 36, textAlign: 'right' },
+  impactBarTrack: { height: 4, borderRadius: 2, backgroundColor: Colors.bg, overflow: 'hidden' },
+  impactBarFill: { height: '100%', borderRadius: 2 },
 });
 
 export default function MapScreen({ navigation }) {

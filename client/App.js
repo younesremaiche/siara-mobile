@@ -10,7 +10,6 @@ import { tryResumeSiaraLiveRiskNotification } from './src/services/siaraRiskNoti
 
 export default function App() {
   useEffect(() => {
-    // Handle OAuth callback for Google sign-in
     maybeCompleteAuthSession();
     logResolvedApiBaseUrl();
     initializeNotificationPresentationAsync().catch((error) => {

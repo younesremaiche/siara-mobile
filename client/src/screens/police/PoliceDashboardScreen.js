@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import PoliceScreenFrame, {
   PoliceEmptyState,
@@ -191,20 +192,14 @@ export default function PoliceDashboardScreen() {
       </PoliceSectionCard>
 
       <View style={styles.footerRow}>
-        <TouchableOpacity
-          style={styles.footerPrimary}
-          onPress={() => navigation.navigate('PoliceAlerts')}
-          activeOpacity={0.88}
-        >
-          <Ionicons name="notifications-outline" size={16} color={Colors.white} />
-          <Text style={styles.footerPrimaryText}>Alert Center</Text>
+        <TouchableOpacity style={styles.footerPrimary} onPress={() => navigation.navigate('PoliceAlerts')} activeOpacity={0.85}>
+          <LinearGradient colors={['#1D4ED8', '#7A3DF0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.footerGrad}>
+            <Ionicons name="notifications-outline" size={16} color={Colors.white} />
+            <Text style={styles.footerPrimaryText}>Alert Center</Text>
+          </LinearGradient>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.footerGhost}
-          onPress={() => navigation.navigate('PoliceMore')}
-          activeOpacity={0.88}
-        >
-          <Ionicons name="ellipsis-horizontal-circle-outline" size={16} color={Colors.heading} />
+        <TouchableOpacity style={styles.footerGhost} onPress={() => navigation.navigate('PoliceMore')} activeOpacity={0.85}>
+          <Ionicons name="grid-outline" size={16} color={Colors.heading} />
           <Text style={styles.footerGhostText}>More Tools</Text>
         </TouchableOpacity>
       </View>
@@ -230,28 +225,17 @@ function timelineIconFor(actionType) {
 const styles = StyleSheet.create({
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   footerRow: { flexDirection: 'row', gap: 12 },
-  footerPrimary: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.primary,
-    borderRadius: 16,
-    paddingVertical: 14,
+  footerPrimary: { flex: 1, borderRadius: 16, overflow: 'hidden' },
+  footerGrad: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 15,
   },
   footerPrimaryText: { color: Colors.white, fontWeight: '800', fontSize: 14 },
   footerGhost: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.white, borderRadius: 16, paddingVertical: 15,
+    borderWidth: 1, borderColor: Colors.border,
   },
   footerGhostText: { color: Colors.heading, fontWeight: '800', fontSize: 14 },
 });
