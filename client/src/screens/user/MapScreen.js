@@ -158,7 +158,7 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
   const maxImpact = reasons.length > 0 ? Math.max(...reasons.map((r) => r.impact)) : 1;
 
   return (
-    <ScrollView style={xaiStyles.scroll} contentContainerStyle={xaiStyles.scrollContent} showsVerticalScrollIndicator={false}>
+    <View style={xaiStyles.scrollContent}>
 
       {/* ── Header ── */}
       <View style={xaiStyles.headerRow}>
@@ -241,7 +241,7 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
           })}
         </View>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -631,6 +631,22 @@ export default function MapScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
+            {guidanceActive && selectedRoute ? (
+              <TouchableOpacity
+                style={styles.fullMapBtn}
+                onPress={() => navigation.navigate('FullNavigation', {
+                  destination,
+                  selectedRoute,
+                  tileLayer: mapStyle,
+                })}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="expand-outline" size={16} color={Colors.primary} />
+                <Text style={styles.fullMapBtnText}>Open Full Navigation</Text>
+                <Ionicons name="chevron-forward" size={14} color={Colors.primary} style={{ marginLeft: 'auto' }} />
+              </TouchableOpacity>
+            ) : null}
+
             <RouteAlternativesList
               routes={mapSnapshot.guidedRoutes || []}
               selectedRouteType={selectedRouteType}
@@ -854,6 +870,8 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: Colors.white, fontSize: 13, fontWeight: '800' },
   secondaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(220,38,38,0.18)', backgroundColor: 'rgba(220,38,38,0.06)' },
   secondaryBtnText: { color: Colors.error, fontSize: 13, fontWeight: '800' },
+  fullMapBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, borderColor: 'rgba(122,61,240,0.22)', backgroundColor: 'rgba(122,61,240,0.06)' },
+  fullMapBtnText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.36)', justifyContent: 'flex-end' },
   modalCard: { backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 24, gap: 12 },
   modalCardXai: { maxHeight: '72%' },

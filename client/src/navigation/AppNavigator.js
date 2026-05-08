@@ -32,6 +32,7 @@ import ProfileScreen from '../screens/user/ProfileScreen';
 import SettingsScreen from '../screens/user/SettingsScreen';
 import ServicesScreen from '../screens/user/ServicesScreen';
 import ContactScreen from '../screens/user/ContactScreen';
+import FullNavigationScreen from '../screens/user/FullNavigationScreen';
 
 import AdminOverviewScreen from '../screens/admin/AdminOverviewScreen';
 import AdminIncidentsScreen from '../screens/admin/AdminIncidentsScreen';
@@ -165,6 +166,11 @@ function UserStack() {
       <Stack.Screen name="Contact" component={ContactScreen} />
       <Stack.Screen name="Services" component={ServicesScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen
+        name="FullNavigation"
+        component={FullNavigationScreen}
+        options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+      />
     </Stack.Navigator>
   );
 }

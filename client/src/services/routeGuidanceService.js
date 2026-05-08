@@ -2,24 +2,22 @@ import { request } from './api';
 import { NOMINATIM_URL } from '../utils/mapHelpers';
 import { normalizeNominatimResult } from '../utils/routeGuidance';
 
+const RETRYABLE_PATTERN = /osrm|route danger scoring failed|failed to build route alternatives/i;
+
+function rawErrorText(error) {
+  return String(error?.response?.error || error?.response?.message || error?.message || '').trim();
+}
+
 function friendlyRouteError(error) {
-  const responseError = String(error?.response?.error || error?.response?.message || '').trim();
-  const message = String(error?.message || '').trim();
-  const raw = responseError || message;
-
-  if (!raw) {
-    return 'Route guidance is unavailable right now. Please try again in a moment.';
-  }
-
-  if (/osrm|route danger scoring failed|failed to build route alternatives/i.test(raw)) {
-    return 'Route guidance is temporarily unavailable. Please try again shortly.';
-  }
-
-  if (/origin and destination/i.test(raw)) {
-    return 'Choose a valid origin and destination to request guidance.';
-  }
-
+  const raw = rawErrorText(error);
+  if (!raw) return 'Route guidance is unavailable right now. Please try again in a moment.';
+  if (RETRYABLE_PATTERN.test(raw)) return 'Route guidance is temporarily unavailable. Please try again shortly.';
+  if (/origin and destination/i.test(raw)) return 'Choose a valid origin and destination to request guidance.';
   return raw.replace(/^API \d+:\s*/i, '');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function searchGuidanceDestinations(query, options = {}) {
@@ -48,6 +46,9 @@ export async function searchGuidanceDestinations(query, options = {}) {
     .filter(Boolean);
 }
 
+const GUIDANCE_MAX_ATTEMPTS = 3;
+const GUIDANCE_RETRY_DELAY_MS = 1500;
+
 export async function requestRouteGuidance({
   origin,
   destination,
@@ -55,25 +56,27 @@ export async function requestRouteGuidance({
   sample_count,
   max_alternatives,
 }) {
-  try {
-    return await request('/api/risk/route', {
-      method: 'POST',
-      body: JSON.stringify({
-        origin: {
-          lat: origin?.lat,
-          lng: origin?.lng,
-        },
-        destination: {
-          name: destination?.name,
-          lat: destination?.lat,
-          lng: destination?.lng,
-        },
-        timestamp,
-        sample_count,
-        max_alternatives,
-      }),
-    });
-  } catch (error) {
-    throw new Error(friendlyRouteError(error));
+  const body = JSON.stringify({
+    origin: { lat: origin?.lat, lng: origin?.lng },
+    destination: { name: destination?.name, lat: destination?.lat, lng: destination?.lng },
+    timestamp,
+    sample_count,
+    max_alternatives,
+  });
+
+  let lastError;
+  for (let attempt = 0; attempt < GUIDANCE_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await request('/api/risk/route', { method: 'POST', body });
+    } catch (error) {
+      lastError = error;
+      const retryable = RETRYABLE_PATTERN.test(rawErrorText(error));
+      if (retryable && attempt < GUIDANCE_MAX_ATTEMPTS - 1) {
+        await sleep(GUIDANCE_RETRY_DELAY_MS);
+        continue;
+      }
+      throw new Error(friendlyRouteError(error));
+    }
   }
+  throw new Error(friendlyRouteError(lastError));
 }

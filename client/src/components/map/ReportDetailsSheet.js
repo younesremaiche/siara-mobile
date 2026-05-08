@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Image,
   Modal,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import PhotoViewer from '../ui/PhotoViewer';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../theme/colors';
 import { formatRelativeTime } from '../../services/mapReportsService';
@@ -36,9 +37,13 @@ export default function ReportDetailsSheet({
   visible,
   onClose,
 }) {
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerIndex, setViewerIndex]     = useState(0);
+
   if (!report) return null;
 
-  const previewMedia = Array.isArray(report.media) ? report.media.find((item) => item?.url) : null;
+  const allMedia     = Array.isArray(report.media) ? report.media.filter((m) => m?.url) : [];
+  const previewMedia = allMedia[0] || null;
   const severity = formatLabel(report.severity, 'Unknown');
   const incidentType = formatLabel(report.incidentType, 'Other');
   const occurredLabel = formatDateTime(report.occurredAt || report.createdAt);
@@ -75,13 +80,41 @@ export default function ReportDetailsSheet({
 
             {previewMedia ? (
               <View style={styles.mediaCard}>
-                <Text style={styles.mediaTitle}>Media preview</Text>
-                <Image source={{ uri: previewMedia.url }} style={styles.mediaPreview} resizeMode="cover" />
+                <Text style={styles.mediaTitle}>
+                  Media {allMedia.length > 1 ? `(${allMedia.length} photos)` : ''}
+                </Text>
+                <View style={styles.mediaGrid}>
+                  {allMedia.slice(0, 3).map((item, i) => (
+                    <TouchableOpacity
+                      key={item.id || i}
+                      activeOpacity={0.85}
+                      style={[styles.mediaThumbWrap, allMedia.length === 1 && styles.mediaThumbFull]}
+                      onPress={() => { setViewerIndex(i); setViewerVisible(true); }}
+                    >
+                      <Image source={{ uri: item.url }} style={styles.mediaThumb} resizeMode="cover" />
+                      <View style={styles.mediaOverlay}>
+                        <Ionicons name="expand-outline" size={14} color="#fff" />
+                      </View>
+                      {i === 2 && allMedia.length > 3 ? (
+                        <View style={styles.moreOverlay}>
+                          <Text style={styles.moreText}>+{allMedia.length - 3}</Text>
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
             ) : null}
           </ScrollView>
         </View>
       </TouchableOpacity>
+
+      <PhotoViewer
+        visible={viewerVisible}
+        images={allMedia}
+        initialIndex={viewerIndex}
+        onClose={() => setViewerVisible(false)}
+      />
     </Modal>
   );
 }
@@ -159,18 +192,26 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: Colors.text,
   },
-  mediaCard: {
-    gap: 8,
-  },
-  mediaTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: Colors.heading,
-  },
-  mediaPreview: {
-    width: '100%',
-    height: 180,
-    borderRadius: 18,
+  mediaCard: { gap: 8 },
+  mediaTitle: { fontSize: 13, fontWeight: '800', color: Colors.heading },
+  mediaGrid: { flexDirection: 'row', gap: 8 },
+  mediaThumbWrap: {
+    flex: 1, height: 110, borderRadius: 14, overflow: 'hidden',
     backgroundColor: '#E5E7EB',
   },
+  mediaThumbFull: { height: 180 },
+  mediaThumb: { width: '100%', height: '100%' },
+  mediaOverlay: {
+    position: 'absolute', bottom: 6, right: 6,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  moreOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
+    borderRadius: 14,
+  },
+  moreText: { color: '#fff', fontSize: 18, fontWeight: '800' },
 });

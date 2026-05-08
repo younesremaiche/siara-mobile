@@ -473,7 +473,7 @@ export function buildLeafletHTML({
     // ── User location ──
     var userLoc=${userJSON};
     if(userLoc&&userLoc.latitude!=null&&userLoc.longitude!=null){
-      L.circle([userLoc.latitude,userLoc.longitude],{
+      window._userCircle=L.circle([userLoc.latitude,userLoc.longitude],{
         radius:160,
         fillColor:'rgba(124,58,237,0.12)',
         fillOpacity:1,
@@ -486,7 +486,7 @@ export function buildLeafletHTML({
         iconSize:[16,16],
         iconAnchor:[8,8],
       });
-      L.marker([userLoc.latitude,userLoc.longitude],{icon:userIcon,zIndexOffset:1000})
+      window._userMarker=L.marker([userLoc.latitude,userLoc.longitude],{icon:userIcon,zIndexOffset:1000})
        .bindTooltip('You are here',{permanent:false,direction:'top',offset:[0,-12],className:'marker-tooltip'})
        .addTo(map);
     }
@@ -502,6 +502,21 @@ export function buildLeafletHTML({
         }
         if(msg.type==='fitBounds'&&msg.bounds){
           map.fitBounds(msg.bounds,{padding:[60,60],animate:true});
+        }
+        if(msg.type==='updateUserLocation'&&msg.lat!=null&&msg.lng!=null){
+          var ll=[msg.lat,msg.lng];
+          if(window._userMarker){
+            window._userMarker.setLatLng(ll);
+          }else{
+            var ui=L.divIcon({className:'',html:'<div class="user-dot"></div>',iconSize:[16,16],iconAnchor:[8,8]});
+            window._userMarker=L.marker(ll,{icon:ui,zIndexOffset:1000}).addTo(map);
+          }
+          if(window._userCircle){
+            window._userCircle.setLatLng(ll);
+          }else{
+            window._userCircle=L.circle(ll,{radius:160,fillColor:'rgba(124,58,237,0.12)',fillOpacity:1,color:'rgba(124,58,237,0.25)',weight:1}).addTo(map);
+          }
+          if(msg.pan){map.panTo(ll,{animate:true,duration:0.8,easeLinearity:0.25});}
         }
       }catch(err){}
     }

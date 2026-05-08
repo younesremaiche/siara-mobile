@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Image,
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { formatDateTime } from '../services/reportsService';
+import PhotoViewer from './ui/PhotoViewer';
 
 function severityMeta(severity) {
   if (severity === 'critical') {
@@ -29,9 +31,13 @@ function statusLabel(status) {
 }
 
 export default function ReportCard({ report, onPress }) {
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerIndex, setViewerIndex]     = useState(0);
+
   const severity = severityMeta(report?.severity);
   const occurredAt = report?.occurredAt || report?.createdAt;
   const previewMedia = Array.isArray(report?.media) ? report.media.slice(0, 3) : [];
+  const allMedia     = Array.isArray(report?.media) ? report.media.filter((m) => m?.url) : [];
 
   return (
     <Pressable style={styles.card} onPress={onPress}>
@@ -70,11 +76,16 @@ export default function ReportCard({ report, onPress }) {
       {previewMedia.length > 0 ? (
         <View style={styles.mediaRow}>
           {previewMedia.map((mediaItem, index) => (
-            <Image
+            <TouchableOpacity
               key={mediaItem.id || `${report?.id}-media-${index}`}
-              source={{ uri: mediaItem.url }}
-              style={styles.mediaThumb}
-            />
+              activeOpacity={0.85}
+              onPress={() => { setViewerIndex(index); setViewerVisible(true); }}
+            >
+              <Image source={{ uri: mediaItem.url }} style={styles.mediaThumb} />
+              <View style={styles.mediaOverlay}>
+                <Ionicons name="expand-outline" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
           ))}
         </View>
       ) : null}
@@ -94,6 +105,12 @@ export default function ReportCard({ report, onPress }) {
           ) : null}
         </View>
       </View>
+      <PhotoViewer
+        visible={viewerVisible}
+        images={allMedia}
+        initialIndex={viewerIndex}
+        onClose={() => setViewerVisible(false)}
+      />
     </Pressable>
   );
 }
@@ -171,6 +188,13 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 12,
     backgroundColor: '#E5E7EB',
+  },
+  mediaOverlay: {
+    position: 'absolute',
+    bottom: 5, right: 5,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
   },
   footerRow: {
     gap: 8,

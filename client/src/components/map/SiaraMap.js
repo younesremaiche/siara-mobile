@@ -188,6 +188,8 @@ const SiaraMap = React.forwardRef(function SiaraMap({
   const markerSelectRef = useRef(null);
   const guidedSegmentPressRef = useRef(null);
   const hasBoundsRef = useRef(false);
+  const liveLocationRef = useRef(null);
+  const locationWatchRef = useRef(null);
 
   const [locationStatus, setLocationStatus] = useState('idle');
   const [userLocation, setUserLocation] = useState(null);
@@ -1229,8 +1231,9 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       setGuidedRouteError('');
 
       try {
+        const origin = liveLocationRef.current || userLocation;
         const payload = await requestRouteGuidance({
-          origin: { lat: userLocation.latitude, lng: userLocation.longitude },
+          origin: { lat: origin.latitude, lng: origin.longitude },
           destination: selectedDestination,
           timestamp: selectedTimestampIso,
           sample_count: ROUTE_SAMPLE_COUNT,
@@ -1275,6 +1278,10 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
   const clearGuidance = useCallback(() => {
     shouldFitRouteOnStartRef.current = false;
+    // Sync userLocation to latest GPS position so the marker stays accurate
+    if (liveLocationRef.current) {
+      setUserLocation(liveLocationRef.current);
+    }
     setGuidanceActive(false);
     setGuidedRoutes([]);
     setSelectedGuidedRouteType(null);
@@ -1286,6 +1293,47 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     setRouteExplainError('');
     if (setSelectedIncident) setSelectedIncident(null);
   }, [setSelectedIncident]);
+
+  // ── Live GPS tracking during guidance ──
+  // Uses watchPositionAsync so the user dot moves in real-time without rebuilding HTML.
+  // Location updates go directly to the Leaflet layer via postToWebView; only liveLocationRef
+  // is updated (no state change) to prevent WebView reload on every GPS tick.
+  useEffect(() => {
+    if (!guidanceActive || locationStatus !== 'granted') {
+      if (locationWatchRef.current) {
+        locationWatchRef.current.remove();
+        locationWatchRef.current = null;
+      }
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        distanceInterval: 5,         // fire every 5 metres of movement
+        mayShowUserSettingsDialog: false,
+      },
+      (position) => {
+        if (cancelled) return;
+        const { latitude, longitude } = position.coords;
+        liveLocationRef.current = { latitude, longitude };
+        postToWebView({ type: 'updateUserLocation', lat: latitude, lng: longitude, pan: true });
+      },
+    ).then((sub) => {
+      if (cancelled) { sub.remove(); return; }
+      locationWatchRef.current = sub;
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (locationWatchRef.current) {
+        locationWatchRef.current.remove();
+        locationWatchRef.current = null;
+      }
+    };
+  }, [guidanceActive, locationStatus, postToWebView]);
 
   const recenterOnUser = useCallback(() => {
     if (!userLocation) return;
