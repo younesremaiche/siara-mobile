@@ -78,9 +78,9 @@ export default function RegisterScreen({ navigation }) {
     setGoogleLoading(true);
     try {
       console.log('[RegisterScreen] Starting Google signup flow, rememberMe:', remember);
-      const { idToken } = await initiateGoogleAuthFlow();
-      console.log('[RegisterScreen] Got idToken, calling loginWithGoogle');
-      const result = await loginWithGoogle(idToken);
+      const googleResult = await initiateGoogleAuthFlow();
+      console.log('[RegisterScreen] Got ID token, calling loginWithGoogle');
+      const result = await loginWithGoogle(googleResult);
       console.log('[RegisterScreen] Google signup successful, user id:', result.user?.id, 'isAdmin:', result.user?.isAdmin);
       
       // Update Zustand store with result

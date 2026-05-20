@@ -1,104 +1,73 @@
-/**
- * Google OAuth flow for Expo app
- * Uses expo-auth-session with the correct Expo AuthSession API
- * Compatible with development builds and custom-scheme redirects
- */
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+// The Web Client ID is used so the returned ID token can be verified
+// by the backend with google-auth-library (audience must match).
+const WEB_CLIENT_ID = '426680744492-pesf948u29q064s9t4anvqo513pidii8.apps.googleusercontent.com';
 
-// Google OAuth application credentials
-// Register at: https://console.cloud.google.com/apis/credentials
-const GOOGLE_CLIENT_ID = '426680744492-pesf948u29q064s9t4anvqo513pidii8.apps.googleusercontent.com';
+let configured = false;
 
-// IMPORTANT: Use the app scheme redirect for local mobile development builds.
-// This generates: com.siara.mobile://oauth-callback
-// Make sure app.json has: "scheme": "com.siara.mobile"
-
-/**
- * Get the redirect URI for this app
- * In local mobile builds: com.siara.mobile://oauth-callback
- */
-function getRedirectUri() {
-  return AuthSession.makeRedirectUri({
-    path: 'oauth-callback',
+function ensureConfigured() {
+  if (configured) return;
+  GoogleSignin.configure({
+    webClientId: WEB_CLIENT_ID,
+    offlineAccess: false,
   });
+  configured = true;
 }
 
 /**
- * Initiate Google OAuth flow using Expo AuthSession
- * Handles the entire OAuth flow including browser opening and token exchange
- * Returns: { idToken }
+ * Native Google Sign-In — same pattern as the web version's Google Identity Services.
+ * Returns { idToken } which the backend verifies directly with google-auth-library.
+ * No redirect URIs, no client secret, no browser popup needed.
  */
 export async function initiateGoogleAuthFlow() {
+  ensureConfigured();
+
   try {
-    console.log('[googleAuth] Starting Google OAuth flow');
+    console.log('[googleAuth] Checking Google Play Services');
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-    // Get redirect URI for this app
-    const redirectUri = getRedirectUri();
-    console.log('[googleAuth] Redirect URI:', redirectUri);
+    console.log('[googleAuth] Starting native Google Sign-In');
+    const response = await GoogleSignin.signIn();
 
-    // Fetch Google's discovery document
-    console.log('[googleAuth] Fetching Google discovery document');
-    const discovery = await AuthSession.fetchDiscoveryAsync('https://accounts.google.com');
-
-    if (!discovery?.authorization_endpoint || !discovery?.token_endpoint) {
-      throw new Error('Failed to fetch Google discovery document');
-    }
-
-    console.log('[googleAuth] Discovery document fetched successfully');
-
-    // Create the auth request with correct field names
-    const authRequest = new AuthSession.AuthRequest({
-      clientId: GOOGLE_CLIENT_ID,
-      scopes: ['openid', 'profile', 'email'],
-      redirectUri,
-      responseType: AuthSession.ResponseType.IdToken, // Request ID token
-      prompt: AuthSession.Prompt.Login, // Force login screen
-    });
-
-    console.log('[googleAuth] AuthRequest created, prompting user');
-
-    // Prompt user and handle the entire OAuth flow
-    const result = await authRequest.promptAsync(discovery);
-
-    console.log('[googleAuth] Browser result:', { resultType: result.type });
-
-    if (result.type === 'dismiss' || result.type === 'cancel') {
-      throw new Error('Google authentication was cancelled by user');
-    }
-
-    if (result.type !== 'success') {
-      throw new Error(`Google authentication failed: ${result.type}`);
-    }
-
-    // Extract ID token from response params
-    const idToken = result.params?.id_token;
+    const idToken = response.data?.idToken ?? response.idToken ?? null;
 
     if (!idToken) {
-      console.error('[googleAuth] Response params:', result.params);
-      throw new Error('No ID token received from Google');
+      console.error('[googleAuth] Sign-in response missing idToken:', JSON.stringify(response));
+      throw new Error('Google Sign-In did not return an ID token. Check your Android OAuth client configuration.');
     }
 
-    console.log('[googleAuth] ID token received successfully (first 20 chars):', idToken.substring(0, 20) + '...');
-
-    return {
-      idToken,
-    };
+    console.log('[googleAuth] ID token received successfully');
+    return { idToken };
   } catch (error) {
-    console.error('[googleAuth] Auth flow failed:', error.message);
-    throw error;
+    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      throw new Error('Google authentication was cancelled');
+    }
+    if (error.code === statusCodes.IN_PROGRESS) {
+      throw new Error('Google Sign-In is already in progress');
+    }
+    if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      throw new Error('Google Play Services is not available on this device');
+    }
+    console.error('[googleAuth] Native sign-in failed:', error.code, error.message);
+    throw new Error(error.message || 'Google Sign-In failed');
   }
 }
 
 /**
- * Clean up WebBrowser session (called when app resumes)
+ * Sign out from Google (call on app logout to clear cached credentials).
  */
-export async function maybeCompleteAuthSession() {
+export async function googleSignOut() {
   try {
-    await WebBrowser.maybeCompleteAuthSession();
+    ensureConfigured();
+    await GoogleSignin.signOut();
+    console.log('[googleAuth] Google sign-out complete');
   } catch (error) {
-    console.warn('[googleAuth] maybeCompleteAuthSession error:', error);
+    console.warn('[googleAuth] Google sign-out error:', error.message);
   }
 }
 
+/**
+ * No-op on native — kept for API compatibility with App.js call.
+ */
+export function maybeCompleteAuthSession() {}

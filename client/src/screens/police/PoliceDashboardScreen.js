@@ -95,7 +95,7 @@ export default function PoliceDashboardScreen() {
         isOnDuty={dashboard?.officer?.isOnDuty !== false}
         wilaya={dashboard?.workZone?.wilaya?.name}
         commune={dashboard?.workZone?.commune?.name}
-        onWorkZonePress={() => navigation.navigate('PoliceWorkZone')}
+        onWorkZonePress={() => navigation.navigate('PoliceZoneSetup')}
       />
 
       <PoliceSectionCard

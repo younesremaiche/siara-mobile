@@ -152,9 +152,9 @@ export default function LoginScreen({ navigation }) {
     setGeneralError('');
     try {
       console.log('[LoginScreen] Starting Google login flow');
-      const { idToken } = await initiateGoogleAuthFlow();
-      console.log('[LoginScreen] Got idToken, calling loginWithGoogle, rememberMe:', remember);
-      const result = await loginWithGoogle(idToken);
+      const googleResult = await initiateGoogleAuthFlow();
+      console.log('[LoginScreen] Got ID token, calling loginWithGoogle, rememberMe:', remember);
+      const result = await loginWithGoogle(googleResult);
       console.log('[LoginScreen] Google login successful, user id:', result.user?.id, 'isAdmin:', result.user?.isAdmin);
       
       // Update Zustand store with result

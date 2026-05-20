@@ -854,8 +854,9 @@ async function verifyGoogleCredential(credential) {
       idToken: normalizedCredential,
       audience: clientId,
     });
-  } catch (_error) {
-    throw createError(401, "Google token is invalid or has the wrong audience");
+  } catch (error) {
+    console.error("[authService] Google token verification failed:", error.message);
+    throw createError(401, "Google token is invalid or has expired. Please try signing in again.");
   }
 
   const payload = ticket.getPayload();
@@ -864,6 +865,57 @@ async function verifyGoogleCredential(credential) {
   }
 
   return payload;
+}
+
+/**
+ * Exchange a Google Authorization Code (+ PKCE verifier) for an ID token.
+ * Called when the frontend uses the Authorization Code + PKCE flow.
+ * Requires GOOGLE_CLIENT_SECRET in the environment.
+ */
+async function exchangeCodeForIdToken({ code, codeVerifier, redirectUri }) {
+  const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  if (!clientSecret) {
+    throw createError(500, "GOOGLE_CLIENT_SECRET is not configured. Add it to api/.env");
+  }
+
+  const { clientId } = getGoogleClient();
+  const axios = require("axios");
+
+  let tokenData;
+  try {
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    });
+    if (codeVerifier) {
+      params.append("code_verifier", codeVerifier);
+    }
+
+    const response = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      params.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+    );
+    tokenData = response.data;
+  } catch (error) {
+    const errData = error.response?.data;
+    console.error("[authService] Google code exchange HTTP error:", errData || error.message);
+    throw createError(
+      401,
+      `Google code exchange failed: ${errData?.error_description || errData?.error || error.message}`,
+    );
+  }
+
+  if (!tokenData?.id_token) {
+    console.error("[authService] Google token exchange response has no id_token:", tokenData);
+    throw createError(401, "Google did not return an ID token. Check client ID, client secret, and redirect URI.");
+  }
+
+  console.log("[authService] Google code exchanged successfully for ID token");
+  return tokenData.id_token;
 }
 
 async function createUserFromGoogleIdentity(client, payload) {
@@ -988,7 +1040,13 @@ async function syncGoogleUserRecord(client, userId, payload) {
 }
 
 async function loginWithGoogle({ idToken, credential, rememberMe, res }) {
-  const payload = await verifyGoogleCredential(idToken || credential);
+  const resolvedToken = idToken || credential || null;
+
+  if (!resolvedToken) {
+    throw createError(400, "Google ID token is required");
+  }
+
+  const payload = await verifyGoogleCredential(resolvedToken);
   const client = await pool.connect();
   let transactionStarted = false;
 

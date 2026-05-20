@@ -121,7 +121,7 @@ const TECH_STACK = [
 /*  COMPONENT                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function PredictionsScreen({ navigation, route }) {
+export default function PredictionsScreen({ navigation }) {
   const [selectedBar, setSelectedBar] = useState(null);
   const [quizVisible, setQuizVisible] = useState(false);
   const [quizForceShow, setQuizForceShow] = useState(false);
@@ -163,28 +163,16 @@ export default function PredictionsScreen({ navigation, route }) {
     setRefreshing(false);
   }, [refreshQuizSummary]);
 
-  useEffect(() => {
-    if (!route?.params?.openQuiz) {
-      return;
-    }
-
-    setQuizForceShow(true);
-    setQuizVisible(true);
-
-    if (typeof navigation?.setParams === 'function') {
-      navigation.setParams({ openQuiz: false });
-    }
-  }, [navigation, route?.params?.openQuiz]);
 
   return (
     <>
+      <StatusBar barStyle="light-content" />
       <ScrollView
         style={styles.root}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
       >
-        <StatusBar barStyle="light-content" />
 
       {/* ========== HERO BANNER ========== */}
       <LinearGradient

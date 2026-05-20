@@ -357,7 +357,7 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={closeModal}>
+    <Modal visible={visible} animationType="fade" statusBarTranslucent onRequestClose={closeModal}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
           <LinearGradient colors={[Colors.gradientFrom, Colors.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>

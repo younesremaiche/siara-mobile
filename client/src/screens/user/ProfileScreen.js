@@ -4,6 +4,7 @@ import {
   Text,
   Image,
   ScrollView,
+  StatusBar,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
@@ -201,6 +202,8 @@ export default function ProfileScreen({ navigation }) {
   );
 
   return (
+    <>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.btnPrimary} />
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={styles.container}
@@ -309,7 +312,7 @@ export default function ProfileScreen({ navigation }) {
       <TouchableOpacity
         activeOpacity={0.85}
         style={styles.quizLaunchCard}
-        onPress={() => navigation.navigate('Predictions', { openQuiz: true })}
+        onPress={() => navigation.navigate('Predictions')}
       >
         <View style={styles.quizLaunchIconWrap}>
           <Ionicons name="clipboard-outline" size={22} color={Colors.primary} />
@@ -681,6 +684,7 @@ export default function ProfileScreen({ navigation }) {
 
       <View style={styles.bottomSpacer} />
     </ScrollView>
+    </>
   );
 }
 

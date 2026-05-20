@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -51,6 +53,8 @@ export default function NewsScreen({ navigation }) {
     loadMore,
   } = useReportsFeed();
 
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
+
   const followingSupported = feedMeta?.followingSupported !== false;
   const visibleTabs = useMemo(
     () => FEED_TABS.filter((tab) => tab.id !== 'following' || followingSupported || activeFeed === 'following'),
@@ -58,16 +62,7 @@ export default function NewsScreen({ navigation }) {
   );
 
   const header = (
-    <View style={[s.headerWrap, { paddingTop: insets.top + 16 }]}>
-
-      {/* ── Top bar ── */}
-      <View style={s.topBar}>
-        <View style={s.topBarText}>
-          <Text style={s.screenTitle}>Reports Feed</Text>
-          <Text style={s.screenSubtitle}>Live reports from the community</Text>
-        </View>
-        <NotificationBell navigation={navigation} style={s.bellButton} color={Colors.heading} />
-      </View>
+    <View style={s.headerWrap}>
 
       {/* ── CTA card ── */}
       <TouchableOpacity
@@ -197,17 +192,44 @@ export default function NewsScreen({ navigation }) {
     </View>
   );
 
+  const gradientHeader = (
+    <LinearGradient
+      colors={[Colors.gradientFrom, Colors.gradientTo]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={[s.gradHeader, { paddingTop: insets.top + 14 }]}
+    >
+      <View style={s.gradDecor1} />
+      <View style={s.gradDecor2} />
+      <View style={s.gradRow}>
+        <View style={s.gradText}>
+          <Text style={s.gradTitle}>Reports Feed</Text>
+          <Text style={s.gradSub}>Live reports from the community</Text>
+        </View>
+        <View style={s.gradBell}>
+          <NotificationBell navigation={navigation} color={Colors.white} />
+        </View>
+      </View>
+    </LinearGradient>
+  );
+
   if (isLoading && !reports.length && !feedError) {
     return (
-      <View style={[s.loadingState, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={s.loadingText}>Loading public reports…</Text>
+      <View style={s.root}>
+        <StatusBar barStyle="light-content" backgroundColor={Colors.gradientFrom} translucent={false} />
+        {gradientHeader}
+        <View style={s.loadingState}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={s.loadingText}>Loading public reports…</Text>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.gradientFrom} translucent={false} />
+      {gradientHeader}
       <FlatList
         data={reports}
         keyExtractor={(item) => item.id}
@@ -261,33 +283,47 @@ const s = StyleSheet.create({
 
   loadingState: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
-    gap: 14, backgroundColor: Colors.bg,
+    gap: 14,
   },
   loadingText: { color: Colors.subtext, fontSize: 14 },
 
   listContent: { paddingBottom: 8 },
 
-  // ── Header ──
-  headerWrap: {
+  // ── Gradient header ──
+  gradHeader: {
     paddingHorizontal: 18,
     paddingBottom: 18,
-    gap: 16,
+    overflow: 'hidden',
+  },
+  gradDecor1: {
+    position: 'absolute', width: 200, height: 200, borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.07)', top: -80, right: -40,
+  },
+  gradDecor2: {
+    position: 'absolute', width: 110, height: 110, borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.05)', bottom: -30, left: 30,
+  },
+  gradRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  gradText: { gap: 3 },
+  gradTitle: { fontSize: 22, fontWeight: '800', color: Colors.white },
+  gradSub:   { fontSize: 13, color: 'rgba(255,255,255,0.75)' },
+  gradBell: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  topBarText: { gap: 3 },
-  screenTitle: { fontSize: 26, fontWeight: '800', color: Colors.heading },
-  screenSubtitle: { fontSize: 13, color: Colors.subtext },
-  bellButton: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 2,
+  // ── List header (CTA + filters) ──
+  headerWrap: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 18,
+    gap: 16,
   },
 
   // CTA card

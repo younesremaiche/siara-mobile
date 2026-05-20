@@ -111,7 +111,7 @@ function PublicStack() {
   return (
     <Stack.Navigator
       initialRouteName="Welcome"
-      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg }, statusBarColor: Colors.bg, statusBarStyle: 'dark', statusBarTranslucent: false }}
     >
       <Stack.Screen name="Welcome" component={HomeScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
@@ -127,7 +127,7 @@ function PublicStack() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
       <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
-      <Stack.Screen name="MyReports" component={MyReportsScreen} />
+      <Stack.Screen name="MyReports" component={MyReportsScreen} options={{ statusBarColor: '#7A3DF0', statusBarStyle: 'light' }} />
       <Stack.Screen name="Contact" component={ContactScreen} />
       <Stack.Screen name="Services" component={ServicesScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -141,18 +141,18 @@ function UserTabs() {
       initialRouteName="Dashboard"
       screenOptions={({ route }) => buildTabScreenOptions(route)}
     >
-      <Tab.Screen name="Dashboard" component={UserDashboardScreen} />
-      <Tab.Screen name="Map" component={MapScreen} />
-      <Tab.Screen name="News" component={NewsScreen} />
-      <Tab.Screen name="Reports" component={MyReportsScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Dashboard" component={UserDashboardScreen} options={{ statusBarColor: Colors.bg, statusBarStyle: 'dark', statusBarTranslucent: false }} />
+      <Tab.Screen name="Map" component={MapScreen} options={{ statusBarColor: Colors.bg, statusBarStyle: 'dark', statusBarTranslucent: false }} />
+      <Tab.Screen name="News" component={NewsScreen} options={{ statusBarColor: Colors.gradientFrom, statusBarStyle: 'light', statusBarTranslucent: false }} />
+      <Tab.Screen name="Reports" component={MyReportsScreen} options={{ statusBarColor: '#7A3DF0', statusBarStyle: 'light', statusBarTranslucent: false }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} options={{ statusBarColor: '#7C3AED', statusBarStyle: 'light', statusBarTranslucent: false }} />
     </Tab.Navigator>
   );
 }
 
 function UserStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}>
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg }, statusBarColor: Colors.bg, statusBarStyle: 'dark', statusBarTranslucent: false }}>
       <Stack.Screen name="UserTabs" component={UserTabs} options={{ animationEnabled: false }} />
       <Stack.Screen name="About" component={AboutScreen} />
       <Stack.Screen name="Description" component={DescriptionScreen} />
@@ -162,7 +162,7 @@ function UserStack() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
       <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
-      <Stack.Screen name="MyReports" component={MyReportsScreen} />
+      <Stack.Screen name="MyReports" component={MyReportsScreen} options={{ statusBarColor: '#7A3DF0', statusBarStyle: 'light' }} />
       <Stack.Screen name="Contact" component={ContactScreen} />
       <Stack.Screen name="Services" component={ServicesScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
@@ -191,7 +191,7 @@ function PoliceStackNavigator({ requiresZoneSelection }) {
   return (
     <PoliceStack.Navigator
       initialRouteName={requiresZoneSelection ? 'PoliceZoneSetup' : 'PoliceTabs'}
-      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg } }}
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.bg }, statusBarColor: Colors.bg, statusBarStyle: 'dark', statusBarTranslucent: false }}
     >
       <PoliceStack.Screen name="PoliceZoneSetup" component={PoliceWorkZoneScreen} />
       <PoliceStack.Screen name="PoliceTabs" component={PoliceTabs} options={{ animationEnabled: false }} />
@@ -375,7 +375,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Notifications" component={NotificationsScreen} />
                 <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
                 <Stack.Screen name="ReportIncident" component={ReportCreateScreen} />
-                <Stack.Screen name="MyReports" component={MyReportsScreen} />
+                <Stack.Screen name="MyReports" component={MyReportsScreen} options={{ statusBarColor: '#7A3DF0', statusBarStyle: 'light' }} />
                 <Stack.Screen name="Contact" component={ContactScreen} />
                 <Stack.Screen name="Services" component={ServicesScreen} />
                 <Stack.Screen name="Settings" component={SettingsScreen} />

@@ -224,17 +224,17 @@ export async function resetPassword({ email, resetToken, newPassword }) {
 }
 
 /**
- * Login with Google OAuth
- * idToken: JWT token from Google OAuth flow
- * Returns { token, user } - caller updates Zustand store
+ * Login with Google — sends the ID token returned by native Google Sign-In
+ * to the backend for verification. Same flow as the web version.
+ * Returns { token, user } — caller updates Zustand store.
  */
-export async function loginWithGoogle(idToken) {
+export async function loginWithGoogle({ idToken }) {
   try {
     if (!idToken) {
       throw new Error('Google ID token is required');
     }
 
-    console.log('[authService] Sending Google idToken to backend');
+    console.log('[authService] Sending Google ID token to backend for verification');
 
     const response = await apiRequest('/api/auth/google', {
       method: 'POST',

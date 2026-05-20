@@ -1,4 +1,6 @@
 import React, { useEffect } from 'react';
+import { StatusBar } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { NotificationsProvider } from './src/contexts/NotificationsContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
@@ -27,12 +29,15 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <NotificationsProvider>
-          <AppNavigator />
-        </NotificationsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <NotificationsProvider>
+            <StatusBar backgroundColor="#F6F7FB" barStyle="dark-content" translucent={false} />
+            <AppNavigator />
+          </NotificationsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

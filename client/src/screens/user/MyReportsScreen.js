@@ -1,8 +1,10 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
   ScrollView,
+  StatusBar,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -74,7 +76,7 @@ export default function MyReportsScreen({ navigation }) {
     }
   }, [user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -93,6 +95,7 @@ export default function MyReportsScreen({ navigation }) {
 
   return (
     <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.gradientFrom} translucent={false} />
 
       {/* ── Header ── */}
       <LinearGradient
