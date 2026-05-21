@@ -1,513 +1,311 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useContext, useState } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Image,
   ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-  Dimensions,
   Share,
-  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import Button from '../../components/ui/Button';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme/colors';
+import { AuthContext } from '../../contexts/AuthContext';
+import { getReport } from '../../services/reportsService';
 
-const { width } = Dimensions.get('window');
-
-const MOCK_INCIDENT = {
-  id: 'INC-2401',
-  title: 'Major collision on Blvd Zirout Youcef',
-  severity: 'high',
-  type: 'Collision',
-  location: 'Algiers Centre',
-  date: '2024-01-15 14:32',
-  description:
-    'Two vehicles collided at the intersection near Didouche Mourad. Emergency services on site. Traffic diverted through adjacent streets. Multiple witnesses confirm a red-light violation.',
-  reporters: 8,
-  aiConfidence: 87,
-  authorityVerified: true,
-  timeline: [
-    { time: '14:32', event: 'Incident reported by community member' },
-    { time: '14:35', event: 'AI flagged as high severity' },
-    { time: '14:38', event: '3 additional reports received' },
-    { time: '14:42', event: 'Emergency services dispatched' },
-    { time: '14:55', event: 'Authority confirmed on-site' },
-  ],
+/* ── Status config ─────────────────────────────────────────────────── */
+const STATUS_CFG = {
+  pending:      { label: 'Pending',     icon: 'hourglass-outline',     color: '#C86A10', bg: 'rgba(244,162,97,0.14)' },
+  under_review: { label: 'Under Review',icon: 'eye-outline',           color: Colors.secondary, bg: 'rgba(29,78,216,0.1)' },
+  verified:     { label: 'Verified',    icon: 'checkmark-circle',      color: Colors.accent, bg: 'rgba(15,169,88,0.12)' },
+  resolved:     { label: 'Resolved',   icon: 'shield-checkmark',       color: Colors.subtext, bg: 'rgba(107,114,128,0.1)' },
+  rejected:     { label: 'Rejected',   icon: 'close-circle',           color: Colors.error, bg: 'rgba(220,38,38,0.1)' },
 };
 
+const SEVERITY_COLOR = {
+  critical: Colors.severityCritical,
+  high:     Colors.severityHigh,
+  medium:   Colors.severityMedium,
+  low:      Colors.severityLow,
+};
+
+/* ── Info row ──────────────────────────────────────────────────────── */
+function InfoRow({ icon, label, value }) {
+  if (!value) return null;
+  return (
+    <View style={s.infoRow}>
+      <View style={s.infoIconWrap}>
+        <Ionicons name={icon} size={14} color={Colors.subtext} />
+      </View>
+      <Text style={s.infoLabel}>{label}</Text>
+      <Text style={s.infoValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAIN SCREEN
+══════════════════════════════════════════════════════════════════════ */
 export default function IncidentDetailScreen({ navigation, route }) {
-  const incident = MOCK_INCIDENT;
   const reportId = route?.params?.reportId;
+  const insets = useSafeAreaInsets();
+  const { user } = useContext(AuthContext);
 
-  const [refreshing, setRefreshing] = useState(false);
+  const [report,  setReport]  = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 300));
-    setRefreshing(false);
+  const load = useCallback(async () => {
+    if (!reportId) { setError('No report ID provided.'); setLoading(false); return; }
+    setLoading(true);
+    setError('');
+    try {
+      setReport(await getReport(reportId));
+    } catch (e) {
+      setError(e.message || 'Failed to load incident.');
+    } finally {
+      setLoading(false);
+    }
   }, [reportId]);
 
-  const sevColor = {
-    low: Colors.severityLow,
-    medium: Colors.severityMedium,
-    high: Colors.severityHigh,
-    critical: Colors.severityCritical,
-  }[incident.severity] || Colors.grey;
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const handleShare = async () => {
+    if (!report) return;
     try {
       await Share.share({
-        message: `SIARA Alert: ${incident.title} - ${incident.severity.toUpperCase()} severity at ${incident.location}`,
+        message: `SIARA Alert: ${report.title} — ${String(report.severity || '').toUpperCase()} severity at ${report.locationLabel || 'unknown location'}`,
       });
-    } catch (e) {}
+    } catch {}
   };
 
-  return (
-    <View style={styles.wrapper}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={Colors.heading} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Incident Details</Text>
-        <View style={[styles.sevBadge, { backgroundColor: `${sevColor}18` }]}>
-          <View style={[styles.sevDot, { backgroundColor: sevColor }]} />
-          <Text style={[styles.sevBadgeText, { color: sevColor }]}>
-            {incident.severity.toUpperCase()}
-          </Text>
+  /* ── Loading ── */
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <StatusBar barStyle="dark-content" backgroundColor={Colors.bg} />
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={s.loadingText}>Loading incident...</Text>
+      </View>
+    );
+  }
+
+  /* ── Error ── */
+  if (error || !report) {
+    return (
+      <View style={s.center}>
+        <StatusBar barStyle="dark-content" backgroundColor={Colors.bg} />
+        <View style={s.errorIconWrap}>
+          <Ionicons name="alert-circle-outline" size={32} color={Colors.error} />
         </View>
+        <Text style={s.errorTitle}>Could not load incident</Text>
+        <Text style={s.errorSub}>{error || 'Report not found.'}</Text>
+        <TouchableOpacity style={s.retryBtn} onPress={load} activeOpacity={0.85}>
+          <Text style={s.retryBtnText}>Try again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.backLink} onPress={() => navigation.goBack()}>
+          <Text style={s.backLinkText}>Go back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const statusKey = (report.displayStatus || report.status || 'pending').toLowerCase();
+  const statusCfg = STATUS_CFG[statusKey] || STATUS_CFG.pending;
+  const sevColor  = SEVERITY_COLOR[String(report.severity || '').toLowerCase()] || Colors.greyLight;
+  const isOwner   = user?.id && String(report.reportedBy?.id || '') === String(user.id);
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.bg} translucent={false} />
+
+      {/* ── Header ── */}
+      <View style={[s.header, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+          <Ionicons name="arrow-back" size={20} color={Colors.heading} />
+        </TouchableOpacity>
+        <Text style={s.headerTitle} numberOfLines={1}>Incident Detail</Text>
+        <TouchableOpacity style={s.shareBtn} onPress={handleShare} activeOpacity={0.8}>
+          <Ionicons name="share-social-outline" size={20} color={Colors.heading} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.container}
+        style={s.scroll}
+        contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
       >
-        {/* Map placeholder */}
-        <View style={styles.mapSection}>
-          <View style={styles.mapPlaceholder}>
-            <Ionicons name="map" size={40} color={Colors.greyLight} />
-            <Text style={styles.mapPlaceholderText}>Incident Location</Text>
-            <Text style={styles.mapPlaceholderHint}>{incident.location}</Text>
+        {/* ── Status + severity banner ── */}
+        <View style={[s.statusBanner, { backgroundColor: statusCfg.bg, borderColor: statusCfg.color + '40' }]}>
+          <Ionicons name={statusCfg.icon} size={20} color={statusCfg.color} />
+          <Text style={[s.statusLabel, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+          <View style={[s.sevBadge, { backgroundColor: sevColor + '14' }]}>
+            <View style={[s.sevDot, { backgroundColor: sevColor }]} />
+            <Text style={[s.sevText, { color: sevColor }]}>{String(report.severity || 'low').toUpperCase()}</Text>
           </View>
         </View>
 
-        {/* Title & ID */}
-        <View style={styles.titleSection}>
-          <View style={styles.idRow}>
-            <Text style={styles.incId}>{incident.id}</Text>
-            <View style={styles.typeBadge}>
-              <Ionicons name="car" size={12} color={Colors.secondary} />
-              <Text style={styles.typeBadgeText}>{incident.type}</Text>
-            </View>
-          </View>
-          <Text style={styles.title}>{incident.title}</Text>
-          <View style={styles.metaRow}>
-            <Ionicons name="location-outline" size={14} color={Colors.subtext} />
-            <Text style={styles.meta}>{incident.location}</Text>
-            <Ionicons name="time-outline" size={14} color={Colors.subtext} />
-            <Text style={styles.meta}>{incident.date}</Text>
-          </View>
+        {/* ── Title card ── */}
+        <View style={s.card}>
+          <Text style={s.title}>{report.title}</Text>
+          {report.description ? (
+            <Text style={s.description}>{report.description}</Text>
+          ) : null}
         </View>
 
-        {/* Trust indicators */}
-        <View style={styles.trustRow}>
-          <View style={[styles.trustCard, { backgroundColor: Colors.blueLight, borderColor: Colors.blueBorder }]}>
-            <View style={[styles.trustIconWrap, { backgroundColor: Colors.secondary }]}>
-              <Ionicons name="people" size={18} color={Colors.white} />
-            </View>
-            <Text style={styles.trustVal}>{incident.reporters}</Text>
-            <Text style={styles.trustLabel}>Reporters</Text>
+        {/* ── Details card ── */}
+        <View style={s.card}>
+          <View style={s.cardHeader}>
+            <Ionicons name="information-circle-outline" size={16} color={Colors.primary} />
+            <Text style={s.cardTitle}>Details</Text>
           </View>
-          <View style={[styles.trustCard, { backgroundColor: 'rgba(15,169,88,0.08)', borderColor: 'rgba(15,169,88,0.18)' }]}>
-            <View style={[styles.trustIconWrap, { backgroundColor: Colors.accent }]}>
-              <Ionicons name="shield-checkmark" size={18} color={Colors.white} />
-            </View>
-            <Text style={styles.trustVal}>{incident.authorityVerified ? 'Yes' : 'No'}</Text>
-            <Text style={styles.trustLabel}>Verified</Text>
-          </View>
-          <View style={[styles.trustCard, { backgroundColor: Colors.violetLight, borderColor: Colors.violetBorder }]}>
-            <View style={[styles.trustIconWrap, { backgroundColor: Colors.primary }]}>
-              <Ionicons name="analytics" size={18} color={Colors.white} />
-            </View>
-            <Text style={styles.trustVal}>{incident.aiConfidence}%</Text>
-            <Text style={styles.trustLabel}>AI Score</Text>
-          </View>
+          <InfoRow icon="location-outline"   label="Location" value={report.locationLabel} />
+          <InfoRow icon="time-outline"        label="Reported" value={report.relativeTime} />
+          <InfoRow icon="person-outline"      label="Reporter" value={report.reportedBy?.name} />
+          <InfoRow icon="car-outline"         label="Type"     value={report.incidentType?.replace(/_/g, ' ')} />
         </View>
 
-        {/* Description card */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="document-text" size={18} color={Colors.primary} />
-            <Text style={styles.cardTitle}>Description</Text>
-          </View>
-          <Text style={styles.description}>{incident.description}</Text>
-        </View>
-
-        {/* Timeline card */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="time" size={18} color={Colors.primary} />
-            <Text style={styles.cardTitle}>Status Timeline</Text>
-          </View>
-          {incident.timeline.map((t, i) => (
-            <View key={i} style={styles.timelineItem}>
-              <View style={styles.timelineLeft}>
-                <View style={[
-                  styles.timelineDot,
-                  i === 0 && styles.timelineDotFirst,
-                  i === incident.timeline.length - 1 && styles.timelineDotLast,
-                ]} />
-                {i < incident.timeline.length - 1 && <View style={styles.timelineLine} />}
-              </View>
-              <View style={styles.timelineContent}>
-                <Text style={styles.timelineTime}>{t.time}</Text>
-                <Text style={styles.timelineEvent}>{t.event}</Text>
-              </View>
+        {/* ── Media ── */}
+        {report.media?.length > 0 ? (
+          <View style={s.card}>
+            <View style={s.cardHeader}>
+              <Ionicons name="images-outline" size={16} color={Colors.primary} />
+              <Text style={s.cardTitle}>Photos</Text>
             </View>
-          ))}
-        </View>
-
-        {/* Safety recommendations card */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="shield" size={18} color={Colors.accent} />
-            <Text style={styles.cardTitle}>Safety Recommendations</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.mediaRow}>
+              {report.media.map((m, i) => (
+                <Image key={i} source={{ uri: m.url }} style={s.mediaThumb} />
+              ))}
+            </ScrollView>
           </View>
-          {[
-            'Avoid the area if possible',
-            "Use alternative routes via Rue Larbi Ben M'hidi",
-            'Expect delays of 30-45 minutes',
-          ].map((r, i) => (
-            <View key={i} style={styles.recRow}>
-              <View style={styles.recBullet}>
-                <Ionicons name="checkmark" size={12} color={Colors.accent} />
-              </View>
-              <Text style={styles.recText}>{r}</Text>
-            </View>
-          ))}
+        ) : null}
+
+        {/* ── Status meaning card ── */}
+        <View style={[s.card, { borderColor: statusCfg.color + '30', backgroundColor: statusCfg.bg }]}>
+          <View style={s.cardHeader}>
+            <Ionicons name={statusCfg.icon} size={16} color={statusCfg.color} />
+            <Text style={[s.cardTitle, { color: statusCfg.color }]}>What this means</Text>
+          </View>
+          <Text style={s.statusMeaning}>
+            {statusKey === 'pending'      && 'This report is waiting to be reviewed by an officer in the area.'}
+            {statusKey === 'under_review' && 'An officer has been assigned and is actively reviewing this report.'}
+            {statusKey === 'verified'     && 'An officer has confirmed this incident is legitimate. Stay cautious.'}
+            {statusKey === 'resolved'     && 'This incident has been handled and the case is closed.'}
+            {statusKey === 'rejected'     && 'Officers reviewed this report and marked it as invalid or inaccurate.'}
+          </Text>
         </View>
 
-        {/* Action buttons */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(15,169,88,0.08)', borderColor: 'rgba(15,169,88,0.2)' }]}>
-            <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
-            <Text style={[styles.actionBtnText, { color: Colors.accent }]}>Verify</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(249,115,22,0.08)', borderColor: 'rgba(249,115,22,0.2)' }]}>
-            <Ionicons name="flag" size={20} color={Colors.severityHigh} />
-            <Text style={[styles.actionBtnText, { color: Colors.severityHigh }]}>Flag</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: Colors.blueLight, borderColor: Colors.blueBorder }]}
-            onPress={handleShare}
-          >
-            <Ionicons name="share-social" size={20} color={Colors.secondary} />
-            <Text style={[styles.actionBtnText, { color: Colors.secondary }]}>Share</Text>
-          </TouchableOpacity>
-        </View>
+        {/* ── Owner actions ── */}
+        {isOwner ? (
+          <View style={s.ownerActions}>
+            <TouchableOpacity
+              style={s.editBtn}
+              onPress={() => navigation.navigate('ReportIncident', { editReport: report })}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="create-outline" size={16} color={Colors.primary} />
+              <Text style={s.editBtnText}>Edit Report</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
+const s = StyleSheet.create({
+  root:   { flex: 1, backgroundColor: Colors.bg },
+  center: { flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+
+  /* header */
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 48,
-    paddingBottom: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 12,
     backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomWidth: 1, borderBottomColor: Colors.border,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: {
-    color: Colors.heading,
-    fontSize: 18,
-    fontWeight: '700',
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '800', color: Colors.heading },
+  shareBtn: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center',
   },
+
+  scroll: { flex: 1 },
+  content: { padding: 16, gap: 12 },
+
+  /* status banner */
+  statusBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 16, padding: 14, borderWidth: 1,
+  },
+  statusLabel: { flex: 1, fontSize: 14, fontWeight: '800' },
   sevBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    gap: 5,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8,
   },
-  sevDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  sevBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
+  sevDot:  { width: 6, height: 6, borderRadius: 3 },
+  sevText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
 
-  scroll: {
-    flex: 1,
-  },
-  container: {
-    paddingBottom: 40,
-  },
-
-  /* Map section */
-  mapSection: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  mapPlaceholder: {
-    height: 180,
-    borderRadius: 16,
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  mapPlaceholderText: {
-    color: Colors.heading,
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  mapPlaceholderHint: {
-    color: Colors.subtext,
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  /* Title section */
-  titleSection: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
-  idRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  incId: {
-    color: Colors.subtext,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.blueLight,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: Colors.blueBorder,
-  },
-  typeBadgeText: {
-    color: Colors.secondary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  title: {
-    color: Colors.heading,
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 8,
-    lineHeight: 26,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  meta: {
-    color: Colors.subtext,
-    fontSize: 12,
-    marginRight: 10,
-  },
-
-  /* Trust indicators */
-  trustRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 10,
-    marginBottom: 16,
-  },
-  trustCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 6,
-  },
-  trustIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  trustVal: {
-    color: Colors.heading,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  trustLabel: {
-    color: Colors.subtext,
-    fontSize: 10,
-    fontWeight: '500',
-  },
-
-  /* Card */
+  /* card */
   card: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    backgroundColor: Colors.white, borderRadius: 18, padding: 16,
+    borderWidth: 1, borderColor: Colors.borderLight, gap: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 14,
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardTitle:  { color: Colors.heading, fontSize: 14, fontWeight: '800' },
+  title:       { color: Colors.heading, fontSize: 18, fontWeight: '800', lineHeight: 24 },
+  description: { color: Colors.text, fontSize: 14, lineHeight: 21 },
+  statusMeaning: { color: Colors.text, fontSize: 13, lineHeight: 20 },
+
+  /* info row */
+  infoRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  cardTitle: {
-    color: Colors.heading,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  description: {
-    color: Colors.text,
-    fontSize: 14,
-    lineHeight: 22,
+  infoIconWrap: { width: 22, alignItems: 'center', paddingTop: 1 },
+  infoLabel:   { color: Colors.subtext, fontSize: 12, fontWeight: '700', width: 68 },
+  infoValue:   { flex: 1, color: Colors.heading, fontSize: 13, fontWeight: '600' },
+
+  /* media */
+  mediaRow: { gap: 10 },
+  mediaThumb: {
+    width: 120, height: 90, borderRadius: 12,
+    backgroundColor: Colors.bg,
   },
 
-  /* Timeline */
-  timelineItem: {
-    flexDirection: 'row',
-    minHeight: 48,
+  /* owner actions */
+  ownerActions: { flexDirection: 'row', gap: 10 },
+  editBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    backgroundColor: Colors.violetLight, borderRadius: 14, paddingVertical: 13,
+    borderWidth: 1, borderColor: Colors.violetBorder,
   },
-  timelineLeft: {
-    alignItems: 'center',
-    width: 20,
-  },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.blueLight,
-    borderWidth: 2,
-    borderColor: Colors.secondary,
-    marginTop: 4,
-    zIndex: 1,
-  },
-  timelineDotFirst: {
-    backgroundColor: Colors.secondary,
-    borderColor: Colors.secondary,
-  },
-  timelineDotLast: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
-  },
-  timelineLine: {
-    flex: 1,
-    width: 2,
-    backgroundColor: Colors.border,
-    marginVertical: -2,
-  },
-  timelineContent: {
-    marginLeft: 12,
-    flex: 1,
-    paddingBottom: 14,
-  },
-  timelineTime: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  timelineEvent: {
-    color: Colors.text,
-    fontSize: 13,
-    marginTop: 2,
-    lineHeight: 18,
-  },
+  editBtnText: { color: Colors.primary, fontWeight: '800', fontSize: 13 },
 
-  /* Recommendations */
-  recRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 10,
+  /* loading/error */
+  loadingText: { color: Colors.subtext, fontSize: 14, marginTop: 8 },
+  errorIconWrap: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: 'rgba(220,38,38,0.08)', alignItems: 'center', justifyContent: 'center',
   },
-  recBullet: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(15,169,88,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 1,
+  errorTitle: { color: Colors.heading, fontSize: 16, fontWeight: '800' },
+  errorSub:   { color: Colors.subtext, fontSize: 13, textAlign: 'center' },
+  retryBtn: {
+    backgroundColor: Colors.primary, borderRadius: 12,
+    paddingHorizontal: 24, paddingVertical: 11, marginTop: 4,
   },
-  recText: {
-    color: Colors.text,
-    fontSize: 13,
-    flex: 1,
-    lineHeight: 20,
-  },
-
-  /* Action buttons */
-  actionRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 10,
-    marginTop: 4,
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  actionBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  retryBtnText: { color: Colors.white, fontWeight: '800', fontSize: 13 },
+  backLink: { marginTop: 4 },
+  backLinkText: { color: Colors.subtext, fontSize: 13 },
 });

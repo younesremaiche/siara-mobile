@@ -18,10 +18,12 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { listReports } from '../../services/reportsService';
 
 const FILTERS = [
-  { id: 'all',      label: 'All',      icon: 'apps-outline' },
-  { id: 'pending',  label: 'Pending',  icon: 'hourglass-outline' },
-  { id: 'verified', label: 'Verified', icon: 'checkmark-circle-outline' },
-  { id: 'rejected', label: 'Rejected', icon: 'close-circle-outline' },
+  { id: 'all',          label: 'All',          icon: 'apps-outline' },
+  { id: 'pending',      label: 'Pending',      icon: 'hourglass-outline' },
+  { id: 'under_review', label: 'In Review',    icon: 'eye-outline' },
+  { id: 'verified',     label: 'Verified',     icon: 'checkmark-circle-outline' },
+  { id: 'resolved',     label: 'Resolved',     icon: 'shield-checkmark-outline' },
+  { id: 'rejected',     label: 'Rejected',     icon: 'close-circle-outline' },
 ];
 
 const SEVERITY_COLOR = {
@@ -36,9 +38,11 @@ function severityColor(severity) {
 }
 
 const STATUS_TINT = {
-  pending:  { bg: 'rgba(244,162,97,0.14)', fg: '#c86a10' },
-  verified: { bg: 'rgba(34,197,94,0.13)',  fg: '#16a34a' },
-  rejected: { bg: 'rgba(220,38,38,0.10)',  fg: Colors.error },
+  pending:      { bg: 'rgba(244,162,97,0.14)',   fg: '#c86a10' },
+  under_review: { bg: 'rgba(29,78,216,0.10)',    fg: Colors.secondary },
+  verified:     { bg: 'rgba(34,197,94,0.13)',    fg: '#16a34a' },
+  rejected:     { bg: 'rgba(220,38,38,0.10)',    fg: Colors.error },
+  resolved:     { bg: 'rgba(107,114,128,0.12)',  fg: Colors.subtext },
 };
 
 const STATS_META = [
@@ -83,14 +87,16 @@ export default function MyReportsScreen({ navigation }) {
     await load({ silent: true });
   }, [load]);
 
+  const effectiveStatus = (r) => (r.displayStatus || r.status || 'pending').toLowerCase();
+
   const filtered = filter === 'all'
     ? reports
-    : reports.filter((r) => String(r.status || '').toLowerCase() === filter);
+    : reports.filter((r) => effectiveStatus(r) === filter);
 
   const stats = {
     total:    reports.length,
-    pending:  reports.filter((r) => r.status === 'pending').length,
-    verified: reports.filter((r) => r.status === 'verified').length,
+    pending:  reports.filter((r) => ['pending', 'under_review'].includes(effectiveStatus(r))).length,
+    verified: reports.filter((r) => effectiveStatus(r) === 'verified').length,
   };
 
   return (
@@ -214,7 +220,7 @@ export default function MyReportsScreen({ navigation }) {
         ) : (
           filtered.map((r) => {
             const sev    = severityColor(r.severity);
-            const status = String(r.status || 'pending').toLowerCase();
+            const status = effectiveStatus(r);
             const tint   = STATUS_TINT[status] || STATUS_TINT.pending;
             return (
               <TouchableOpacity
@@ -232,7 +238,7 @@ export default function MyReportsScreen({ navigation }) {
                     <Text style={s.cardTitle} numberOfLines={1}>{r.title}</Text>
                     <View style={[s.statusPill, { backgroundColor: tint.bg }]}>
                       <Text style={[s.statusText, { color: tint.fg }]}>
-                        {status.toUpperCase()}
+                        {status === 'under_review' ? 'IN REVIEW' : status.toUpperCase()}
                       </Text>
                     </View>
                   </View>

@@ -1794,18 +1794,15 @@ async function assignSelfToIncident(officerUserId, reportId, payload = {}, db = 
         [reportId, officerUserId, note],
       );
 
-      const nextStatus = currentRow.status === "pending" ? "under_review" : currentRow.status;
-
       await client.query(
         `
           UPDATE app.accident_reports
           SET
             assigned_officer_id = $2::uuid,
-            status = $3::text,
             updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [reportId, officerUserId, nextStatus],
+        [reportId, officerUserId],
       );
 
       await recordOperationHistory(client, {
@@ -1967,18 +1964,15 @@ async function requestIncidentBackup(officerUserId, reportId, payload = {}, db =
     reportId,
     async ({ client, currentRow, officerContext }) => {
       const supervisorUserId = await getSupervisorRecipientUserId(officerContext, client);
-      const nextStatus = currentRow.status === "pending" ? "under_review" : currentRow.status;
-
       await client.query(
         `
           UPDATE app.accident_reports
           SET
-            status = $2::text,
-            assigned_officer_id = COALESCE(assigned_officer_id, $3::uuid),
+            assigned_officer_id = COALESCE(assigned_officer_id, $2::uuid),
             updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [reportId, nextStatus, officerUserId],
+        [reportId, officerUserId],
       );
 
       await recordOperationHistory(client, {

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +29,8 @@ export default function AlertsScreen() {
   const navigation = useNavigation();
   const { alerts, isLoading, isRefreshing, error, refresh } = useMyAlerts();
   const [statusFilter, setStatusFilter] = useState('all');
+
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
   const filteredAlerts = useMemo(() => {
     if (statusFilter === 'all') return alerts;

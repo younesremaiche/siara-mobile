@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Platform,
@@ -29,6 +30,8 @@ export default function NotificationsScreen({ navigation }) {
     markAllRead,
     openNotification,
   } = useNotifications();
+
+  useFocusEffect(useCallback(() => { refreshNotifications(); }, [refreshNotifications]));
 
   const sections = useMemo(() => groupNotificationsByDate(items), [items]);
 

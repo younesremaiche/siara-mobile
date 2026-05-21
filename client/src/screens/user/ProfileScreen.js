@@ -56,11 +56,11 @@ export default function ProfileScreen({ navigation }) {
 
   // Activity tabs (Alerts / Reports)
   const [activityTab, setActivityTab] = useState('alerts');
-  const { alerts: myAlerts, isLoading: alertsLoading } = useMyAlerts();
+  const { alerts: myAlerts, isLoading: alertsLoading, refresh: refreshAlerts } = useMyAlerts();
   const [myReports, setMyReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
     (async () => {
       setReportsLoading(true);
@@ -77,8 +77,9 @@ export default function ProfileScreen({ navigation }) {
         if (!cancelled) setReportsLoading(false);
       }
     })();
+    refreshAlerts();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, refreshAlerts]));
   const [editVisible, setEditVisible] = useState(false);
   const [quizSummary, setQuizSummary] = useState({
     completed: false,
