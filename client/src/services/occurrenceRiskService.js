@@ -122,6 +122,7 @@ export async function fetchOccurrenceRiskSegment({
       method: 'POST',
       body: JSON.stringify(body),
       signal,
+      withAuth: true,
     });
     occurrenceCache.set(cacheKey, result);
     return result;

@@ -173,6 +173,93 @@ function formatConfidence(value) {
   return Number.isFinite(n) ? `${n}%` : null;
 }
 
+function formatPercentValue(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '--';
+  return `${Math.round(n)}%`;
+}
+
+function formatMultiplier(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return `${n.toFixed(2)}x`;
+}
+
+function formatSignedPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const sign = n > 0 ? '+' : '';
+  const digits = Math.abs(n) >= 10 ? 0 : 1;
+  return `${sign}${n.toFixed(digits)}%`;
+}
+
+function formatClock(timestampIso) {
+  if (!timestampIso) return null;
+  const date = new Date(timestampIso);
+  if (Number.isNaN(date.getTime())) return null;
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function buildTimeBucket(timestampIso) {
+  const date = timestampIso ? new Date(timestampIso) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  safeDate.setMinutes(0, 0, 0);
+  return safeDate.toISOString();
+}
+
+function PredictionBreakdown({ data }) {
+  if (!data) return null;
+  return (
+    <View style={styles.breakdown}>
+      <View style={styles.predictionRow}>
+        <Text style={styles.predictionLabel}>Model/global prediction</Text>
+        <Text style={styles.predictionValue}>{formatPercentValue(data.modelPct)}</Text>
+      </View>
+
+      {data.driverQuizApplied ? (
+        <View style={styles.predictionRow}>
+          <Text style={styles.predictionLabel}>Personalized prediction</Text>
+          <Text style={styles.predictionValue}>{formatPercentValue(data.personalizedPct)}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DriverQuizAdjustment({ data }) {
+  if (!data) return null;
+  if (!data.driverQuizApplied) {
+    return (
+      <View style={styles.adjustmentBox}>
+        <Text style={styles.adjustmentTitle}>Driver quiz adjustment</Text>
+        <Text style={styles.adjustmentText}>
+          No driver quiz result found — showing model-only prediction.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.adjustmentBox}>
+      <Text style={styles.adjustmentTitle}>Driver quiz adjustment</Text>
+      <Text style={styles.adjustmentText}>Driver quiz applied</Text>
+      <View style={styles.statRow}>
+        <StatChip
+          label="Driver score"
+          value={data.driverRiskScore != null ? `${Math.round(data.driverRiskScore)}/100` : null}
+        />
+        <StatChip label="Result" value={data.driverResultLabel} />
+      </View>
+      <View style={styles.statRow}>
+        <StatChip label="Multiplier" value={formatMultiplier(data.driverMultiplier)} />
+        <StatChip label="Delta" value={formatSignedPercent(data.behaviorDeltaPct)} />
+      </View>
+    </View>
+  );
+}
+
 export default function BetaOccurrenceCard({
   lat,
   lng,
@@ -188,9 +275,15 @@ export default function BetaOccurrenceCard({
   style,
 }) {
   const [runRequested, setRunRequested] = useState(false);
+  const [runTimestamp, setRunTimestamp] = useState(null);
+  const [runKey, setRunKey] = useState(null);
   const hasBetaRows = Array.isArray(betaRows) && betaRows.length > 0;
   const parsedRoadSegmentId = Number(roadSegmentId ?? segmentId);
   const hasValidRoadSegmentId = Number.isInteger(parsedRoadSegmentId) && parsedRoadSegmentId > 0;
+  const runTimeBucket = useMemo(
+    () => (runTimestamp ? buildTimeBucket(runTimestamp) : null),
+    [runTimestamp],
+  );
   const {
     data,
     state,
@@ -206,28 +299,42 @@ export default function BetaOccurrenceCard({
     roadSegmentId: hasValidRoadSegmentId ? parsedRoadSegmentId : null,
     segmentId: hasValidRoadSegmentId ? parsedRoadSegmentId : null,
     rows: betaRows,
-    timeBucket,
-    timestamp,
+    timeBucket: runTimeBucket || timeBucket,
+    timestamp: runTimestamp || timestamp,
     weather,
     context,
+    requestKey: runKey,
     enabled: enabled
       && runRequested
-      && (providerKey === 'alt' ? hasBetaRows : hasValidRoadSegmentId && hasTimeWindowFeatures),
+      && Boolean(runTimestamp)
+      && (providerKey === 'alt' ? hasBetaRows : hasValidRoadSegmentId),
   });
 
-  const level = data?.level || 'low';
+  const level = data?.level || null;
   const color = LEVEL_COLORS[level] || Colors.subtext;
   const updatedLabel = useMemo(() => formatRelative(data?.updatedAt), [data?.updatedAt]);
+  const predictionTimeLabel = useMemo(
+    () => formatClock(data?.predictionTime || runTimestamp),
+    [data?.predictionTime, runTimestamp],
+  );
   const hasRequiredFeatures = providerKey === 'alt'
     ? hasBetaRows
-    : hasValidRoadSegmentId && hasTimeWindowFeatures;
+    : hasValidRoadSegmentId;
   const missingMessage = providerKey === 'alt'
     ? 'Beta model input row is incomplete.'
     : 'Beta model needs a road segment and time-window features before prediction.';
 
-  const toggleProvider = () => setProviderKey((prev) => (prev === 'primary' ? 'alt' : 'primary'));
+  const toggleProvider = () => {
+    setRunRequested(false);
+    setRunTimestamp(null);
+    setRunKey(null);
+    setProviderKey((prev) => (prev === 'primary' ? 'alt' : 'primary'));
+  };
   const handleRun = () => {
     if (!hasRequiredFeatures) return;
+    const now = new Date().toISOString();
+    setRunTimestamp(now);
+    setRunKey(`${now}:${Date.now()}`);
     setRunRequested(true);
   };
 
@@ -250,7 +357,9 @@ export default function BetaOccurrenceCard({
             ) : (
               <Ionicons name="flask-outline" size={14} color={Colors.white} />
             )}
-            <Text style={styles.runBtnText}>Run beta prediction</Text>
+            <Text style={styles.runBtnText}>
+              {data ? 'Refresh beta prediction' : 'Run beta prediction'}
+            </Text>
           </TouchableOpacity>
           <ProviderPill providerKey={providerKey} onToggle={toggleProvider} />
         </View>
@@ -294,12 +403,18 @@ export default function BetaOccurrenceCard({
                 <Text style={styles.betaResultLabel}>Experimental beta result — not final model.</Text>
                 <Text style={[styles.metricLabel, { color }]}>{data.label}</Text>
                 <Text style={styles.metricNarrative} numberOfLines={4}>{data.narrative}</Text>
+                {predictionTimeLabel ? (
+                  <Text style={styles.predictionTime}>Prediction time: {predictionTimeLabel}</Text>
+                ) : null}
               </View>
             </View>
 
+            <PredictionBreakdown data={data} />
+            <DriverQuizAdjustment data={data} />
+
             <View style={styles.statRow}>
               <StatChip label="Model confidence" value={formatConfidence(data.confidence)} />
-              <StatChip label="Samples" value={data.samples != null ? String(data.samples) : null} />
+              <StatChip label="Risk level" value={data.personalizedLevelLabel || data.modelLevelLabel} />
             </View>
 
             <View style={styles.providerRow}>
@@ -487,6 +602,35 @@ const styles = StyleSheet.create({
   betaResultLabel: { fontSize: 12, fontWeight: '800', color: Colors.heading, lineHeight: 17 },
   metricLabel: { fontSize: 14, fontWeight: '800' },
   metricNarrative: { fontSize: 12, lineHeight: 17, color: Colors.subtext },
+  predictionTime: { fontSize: 11, fontWeight: '700', color: Colors.greyLight },
+
+  // Predictions
+  breakdown: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 8,
+  },
+  predictionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  predictionLabel: { flex: 1, fontSize: 12, fontWeight: '700', color: Colors.text },
+  predictionValue: { fontSize: 15, fontWeight: '800', color: Colors.heading },
+  adjustmentBox: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.violetLight,
+    borderWidth: 1,
+    borderColor: Colors.violetBorder,
+    gap: 8,
+  },
+  adjustmentTitle: { fontSize: 12, fontWeight: '800', color: Colors.heading },
+  adjustmentText: { fontSize: 12, color: Colors.subtext, lineHeight: 17 },
 
   // Stat chips
   statRow: { flexDirection: 'row', gap: 6 },

@@ -35,8 +35,15 @@ export const OCCURRENCE_PROVIDERS = {
   },
 };
 
-function clampPercent(value) {
+function probabilityToPercent(value) {
   const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 0 && n <= 1) return n * 100;
+  return n;
+}
+
+function clampPercent(value) {
+  const n = probabilityToPercent(value);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Math.min(100, n));
 }
@@ -48,7 +55,7 @@ function normaliseLevel(level, pct) {
   if (['medium', 'moderate'].includes(raw)) return 'medium';
   if (['low'].includes(raw)) return 'low';
   const p = Number(pct);
-  if (!Number.isFinite(p)) return 'low';
+  if (!Number.isFinite(p)) return null;
   if (p >= 75) return 'critical';
   if (p >= 55) return 'high';
   if (p >= 25) return 'medium';
@@ -59,7 +66,46 @@ function buildLabel(level) {
   if (level === 'critical') return 'Very high likelihood';
   if (level === 'high') return 'High likelihood';
   if (level === 'medium') return 'Moderate likelihood';
-  return 'Low likelihood';
+  if (level === 'low') return 'Low likelihood';
+  return 'Occurrence probability unavailable';
+}
+
+function firstDefined(values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return null;
+}
+
+function firstPercent(values) {
+  for (const value of values) {
+    const pct = probabilityToPercent(value);
+    if (pct != null) return Math.max(0, Math.min(100, pct));
+  }
+  return null;
+}
+
+function firstNumber(values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function prettyResultLabel(value) {
+  if (!value) return null;
+  return String(value)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatLevelLabel(level) {
+  if (level === 'critical') return 'Very high';
+  if (level === 'high') return 'High';
+  if (level === 'medium') return 'Moderate';
+  if (level === 'low') return 'Low';
+  return 'Unknown';
 }
 
 function pickNarrative(payload, level) {
@@ -74,14 +120,75 @@ function pickNarrative(payload, level) {
         ? 'Recent reports cluster near this segment for the selected horizon.'
         : level === 'medium'
           ? 'Above the local baseline. Stay attentive.'
-          : 'Near baseline for this segment.')
+          : level === 'low'
+            ? 'Near baseline for this segment.'
+            : 'The occurrence model did not return a usable probability.')
   );
 }
 
-function normaliseResponse(payload, level, pct) {
-  const confidence = clampPercent(payload?.confidence ?? payload?.model_confidence);
+function normaliseResponse(payload) {
+  const modelPct = firstPercent([
+    payload?.occurrenceRisk?.calibratedProbability,
+    payload?.occurrenceRisk?.score,
+    payload?.modelOnly?.calibrated_probability,
+    payload?.modelOnly?.risk_score,
+    payload?.calibratedProbability,
+    payload?.calibrated_probability,
+    payload?.probability,
+    payload?.occurrence_percent,
+    payload?.percent,
+  ]);
+  const personalizedPct = firstPercent([
+    payload?.personalizedRisk?.score,
+    payload?.personalized?.calibrated_probability,
+    payload?.personalized?.risk_score,
+    payload?.personalized_occurrence_score,
+  ]);
+  const driverQuizApplied = Boolean(
+    payload?.personalizedRisk
+    || payload?.personalized?.driver_behavior_applied === true,
+  );
+  const pct = driverQuizApplied && personalizedPct != null ? personalizedPct : modelPct;
+  const modelLevel = normaliseLevel(firstDefined([
+    payload?.occurrenceRisk?.riskLevel,
+    payload?.modelOnly?.risk_level,
+    payload?.riskLevel,
+    payload?.risk_level,
+    payload?.level,
+  ]), modelPct);
+  const personalizedLevel = normaliseLevel(firstDefined([
+    payload?.personalizedRisk?.riskLevel,
+    payload?.personalized?.risk_level,
+  ]), personalizedPct);
+  const level = driverQuizApplied && personalizedPct != null
+    ? personalizedLevel || modelLevel
+    : modelLevel || personalizedLevel;
+  const confidence = clampPercent(
+    payload?.occurrenceRisk?.confidence
+    ?? payload?.modelOnly?.confidence_score
+    ?? payload?.confidence
+    ?? payload?.model_confidence,
+  );
   const baselineFactor = Number(payload?.baseline_factor ?? payload?.factor);
   const samples = Number(payload?.samples ?? payload?.support ?? payload?.n_samples);
+  const driverRiskScore = firstNumber([
+    payload?.personalizedRisk?.driverRiskScore,
+    payload?.personalized?.driver_risk_score,
+    payload?.driver_meta?.latest_risk_score,
+  ]);
+  const driverResultLabel = prettyResultLabel(firstDefined([
+    payload?.personalizedRisk?.driverResultLabel,
+    payload?.personalized?.driver_result_label,
+    payload?.driver_meta?.latest_result_label,
+  ]));
+  const driverMultiplier = firstNumber([
+    payload?.personalizedRisk?.driverMultiplier,
+    payload?.personalized?.behavior_multiplier,
+  ]);
+  const behaviorDeltaPct = firstPercent([
+    payload?.personalizedRisk?.behaviorDelta,
+    payload?.personalized?.behavior_delta,
+  ]);
   return {
     pct,
     level,
@@ -90,7 +197,24 @@ function normaliseResponse(payload, level, pct) {
     confidence: confidence != null ? confidence : null,
     baselineFactor: Number.isFinite(baselineFactor) ? baselineFactor : null,
     samples: Number.isFinite(samples) ? Math.round(samples) : null,
-    updatedAt: payload?.updated_at || payload?.timestamp || new Date().toISOString(),
+    modelPct,
+    personalizedPct,
+    modelLevel,
+    personalizedLevel,
+    modelLevelLabel: formatLevelLabel(modelLevel),
+    personalizedLevelLabel: formatLevelLabel(personalizedLevel),
+    driverQuizApplied,
+    driverRiskScore,
+    driverResultLabel,
+    driverMultiplier,
+    behaviorDeltaPct,
+    modelVersion:
+      payload?.occurrenceRisk?.modelVersion
+      || payload?.modelOnly?.model_version
+      || payload?.model_version
+      || null,
+    predictionTime: payload?.time_bucket || payload?.timestamp || new Date().toISOString(),
+    updatedAt: payload?.updated_at || payload?.timestamp || payload?.time_bucket || new Date().toISOString(),
     raw: payload,
   };
 }
@@ -106,6 +230,7 @@ export default function useOccurrenceRisk({
   weather,
   context,
   enabled = true,
+  requestKey,
   initialHorizonKey = '1h',
   initialProvider = 'primary',
 } = {}) {
@@ -115,6 +240,7 @@ export default function useOccurrenceRisk({
   const [state, setState] = useState('idle');
   const [error, setError] = useState('');
   const requestTickRef = useRef(0);
+  const lastAutoRequestRef = useRef(null);
 
   const horizon = OCCURRENCE_HORIZONS.find((h) => h.key === horizonKey) || OCCURRENCE_HORIZONS[1];
   const provider = OCCURRENCE_PROVIDERS[providerKey] || OCCURRENCE_PROVIDERS.primary;
@@ -152,7 +278,7 @@ export default function useOccurrenceRisk({
         ? await predictOccurrenceRiskBatch({
           rows: rows.map((row) => ({
             ...row,
-            timestamp: row?.timestamp || timestamp,
+            timestamp: timestamp || row?.timestamp,
             horizon_minutes: row?.horizon_minutes || horizon.minutes,
           })),
           signal: controller.signal,
@@ -179,9 +305,7 @@ export default function useOccurrenceRisk({
           force,
         });
       if (tick !== requestTickRef.current) return null;
-      const pct = clampPercent(payload?.occurrence_percent ?? payload?.percent ?? payload?.probability);
-      const level = normaliseLevel(payload?.level ?? payload?.danger_level, pct);
-      const normalised = normaliseResponse(payload, level, pct);
+      const normalised = normaliseResponse(payload);
       setData(normalised);
       setState('success');
       return normalised;
@@ -206,8 +330,18 @@ export default function useOccurrenceRisk({
   }, [context, enabled, horizon.minutes, provider, providerKey, roadSegmentId, rows, segmentId, timeBucket, timestamp, weather]);
 
   useEffect(() => {
+    if (!enabled) {
+      lastAutoRequestRef.current = null;
+      setData(null);
+      setState('idle');
+      setError('');
+      return;
+    }
+    const key = requestKey || 'default';
+    if (lastAutoRequestRef.current === key) return;
+    lastAutoRequestRef.current = key;
     fetchNow().catch(() => {});
-  }, [fetchNow]);
+  }, [enabled, fetchNow, requestKey]);
 
   const retry = useCallback(() => fetchNow({ force: true }), [fetchNow]);
 
