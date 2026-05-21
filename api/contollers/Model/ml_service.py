@@ -8,7 +8,24 @@ import shap
 import os
 import sys
 import time
+import traceback
+import warnings
 from bisect import bisect_right
+
+# LightGBM emits a cosmetic UserWarning ("X does not have valid feature names")
+# when the model was trained with NumPy-typed feature names. The Pipeline still
+# predicts correctly; the warning is noise in production logs. Suppress only
+# this specific message — keep every other warning loud.
+warnings.filterwarnings(
+    "ignore",
+    message=r"X does not have valid feature names.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"X has feature names, but .* was fitted without feature names.*",
+    category=UserWarning,
+)
 
 app = Flask(__name__)
 
@@ -21,8 +38,9 @@ if ANOMALY_DETECTION_DIR not in sys.path:
     sys.path.append(ANOMALY_DETECTION_DIR)
 
 from report_spam_model import classify_report_payload
+from report_validator import validate_report as siara_validate_report
 from services.quiz_explainer import (
-    OllamaUnavailableError,
+    build_template_explanation,
     explain_quiz_result,
     stream_quiz_explanation,
     structure_quiz_explanation,
@@ -112,6 +130,263 @@ except Exception as exc:
     SENTINEL_ENABLED = False
 
 SENTINEL_WEATHER_REQUIRED_COLS = [c for c in SENTINEL_WEATHER_COLS if c != "cloudcover"]
+
+# ---- Load accident-occurrence artifacts (occurrence_beta_v1)
+#
+# The deployed bundle is a single sklearn Pipeline saved as calibrator.joblib —
+# preprocessor + LightGBM + isotonic calibration all baked in. Prediction is
+# `calibrator.predict_proba(df)[:, 1]`; no separate preprocessor/model joblibs
+# are needed. The fail-clearly contract is enforced: if calibrator.joblib or
+# feature_list.json are missing, OCCURRENCE_ENABLED stays False and every
+# request returns 503 with a clear "artifacts missing" message. The rest of
+# the ML service (severity overlay, quiz, spam) keeps running.
+OCCURRENCE_DIR = os.path.join(
+    BASE_DIR, "occurrence-model", "occurrence_betav1_final"
+)
+OCCURRENCE_CALIBRATOR = None
+OCCURRENCE_FEATURE_LIST = []
+OCCURRENCE_METRICS = {}
+OCCURRENCE_TRAINING_MANIFEST = {}
+OCCURRENCE_SHAP_TOP_FEATURES = []
+OCCURRENCE_FEATURE_IMPORTANCE = []
+OCCURRENCE_RISK_THRESHOLDS = {
+    "low": 0.0,
+    "moderate": 0.05,
+    "high": 0.2,
+    "critical": 0.5,
+}
+OCCURRENCE_DECISION_THRESHOLD = 0.2
+OCCURRENCE_MODEL_VERSION = "occurrence_beta_v1"
+OCCURRENCE_SELECTED_MODEL = "lightgbm"
+OCCURRENCE_CALIBRATION_METHOD = "isotonic"
+OCCURRENCE_LOAD_ERROR = None
+OCCURRENCE_ENABLED = False
+
+
+def _read_csv_rows(path, limit=None):
+    """Lightweight CSV reader without bringing pandas just for two small files."""
+    import csv
+
+    rows = []
+    with open(path, "r", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for idx, row in enumerate(reader):
+            if limit is not None and idx >= limit:
+                break
+            rows.append(row)
+    return rows
+
+
+try:
+    occ_calibrator_path = os.path.join(OCCURRENCE_DIR, "calibrator.joblib")
+    occ_features_path = os.path.join(OCCURRENCE_DIR, "feature_list.json")
+    occ_metrics_path = os.path.join(OCCURRENCE_DIR, "metrics.json")
+    occ_manifest_path = os.path.join(OCCURRENCE_DIR, "training_manifest.json")
+    occ_shap_path = os.path.join(OCCURRENCE_DIR, "shap_top_features.csv")
+    occ_importance_path = os.path.join(OCCURRENCE_DIR, "feature_importance.csv")
+
+    if not os.path.exists(occ_calibrator_path):
+        raise FileNotFoundError(occ_calibrator_path)
+    if not os.path.exists(occ_features_path):
+        raise FileNotFoundError(occ_features_path)
+
+    OCCURRENCE_CALIBRATOR = joblib.load(occ_calibrator_path)
+    if not hasattr(OCCURRENCE_CALIBRATOR, "predict_proba"):
+        raise RuntimeError(
+            "calibrator.joblib does not expose predict_proba — expected a "
+            "sklearn Pipeline that bundles preprocessor + LightGBM + isotonic."
+        )
+
+    with open(occ_features_path, "r", encoding="utf-8") as f:
+        OCCURRENCE_FEATURE_LIST = list(json.load(f))
+    if not OCCURRENCE_FEATURE_LIST:
+        raise RuntimeError("feature_list.json is empty")
+
+    if os.path.exists(occ_metrics_path):
+        with open(occ_metrics_path, "r", encoding="utf-8") as f:
+            OCCURRENCE_METRICS = json.load(f)
+
+    if os.path.exists(occ_manifest_path):
+        with open(occ_manifest_path, "r", encoding="utf-8") as f:
+            OCCURRENCE_TRAINING_MANIFEST = json.load(f)
+
+    OCCURRENCE_RISK_THRESHOLDS = OCCURRENCE_TRAINING_MANIFEST.get(
+        "risk_level_thresholds", OCCURRENCE_RISK_THRESHOLDS
+    )
+    OCCURRENCE_MODEL_VERSION = OCCURRENCE_TRAINING_MANIFEST.get(
+        "model_version", OCCURRENCE_MODEL_VERSION
+    )
+    OCCURRENCE_SELECTED_MODEL = OCCURRENCE_TRAINING_MANIFEST.get(
+        "selected_model", OCCURRENCE_SELECTED_MODEL
+    )
+    OCCURRENCE_CALIBRATION_METHOD = OCCURRENCE_TRAINING_MANIFEST.get(
+        "calibration_method", OCCURRENCE_CALIBRATION_METHOD
+    )
+
+    if os.path.exists(occ_shap_path):
+        OCCURRENCE_SHAP_TOP_FEATURES = _read_csv_rows(occ_shap_path, limit=20)
+    if os.path.exists(occ_importance_path):
+        OCCURRENCE_FEATURE_IMPORTANCE = _read_csv_rows(occ_importance_path, limit=40)
+
+    OCCURRENCE_ENABLED = True
+    print(
+        f"[occurrence] loaded {OCCURRENCE_MODEL_VERSION} "
+        f"{OCCURRENCE_SELECTED_MODEL} + {OCCURRENCE_CALIBRATION_METHOD} "
+        f"({len(OCCURRENCE_FEATURE_LIST)} features) from {OCCURRENCE_DIR}",
+        flush=True,
+    )
+except FileNotFoundError as exc:
+    OCCURRENCE_LOAD_ERROR = f"missing artifact: {exc}"
+    OCCURRENCE_ENABLED = False
+    print(
+        f"[occurrence] {OCCURRENCE_MODEL_VERSION} artifacts missing at "
+        f"{OCCURRENCE_DIR}: {exc}",
+        flush=True,
+    )
+except Exception as exc:  # noqa: BLE001 — log & disable, never crash startup
+    OCCURRENCE_LOAD_ERROR = f"{type(exc).__name__}: {exc}"
+    OCCURRENCE_ENABLED = False
+    print(
+        f"[occurrence] failed to load {OCCURRENCE_MODEL_VERSION}: "
+        f"{type(exc).__name__}: {exc}",
+        flush=True,
+    )
+    traceback.print_exc()
+
+
+def _occurrence_risk_level(probability):
+    """Resolve risk level from the calibrated probability using manifest thresholds."""
+    thresholds = OCCURRENCE_RISK_THRESHOLDS or {}
+    critical = float(thresholds.get("critical", 0.5))
+    high = float(thresholds.get("high", 0.2))
+    moderate = float(thresholds.get("moderate", 0.05))
+
+    if probability is None or not np.isfinite(probability):
+        return "unknown"
+    if probability >= critical:
+        return "critical"
+    if probability >= high:
+        return "high"
+    if probability >= moderate:
+        return "moderate"
+    return "low"
+
+
+def _occurrence_confidence(probability):
+    """Confidence proxy: how far the calibrated probability is from 0.5."""
+    if probability is None or not np.isfinite(probability):
+        return None
+    return float(min(1.0, max(0.0, 1.0 - 2.0 * abs(probability - 0.5))))
+
+
+def _occurrence_global_top_factors():
+    """Static fallback when SHAP is unavailable: use shap_top_features.csv."""
+    factors = []
+    source = OCCURRENCE_SHAP_TOP_FEATURES or OCCURRENCE_FEATURE_IMPORTANCE
+    for row in source[:5]:
+        feature_name = row.get("feature") or row.get("name") or ""
+        raw_importance = (
+            row.get("mean_abs_shap")
+            or row.get("importance")
+            or row.get("gain")
+            or row.get("weight")
+        )
+        try:
+            importance_value = float(raw_importance) if raw_importance is not None else None
+        except (TypeError, ValueError):
+            importance_value = None
+        factors.append(
+            {
+                "feature": feature_name,
+                "value": None,
+                "importance": importance_value,
+                "direction": "increases_risk",
+            }
+        )
+    return factors
+
+
+def _occurrence_coerce_value(value):
+    """JSON-safe coercion: NaN/inf -> None, numpy scalars -> Python scalars."""
+    if value is None:
+        return None
+    if isinstance(value, (np.floating, float)):
+        scalar = float(value)
+        if not np.isfinite(scalar):
+            return None
+        return scalar
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    return value
+
+
+def _occurrence_extract_row_features(raw):
+    """Accept either {'features': {...}} or a bare {column: value} dict."""
+    if not isinstance(raw, dict):
+        raise ValueError("rows[] entries must be objects")
+    inner = raw.get("features")
+    if isinstance(inner, dict):
+        return inner
+    return raw
+
+
+def _occurrence_normalize_value(value):
+    """JSON null / Python None must become NaN before hitting the Pipeline."""
+    if value is None:
+        return np.nan
+    # Cheap finite check for floats; lets through int / str / bool unchanged.
+    if isinstance(value, float) and not np.isfinite(value):
+        return np.nan
+    return value
+
+
+def _occurrence_build_frame(rows):
+    """Normalize rows against feature_list.json.
+
+    Returns (DataFrame, missing_by_row). For each input row, columns missing
+    from the payload become NaN, extra columns are dropped, and a per-row
+    list of missing required columns is captured so the response can carry
+    it back to the caller (helps Node spot upstream feature-builder gaps).
+    """
+    columns = list(OCCURRENCE_FEATURE_LIST)
+    if not columns:
+        raise RuntimeError(
+            "OCCURRENCE_FEATURE_LIST is empty — feature_list.json was not loaded"
+        )
+    normalized_rows = []
+    missing_by_row = []
+    for raw in rows or []:
+        feature_dict = _occurrence_extract_row_features(raw)
+        if not isinstance(feature_dict, dict):
+            raise ValueError("rows[] entries must contain a features object or be feature dicts")
+        normalized = {}
+        missing = []
+        for col in columns:
+            if col not in feature_dict:
+                normalized[col] = np.nan
+                missing.append(col)
+            else:
+                normalized[col] = _occurrence_normalize_value(feature_dict[col])
+        normalized_rows.append(normalized)
+        missing_by_row.append(missing)
+    frame = pd.DataFrame(normalized_rows, columns=columns)
+    return frame, missing_by_row
+
+
+def _occurrence_predict_calibrated(frame):
+    """Returns (raw_scores, calibrated_probabilities) via the Pipeline.
+
+    The deployed bundle is a single sklearn Pipeline (preprocessor + LightGBM +
+    isotonic) saved as calibrator.joblib, so `predict_proba(df)[:, 1]` gives
+    us the calibrated positive-class probability end-to-end. The same array
+    is returned twice (raw == calibrated) to keep the surrounding response
+    code shape-stable.
+    """
+    if OCCURRENCE_CALIBRATOR is None:
+        raise RuntimeError("Occurrence calibrator is not loaded")
+    calibrated = np.asarray(OCCURRENCE_CALIBRATOR.predict_proba(frame)[:, 1], dtype=float)
+    return calibrated, calibrated
+
 
 TRUE_STRINGS = {"1", "true", "t", "yes", "y", "on"}
 FALSE_STRINGS = {"0", "false", "f", "no", "n", "off"}
@@ -1077,35 +1352,11 @@ def sse_event(event_name, payload):
     return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def quiz_explanation_error_response(exc):
-    message = str(exc) or "Ollama explanation failed"
-    normalized = message.lower()
-    if "timed out" in normalized:
-        return (
-            {
-                "error": "Ollama did not return a response in time.",
-                "details": message,
-                "code": "OLLAMA_TIMEOUT",
-            },
-            504,
-        )
-    return (
-        {
-            "error": "Ollama explanation failed.",
-            "details": message,
-            "code": "OLLAMA_ERROR",
-        },
-        502,
-    )
-
-
 # -----------------------------
 # Routes
 # -----------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
-    request_started_at = time.monotonic()
-    print("[quiz-predict] request started")
     data = request.get_json(silent=True) or {}
 
     try:
@@ -1116,16 +1367,9 @@ def predict():
     quiz_result_data = response_payload["quiz_result_data"]
     try:
         explanation_text = explain_quiz_result(quiz_result_data)
-    except OllamaUnavailableError as exc:
-        error_payload, status_code = quiz_explanation_error_response(exc)
-        print(
-            "[quiz-predict] explanation failed "
-            f"after {int((time.monotonic() - request_started_at) * 1000)} ms: {exc}"
-        )
-        return jsonify(error_payload), status_code
-
-    elapsed_ms = int((time.monotonic() - request_started_at) * 1000)
-    print(f"[quiz-predict] completed in {elapsed_ms} ms")
+    except Exception as exc:
+        print(f"[quiz-explainer] Unexpected fallback: {exc}")
+        explanation_text = build_template_explanation(quiz_result_data)
 
     return jsonify(
         {
@@ -1149,23 +1393,6 @@ def predict_stream():
 
     quiz_result_data = response_payload["quiz_result_data"]
 
-    # Ollama-related codes produced by stream_quiz_explanation. Failures with
-    # these codes must NOT take down the whole quiz submission — the prediction
-    # itself succeeded, only the optional AI-generated explanation failed.
-    OLLAMA_FALLBACK_CODES = {
-        "OLLAMA_TIMEOUT",
-        "OLLAMA_REQUEST_FAILED",
-        "OLLAMA_ERROR",
-        "OLLAMA_STREAM_ERROR",
-        "OLLAMA_UNEXPECTED_ERROR",
-        "LLM_PROVIDER_UNSUPPORTED",
-    }
-    FALLBACK_EXPLANATION_TEXT = (
-        "Your result was calculated successfully. SIARA could not generate a "
-        "detailed AI explanation right now, so this summary is based on your "
-        "quiz score and risk category."
-    )
-
     @stream_with_context
     def generate():
         explanation_parts = []
@@ -1181,53 +1408,6 @@ def predict_stream():
             payload = {k: v for k, v in event.items() if k != "event"}
             if event_name == "chunk":
                 explanation_parts.append(str(payload.get("content") or ""))
-            if event_name == "error":
-                payload["elapsed_ms"] = payload.get("elapsed_ms") or int(
-                    (time.monotonic() - request_started_at) * 1000
-                )
-                error_code = payload.get("code")
-                if error_code in OLLAMA_FALLBACK_CODES:
-                    # Optional AI explanation failed. Complete the stream with a
-                    # synthesized done event carrying a fallback explanation so
-                    # the client still gets the calculated quiz result.
-                    print(
-                        "[quiz-stream] explanation failed, sending fallback "
-                        f"after {payload['elapsed_ms']} ms: "
-                        f"{payload.get('details') or payload.get('error')}"
-                    )
-                    fallback_text = FALLBACK_EXPLANATION_TEXT
-                    final_payload = {
-                        **response_payload,
-                        "explanation_text": fallback_text,
-                        "structured_explanation": structure_quiz_explanation(fallback_text),
-                        "explanation_source": "fallback",
-                        "fallback": True,
-                        "explanation_error": {
-                            "code": error_code,
-                            "message": payload.get("error"),
-                            "details": payload.get("details"),
-                        },
-                    }
-                    yield sse_event(
-                        "done",
-                        {
-                            "result": final_payload,
-                            "explanation_text": fallback_text,
-                            "structured_explanation": final_payload["structured_explanation"],
-                            "explanation_source": "fallback",
-                            "fallback": True,
-                            "explanation_error": final_payload["explanation_error"],
-                            "elapsed_ms": payload["elapsed_ms"],
-                        },
-                    )
-                    return
-                # Non-recoverable error (e.g. config). Preserve fatal behavior.
-                print(
-                    "[quiz-stream] stream failed "
-                    f"after {payload['elapsed_ms']} ms: {payload.get('details') or payload.get('error')}"
-                )
-                yield sse_event(event_name, payload)
-                return
             if event_name == "done":
                 explanation_text = payload.get("explanation_text") or "".join(explanation_parts).strip()
                 final_payload = {
@@ -1260,16 +1440,9 @@ def quiz_explanation_test():
     payload = request.get_json(silent=True) or EXAMPLE_QUIZ_EXPLAINER_PAYLOAD
     try:
         explanation_text = explain_quiz_result(payload)
-    except OllamaUnavailableError as exc:
-        error_payload, status_code = quiz_explanation_error_response(exc)
-        print(f"[quiz-explainer] Test route failed: {exc}")
-        return jsonify(
-            {
-                "example_payload": EXAMPLE_QUIZ_EXPLAINER_PAYLOAD,
-                "input_used": payload,
-                **error_payload,
-            }
-        ), status_code
+    except Exception as exc:
+        print(f"[quiz-explainer] Test route fallback: {exc}")
+        explanation_text = build_template_explanation(payload)
 
     return jsonify(
         {
@@ -1430,6 +1603,40 @@ def risk_confidence():
         return jsonify({"enabled": True, "error": "Sentinel scoring failed", "details": str(exc)}), 500
 
 
+@app.route("/report/validate", methods=["POST"])
+def report_validate():
+    payload = request.get_json(silent=True) or {}
+    _log_incoming("/report/validate", payload)
+
+    try:
+        result = siara_validate_report(
+            title=payload.get("title"),
+            description=payload.get("description"),
+            incident_type=payload.get("incident_type") or payload.get("incidentType"),
+            lat=payload.get("lat"),
+            lon=payload.get("lon") or payload.get("lng"),
+            near_road=payload.get("near_road"),
+            distance_to_road_m=payload.get("distance_to_road_m"),
+            has_image=bool(payload.get("has_image", False)),
+            image_related=payload.get("image_related"),
+        )
+        return jsonify(result)
+    except FileNotFoundError as exc:
+        return (
+            jsonify(
+                {
+                    "error": "Report validator model is not trained",
+                    "details": str(exc),
+                }
+            ),
+            503,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": "Report validation failed", "details": str(exc)}), 500
+
+
 @app.route("/report-spam/classify", methods=["POST"])
 def report_spam_classify():
     payload = request.get_json(silent=True) or {}
@@ -1469,6 +1676,184 @@ def report_spam_classify():
 # curl -X POST http://localhost:8000/risk/confidence \
 #   -H "Content-Type: application/json" \
 #   -d "{\"row\":{\"Start_Lat\":36.75,\"Start_Lng\":3.06,\"Start_Time\":\"2026-03-04T10:15:00\",\"Distance(mi)\":0.5,\"Temperature(F)\":77,\"Humidity(%)\":45,\"Pressure(in)\":30.0,\"Wind_Speed(mph)\":8,\"Wind_Direction\":\"NW\",\"Precipitation(in)\":0.0}}"
+
+
+@app.route("/risk/occurrence/predict", methods=["POST"])
+def risk_occurrence_predict():
+    if not OCCURRENCE_ENABLED:
+        return (
+            jsonify(
+                {
+                    "error": "Occurrence model is not loaded",
+                    "message": OCCURRENCE_LOAD_ERROR
+                    or "Occurrence model artifacts missing or failed to load.",
+                    "type": "ModelNotLoaded",
+                    "model_version": OCCURRENCE_MODEL_VERSION,
+                }
+            ),
+            503,
+        )
+
+    payload = request.get_json(silent=True) or {}
+    _log_incoming("/risk/occurrence/predict", payload)
+
+    # Accept three shapes:
+    #   1) { "features": {...} }                     — single row, top-level
+    #   2) { "rows": [{ "features": {...} }, ...] }  — array of row wrappers
+    #   3) { "rows": [{ raw feature columns }, ...] } — array of bare dicts
+    single_row_mode = False
+    if isinstance(payload.get("features"), dict):
+        rows = [payload]
+        single_row_mode = True
+    else:
+        rows = payload.get("rows")
+    if not isinstance(rows, list) or len(rows) == 0:
+        return (
+            jsonify(
+                {
+                    "error": "rows[] is required and must be a non-empty list (or send 'features' for a single row)",
+                    "type": "InvalidRequest",
+                }
+            ),
+            400,
+        )
+
+    try:
+        frame, missing_by_row = _occurrence_build_frame(rows)
+    except ValueError as exc:
+        return (
+            jsonify({"error": str(exc), "type": "InvalidRequest"}),
+            400,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[occurrence] frame_build_failed: {type(exc).__name__}: {exc!r}",
+            flush=True,
+        )
+        traceback.print_exc()
+        return (
+            jsonify(
+                {
+                    "error": "Occurrence feature normalization failed",
+                    "message": str(exc),
+                    "type": type(exc).__name__,
+                    "model_version": OCCURRENCE_MODEL_VERSION,
+                }
+            ),
+            400,
+        )
+
+    try:
+        raw_scores, calibrated = _occurrence_predict_calibrated(frame)
+    except Exception as exc:  # noqa: BLE001
+        # Full traceback to stderr so the operator can see the actual sklearn
+        # failure (e.g. unknown category in a OneHotEncoder column, dtype
+        # mismatch). The HTTP body includes the exception type + repr so the
+        # Node side can log a useful one-liner without parsing stderr.
+        print(
+            f"[occurrence] predict_failed: {type(exc).__name__}: {exc!r}",
+            flush=True,
+        )
+        traceback.print_exc()
+        return (
+            jsonify(
+                {
+                    "error": "Occurrence prediction failed",
+                    "message": str(exc),
+                    "type": type(exc).__name__,
+                    "model_version": OCCURRENCE_MODEL_VERSION,
+                    "feature_list": OCCURRENCE_FEATURE_LIST,
+                    "missing_required_features": missing_by_row,
+                }
+            ),
+            500,
+        )
+
+    fallback_factors = _occurrence_global_top_factors()
+
+    predictions = []
+    for raw_score, prob, missing in zip(raw_scores, calibrated, missing_by_row):
+        coerced_raw = _occurrence_coerce_value(raw_score)
+        coerced_prob = _occurrence_coerce_value(prob)
+        predictions.append(
+            {
+                "risk_score": coerced_raw,
+                "calibrated_probability": coerced_prob,
+                "risk_level": _occurrence_risk_level(coerced_prob),
+                "confidence_score": _occurrence_confidence(coerced_prob),
+                "model_version": OCCURRENCE_MODEL_VERSION,
+                "top_factors": fallback_factors,
+                "explanation_source": "global_importance_fallback",
+                "missing_required_features": missing,
+            }
+        )
+
+    response_body = {
+        "model_version": OCCURRENCE_MODEL_VERSION,
+        "selected_model": OCCURRENCE_SELECTED_MODEL,
+        "calibration_method": OCCURRENCE_CALIBRATION_METHOD,
+        "decision_threshold": OCCURRENCE_DECISION_THRESHOLD,
+        "risk_level_thresholds": OCCURRENCE_RISK_THRESHOLDS,
+        "feature_list": OCCURRENCE_FEATURE_LIST,
+        "predictions": predictions,
+    }
+    # Convenience: single-row callers get the first prediction's fields hoisted
+    # to the top of the response so they don't have to index predictions[0].
+    if single_row_mode or len(predictions) == 1:
+        first = predictions[0]
+        response_body.update(
+            {
+                "risk_score": first["risk_score"],
+                "calibrated_probability": first["calibrated_probability"],
+                "risk_level": first["risk_level"],
+                "confidence_score": first["confidence_score"],
+                "top_factors": first["top_factors"],
+                "missing_required_features": first["missing_required_features"],
+            }
+        )
+
+    return jsonify(response_body)
+
+
+@app.route("/risk/occurrence/status", methods=["GET"])
+def risk_occurrence_status():
+    """Lightweight liveness check for the occurrence model.
+
+    Used by Node and by the smoke script to verify the Pipeline loaded and to
+    confirm the artifact directory + feature count in one round trip.
+    """
+    return jsonify(
+        {
+            "model_loaded": OCCURRENCE_ENABLED,
+            "artifact_dir": OCCURRENCE_DIR,
+            "feature_count": len(OCCURRENCE_FEATURE_LIST),
+            "model_version": OCCURRENCE_MODEL_VERSION,
+            "selected_model": OCCURRENCE_SELECTED_MODEL,
+            "calibration_method": OCCURRENCE_CALIBRATION_METHOD,
+            "load_error": OCCURRENCE_LOAD_ERROR,
+        }
+    )
+
+
+@app.route("/risk/occurrence/metadata", methods=["GET"])
+def risk_occurrence_metadata():
+    """Returns the metadata an Admin UI / Node proxy needs without joblib payload."""
+    return jsonify(
+        {
+            "enabled": OCCURRENCE_ENABLED,
+            "load_error": OCCURRENCE_LOAD_ERROR,
+            "model_version": OCCURRENCE_MODEL_VERSION,
+            "selected_model": OCCURRENCE_SELECTED_MODEL,
+            "calibration_method": OCCURRENCE_CALIBRATION_METHOD,
+            "decision_threshold": OCCURRENCE_DECISION_THRESHOLD,
+            "risk_level_thresholds": OCCURRENCE_RISK_THRESHOLDS,
+            "feature_list": OCCURRENCE_FEATURE_LIST,
+            "metrics": OCCURRENCE_METRICS,
+            "training_manifest": OCCURRENCE_TRAINING_MANIFEST,
+            "shap_top_features": OCCURRENCE_SHAP_TOP_FEATURES,
+            "feature_importance": OCCURRENCE_FEATURE_IMPORTANCE,
+        }
+    )
 
 
 if __name__ == "__main__":

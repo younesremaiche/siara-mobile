@@ -14,22 +14,40 @@ const DEFAULT_REPORT_SPAM_TIMEOUT_MS = Number(process.env.REPORT_SPAM_TIMEOUT_MS
 const DEFAULT_REPORT_SPAM_THRESHOLD = normalizePercent(process.env.REPORT_SPAM_THRESHOLD, 50);
 const DEFAULT_REPORT_SPAM_THRESHOLD_UNIT = normalizeUnitScore(DEFAULT_REPORT_SPAM_THRESHOLD);
 const ML_STATUS = Object.freeze({
+  PENDING: "pending",
   WAITING_FOR_TEXT: "waiting_for_text",
   WAITING_FOR_IMAGE: "waiting_for_image",
   PROCESSING: "processing",
   COMPLETED: "completed",
   FAILED: "failed",
 });
-const VALID_PREDICTED_LABELS = new Set(["spam", "real"]);
+const DEV_LOGS_ENABLED = (process.env.NODE_ENV || "development") !== "production";
+const VALID_PREDICTED_LABELS = new Set([
+  "spam",
+  "real",
+  "out_of_context",
+  "invalid_location",
+  "suspicious",
+]);
 const PREDICTED_LABEL_ALIASES = Object.freeze({
   fake: "spam",
   fraudulent: "spam",
   legit: "real",
   genuine: "real",
+  out_of_topic: "out_of_context",
+  ooc: "out_of_context",
+  bad_location: "invalid_location",
+  invalid_location_data: "invalid_location",
 });
 
 function logReportSpam(event, details = {}) {
   console.info("[report-spam]", event, details);
+}
+
+function logReportMl(event, details = {}) {
+  if (DEV_LOGS_ENABLED) {
+    console.info("[report-ml]", event, details);
+  }
 }
 
 function normalizePercent(value, fallback) {
@@ -196,6 +214,9 @@ async function fetchReportSpamInputs(reportId, db = pool) {
         ar.reported_by,
         ar.title,
         ar.description,
+        ar.incident_type,
+        ST_Y(ar.incident_location::geometry) as lat,
+        ST_X(ar.incident_location::geometry) as lon,
         media.id as media_id,
         media.url as image_url
       from app.accident_reports ar
@@ -216,6 +237,71 @@ async function fetchReportSpamInputs(reportId, db = pool) {
   );
 
   return result.rows[0] || null;
+}
+
+const NEAR_ROAD_STRICT_M = Number(process.env.REPORT_NEAR_ROAD_STRICT_M) || 100;
+const NEAR_ROAD_RELAXED_M = Number(process.env.REPORT_NEAR_ROAD_RELAXED_M) || 250;
+
+async function checkLocationAgainstRoadNetwork(lat, lon, db = pool) {
+  const latNum = Number(lat);
+  const lonNum = Number(lon);
+  const coordsValid =
+    Number.isFinite(latNum)
+    && Number.isFinite(lonNum)
+    && latNum >= -90
+    && latNum <= 90
+    && lonNum >= -180
+    && lonNum <= 180;
+
+  if (!coordsValid) {
+    return { coordsValid: false, nearRoad: false, distanceMeters: null, segmentId: null };
+  }
+
+  try {
+    const result = await db.query(
+      `
+        select
+          id,
+          ST_Distance(
+            geom::geography,
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+          ) as distance_m
+        from gis.road_segments
+        where ST_DWithin(
+          geom::geography,
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+          $3
+        )
+        order by distance_m asc
+        limit 1
+      `,
+      [lonNum, latNum, NEAR_ROAD_RELAXED_M],
+    );
+
+    if (result.rows.length === 0) {
+      return {
+        coordsValid: true,
+        nearRoad: false,
+        distanceMeters: null,
+        segmentId: null,
+      };
+    }
+
+    const row = result.rows[0];
+    const distance = Number(row.distance_m);
+    return {
+      coordsValid: true,
+      nearRoad: Number.isFinite(distance) && distance <= NEAR_ROAD_STRICT_M,
+      distanceMeters: Number.isFinite(distance) ? distance : null,
+      segmentId: row.id || null,
+    };
+  } catch (error) {
+    logReportSpam("location_check_failed", {
+      message: error?.message || "unknown_error",
+      code: error?.code || null,
+    });
+    return { coordsValid, nearRoad: false, distanceMeters: null, segmentId: null };
+  }
 }
 
 async function updateReportMlStatus(db, reportId, mlStatus) {
@@ -329,6 +415,38 @@ async function callSpamClassifier({ text, imageUrl }) {
   return response.data || {};
 }
 
+async function callReportValidator({
+  title,
+  description,
+  incidentType,
+  lat,
+  lon,
+  nearRoad,
+  distanceMeters,
+  hasImage,
+  imageRelated,
+}) {
+  const response = await axios.post(
+    `${DEFAULT_ML_SERVICE_BASE_URL.replace(/\/$/, "")}/report/validate`,
+    {
+      title: title || null,
+      description: description || null,
+      incident_type: incidentType || null,
+      lat,
+      lon,
+      near_road: nearRoad,
+      distance_to_road_m: distanceMeters,
+      has_image: Boolean(hasImage),
+      image_related: imageRelated == null ? null : Boolean(imageRelated),
+    },
+    {
+      timeout: DEFAULT_REPORT_SPAM_TIMEOUT_MS,
+    },
+  );
+
+  return response.data || {};
+}
+
 async function persistCompletedAnalysis(reportId, prediction) {
   const client = await pool.connect();
 
@@ -357,9 +475,11 @@ async function persistFailedAnalysis(reportId, reportRow, error) {
 }
 
 async function refreshReportSpamAnalysis(reportId) {
+  logReportMl("classification started", { reportId });
   const reportRow = await fetchReportSpamInputs(reportId);
   if (!reportRow) {
     logReportSpam("skip_missing_report", { reportId });
+    logReportMl("classification skipped - missing report", { reportId });
     return {
       reportId,
       mlStatus: null,
@@ -370,35 +490,76 @@ async function refreshReportSpamAnalysis(reportId) {
 
   const text = buildReportText(reportRow);
   const imageUrl = reportRow.image_url || null;
-  const waitingStatus = getWaitingStatus(text, imageUrl);
 
-  if (waitingStatus) {
-    await updateReportMlStatus(pool, reportId, waitingStatus);
-    logReportSpam("waiting_for_inputs", {
+  if (!text) {
+    await updateReportMlStatus(pool, reportId, ML_STATUS.WAITING_FOR_TEXT);
+    logReportMl("classification waiting for inputs", {
       reportId,
-      mlStatus: waitingStatus,
+      mlStatus: ML_STATUS.WAITING_FOR_TEXT,
+      hasText: false,
+      hasImage: Boolean(imageUrl),
     });
     return {
       reportId,
-      mlStatus: waitingStatus,
+      mlStatus: ML_STATUS.WAITING_FOR_TEXT,
       skipped: true,
-      reason: waitingStatus,
+      reason: ML_STATUS.WAITING_FOR_TEXT,
     };
   }
 
   await updateReportMlStatus(pool, reportId, ML_STATUS.PROCESSING);
 
+  const locationCheck = await checkLocationAgainstRoadNetwork(
+    reportRow.lat,
+    reportRow.lon,
+  );
+  logReportMl("location check", {
+    reportId,
+    coordsValid: locationCheck.coordsValid,
+    nearRoad: locationCheck.nearRoad,
+    distanceMeters: locationCheck.distanceMeters,
+  });
+
+  logReportMl("sending payload", {
+    reportId,
+    title: reportRow.title,
+    description: truncateText(reportRow.description, 120),
+    incidentType: reportRow.incident_type,
+    hasImage: Boolean(imageUrl),
+    nearRoad: locationCheck.nearRoad,
+    distanceMeters: locationCheck.distanceMeters,
+  });
+
   try {
-    const classifierResponse = await callSpamClassifier({ text, imageUrl });
-    const normalizedPrediction = normalizeClassifierResult(classifierResponse);
+    const validatorResponse = await callReportValidator({
+      title: reportRow.title,
+      description: reportRow.description,
+      incidentType: reportRow.incident_type,
+      lat: reportRow.lat,
+      lon: reportRow.lon,
+      nearRoad: locationCheck.nearRoad,
+      distanceMeters: locationCheck.distanceMeters,
+      hasImage: Boolean(imageUrl),
+      imageRelated: null,
+    });
+    const normalizedPrediction = normalizeClassifierResult(validatorResponse);
 
     logReportSpam("classifier_response", {
       reportId,
-      classifier_response: classifierResponse,
+      classifier_response: validatorResponse,
     });
     logReportSpam("normalized_prediction", {
       reportId,
       normalized_prediction: normalizedPrediction,
+    });
+    logReportMl("model response", {
+      reportId,
+      predictedLabel: normalizedPrediction.predicted_label,
+      spamScore: normalizedPrediction.spam_score,
+      realScore: normalizedPrediction.real_score,
+      confidence: normalizedPrediction.confidence_score,
+      modelVersion: normalizedPrediction.model_version,
+      reasons: validatorResponse?.reasons || [],
     });
 
     if (!normalizedPrediction.isComplete) {
@@ -424,6 +585,23 @@ async function refreshReportSpamAnalysis(reportId) {
       spam_score: normalizedPrediction.spam_score,
       confidence_score: normalizedPrediction.confidence_score,
     });
+    logReportMl("classification saved", {
+      reportId,
+      mlStatus: ML_STATUS.COMPLETED,
+    });
+    if (reportRow?.reported_by) {
+      try {
+        await recalculateUserTrustScore(reportRow.reported_by, pool, {
+          reason: "ml_classification_completed",
+        });
+      } catch (trustError) {
+        console.error("[report-ml] trust_recalc_failed", {
+          reportId,
+          userId: reportRow.reported_by,
+          message: trustError?.message,
+        });
+      }
+    }
     return {
       reportId,
       mlStatus: ML_STATUS.COMPLETED,
@@ -436,6 +614,10 @@ async function refreshReportSpamAnalysis(reportId) {
       reportId,
       message: error?.response?.data?.error || error?.message || "unknown_error",
     });
+    logReportMl("classification failed", {
+      reportId,
+      error: error?.response?.data?.error || error?.message || "unknown_error",
+    });
     return {
       reportId,
       mlStatus: ML_STATUS.FAILED,
@@ -445,51 +627,214 @@ async function refreshReportSpamAnalysis(reportId) {
   }
 }
 
-async function refreshReporterTrustScore(userId, db = pool) {
+function queueReportSpamAnalysis(reportId, context = "queued") {
+  if (!reportId) {
+    return;
+  }
+
+  logReportMl("queued classification", { reportId, context });
+  setImmediate(() => {
+    refreshReportSpamAnalysis(reportId).catch((error) => {
+      console.error("[report-ml] classification failed", {
+        reportId,
+        context,
+        message: error?.message || "unknown_error",
+      });
+    });
+  });
+}
+
+async function reclassifyStuckReports({ limit = 50 } = {}) {
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 50));
+  const result = await pool.query(
+    `
+      select id
+      from app.accident_reports
+      where ml_status in ('pending', 'failed', 'processing', 'waiting_for_text', 'waiting_for_image')
+         or ml_status is null
+         or latest_classified_at is null
+      order by created_at desc
+      limit $1
+    `,
+    [safeLimit],
+  );
+
+  const ids = result.rows.map((row) => row.id);
+  logReportMl("reclassify stuck reports", { count: ids.length, limit: safeLimit });
+
+  const outcomes = [];
+  for (const reportId of ids) {
+    try {
+      const outcome = await refreshReportSpamAnalysis(reportId);
+      outcomes.push({ reportId, mlStatus: outcome.mlStatus, skipped: Boolean(outcome.skipped) });
+    } catch (error) {
+      outcomes.push({
+        reportId,
+        mlStatus: ML_STATUS.FAILED,
+        skipped: false,
+        error: error?.message || "unknown_error",
+      });
+    }
+  }
+
+  return { processed: outcomes.length, outcomes };
+}
+
+const TRUST_SCORE_BASELINE = 50;
+const TRUST_SCORE_MIN = 0;
+const TRUST_SCORE_MAX = 100;
+const TRUST_RECENT_REPORTS_LIMIT = Number(process.env.TRUST_RECENT_REPORTS_LIMIT) || 100;
+const TRUST_AI_REAL_SPAM_THRESHOLD = 0.35;
+const TRUST_AI_SPAM_THRESHOLD = 0.65;
+
+const TRUST_DELTAS = Object.freeze({
+  officer_verified: 3,
+  ai_real: 1,
+  resolved_legit: 2,
+  suspicious: -2,
+  spam: -4,
+  out_of_context: -3,
+  invalid_location: -3,
+  officer_rejected: -6,
+});
+
+function classifyReportForTrust(report) {
+  if (!report) return null;
+  const reviewVerdict = String(report.review_verdict || "").trim().toLowerCase();
+  if (reviewVerdict === "confirmed_legit" || report.verified_by_officer_id) {
+    return "officer_verified";
+  }
+  if (reviewVerdict === "confirmed_spam" || reviewVerdict === "rejected") {
+    return "officer_rejected";
+  }
+
+  const status = String(report.status || "").trim().toLowerCase();
+  if (status === "resolved" && reviewVerdict !== "confirmed_spam") {
+    return "resolved_legit";
+  }
+
+  const predictedLabel = String(report.latest_predicted_label || "").trim().toLowerCase();
+  const spamScore = Number(report.latest_spam_score);
+  const safeSpam = Number.isFinite(spamScore) ? spamScore : null;
+
+  if (predictedLabel === "spam" || (safeSpam != null && safeSpam >= TRUST_AI_SPAM_THRESHOLD)) {
+    return "spam";
+  }
+  if (predictedLabel === "out_of_context") return "out_of_context";
+  if (predictedLabel === "invalid_location") return "invalid_location";
+  if (predictedLabel === "suspicious") return "suspicious";
+  if (
+    predictedLabel === "real"
+    && safeSpam != null
+    && safeSpam < TRUST_AI_REAL_SPAM_THRESHOLD
+  ) {
+    return "ai_real";
+  }
+  return null;
+}
+
+async function recalculateUserTrustScore(userId, db = pool, options = {}) {
   if (!userId) {
     return null;
   }
 
-  const result = await db.query(
-    `
-      with verdict_counts as (
-        select
-          count(*) filter (where review_verdict = 'confirmed_legit')::int as legit_count,
-          count(*) filter (where review_verdict = 'confirmed_spam')::int as spam_count
-        from app.accident_reports
-        where reported_by = $1
-      )
-      update auth.users u
-      set
-        trust_score = round(
-          (
-            (
-              (coalesce(vc.legit_count, 0)::numeric + 1)
-              / nullif((coalesce(vc.legit_count, 0) + coalesce(vc.spam_count, 0) + 2)::numeric, 0)
-            ) * 100
-          ),
-          2
-        ),
-        trust_last_updated_at = now()
-      from verdict_counts vc
-      where u.id = $1
-      returning
-        u.id,
-        u.trust_score,
-        u.trust_last_updated_at,
-        vc.legit_count,
-        vc.spam_count
-    `,
+  const reason = options.reason || "manual";
+  const limit = Math.max(1, Math.min(500, Number(options.limit) || TRUST_RECENT_REPORTS_LIMIT));
+
+  const previous = await db.query(
+    `select trust_score from auth.users where id = $1 limit 1`,
     [userId],
   );
+  if (previous.rowCount === 0) {
+    logReportMl("trust score skipped - user not found", { userId, reason });
+    return null;
+  }
 
-  return result.rows[0] || null;
+  const previousScore = Number(previous.rows[0]?.trust_score);
+
+  const reportsResult = await db.query(
+    `
+      select
+        id,
+        status,
+        review_verdict,
+        latest_predicted_label,
+        latest_spam_score,
+        verified_by_officer_id,
+        resolved_at
+      from app.accident_reports
+      where reported_by = $1
+      order by created_at desc
+      limit $2
+    `,
+    [userId, limit],
+  );
+
+  const counters = {
+    total: reportsResult.rowCount,
+    officer_verified: 0,
+    officer_rejected: 0,
+    ai_real: 0,
+    resolved_legit: 0,
+    suspicious: 0,
+    spam: 0,
+    out_of_context: 0,
+    invalid_location: 0,
+    unscored: 0,
+  };
+
+  let score = TRUST_SCORE_BASELINE;
+  for (const row of reportsResult.rows) {
+    const bucket = classifyReportForTrust(row);
+    if (!bucket) {
+      counters.unscored += 1;
+      continue;
+    }
+    counters[bucket] += 1;
+    score += TRUST_DELTAS[bucket] || 0;
+  }
+
+  score = Math.max(TRUST_SCORE_MIN, Math.min(TRUST_SCORE_MAX, score));
+  const rounded = Math.round(score * 100) / 100;
+
+  const updated = await db.query(
+    `
+      update auth.users
+      set trust_score = $2, trust_last_updated_at = now()
+      where id = $1
+      returning id, trust_score, trust_last_updated_at
+    `,
+    [userId, rounded],
+  );
+
+  logReportMl("trust score recalculated", {
+    userId,
+    reason,
+    oldTrustScore: Number.isFinite(previousScore) ? previousScore : null,
+    newTrustScore: rounded,
+    counters,
+  });
+
+  return updated.rows[0] || null;
+}
+
+// Backwards-compatible alias used by adminIncidentService.
+async function refreshReporterTrustScore(userId, db = pool) {
+  return recalculateUserTrustScore(userId, db, { reason: "officer_review" });
 }
 
 module.exports = {
   DEFAULT_REPORT_SPAM_MODEL_NAME,
   DEFAULT_REPORT_SPAM_MODEL_VERSION,
   ML_STATUS,
+  TRUST_SCORE_BASELINE,
+  TRUST_SCORE_MIN,
+  TRUST_SCORE_MAX,
+  TRUST_DELTAS,
+  classifyReportForTrust,
+  recalculateUserTrustScore,
   refreshReportSpamAnalysis,
+  queueReportSpamAnalysis,
+  reclassifyStuckReports,
   refreshReporterTrustScore,
 };

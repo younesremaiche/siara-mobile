@@ -13,17 +13,17 @@ let activeModelCache = {
   expiresAt: 0,
 };
 
-function logPersistence(event, details = {}) {
+function logPersistence(event, details = {}) { 
   console.info("[risk/persist]", event, details);
 }
 
-function formatDbError(error) {
+function formatDbError(error) { 
   return {
     message: error?.message || "unknown_error",
     code: error?.code || null,
     detail: error?.detail || null,
     constraint: error?.constraint || null,
-    table: error?.table || null,
+    table: error?.table || null, 
     schema: error?.schema || null,
   };
 }
@@ -382,7 +382,7 @@ async function persistPrediction({
     });
 
     if (!resolvedRoadSegmentId) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK"); 
       logPersistence("skip", {
         context,
         reason: "missing_road_segment_id",

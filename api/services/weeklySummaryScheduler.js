@@ -20,7 +20,7 @@ function startWeeklySummaryScheduler() {
         console.info("[email/weekly-summary] job_completed", {
           attemptedCount: result.attemptedCount,
           sentCount: result.sentCount,
-          failedCount: result.failedCount,
+          failedCount: result.failedCount, 
         });
       } catch (error) {
         console.error("[email/weekly-summary] job_failed", {

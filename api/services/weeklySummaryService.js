@@ -14,7 +14,7 @@ function getFullName(user) {
 async function fetchWeeklySummaryRecipients(targetUserId = null, db = pool) {
   const values = [];
   let userFilterSql = "";
-
+ 
   if (targetUserId) {
     values.push(targetUserId);
     userFilterSql = `and u.id = $${values.length}`;

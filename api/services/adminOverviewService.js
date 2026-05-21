@@ -237,7 +237,7 @@ function buildPluralText(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function buildCriticalAlerts({ oldHighPendingCount, lowConfidencePredictionCount, pendingSpamReviewCount }) {
+function buildHighSeverityAlerts({ oldHighPendingCount, lowConfidencePredictionCount, pendingSpamReviewCount }) {
   const alerts = [];
 
   if (Number(oldHighPendingCount || 0) > 0) {
@@ -639,7 +639,7 @@ async function getAdminOverview(range, db = pool) {
     : [];
 
   return {
-    criticalAlerts: buildCriticalAlerts({
+    highSeverityAlerts: buildHighSeverityAlerts({
       oldHighPendingCount: summaryRow.old_high_pending_count,
       lowConfidencePredictionCount: summaryRow.low_confidence_predictions,
       pendingSpamReviewCount: summaryRow.pending_spam_review_count,

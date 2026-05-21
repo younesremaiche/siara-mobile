@@ -5,6 +5,11 @@ const { hasAnyRole, POLICE_ROLE_NAMES } = require("../contollers/verifytoken");
 const { mapNotificationRow, markNotificationAsRead } = require("./notificationsService");
 const { emitNotificationCreatedToUser } = require("./notificationSocket");
 const { evaluateAndSendPushForNotification } = require("./pushService");
+const {
+  notifyOfficerAssignedToIncident,
+  notifySupervisorOfOfficerStatusChange,
+  notifyNearbyOfficersForBackup,
+} = require("./notificationOrchestrator");
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,7 +23,47 @@ const INCIDENT_STATUS_VALUES = new Set([
   "rejected",
 ]);
 
-const ALERT_SEVERITY_VALUES = new Set(["low", "medium", "high", "critical"]);
+// Only these values are permitted by accident_reports_status_check. Code that
+// mutates accident_reports.status must use sanitizeReportStatusWrite() to
+// strip non-persistable values like "under_review" (which is a derived
+// display-only state — see mapIncidentRow + computeDisplayStatus).
+const PERSISTABLE_REPORT_STATUS_VALUES = new Set([
+  "pending",
+  "verified",
+  "rejected",
+  "resolved",
+]);
+
+function sanitizeReportStatusWrite(nextStatus, currentStatus) {
+  if (PERSISTABLE_REPORT_STATUS_VALUES.has(nextStatus)) {
+    return nextStatus;
+  }
+  console.warn("[police] invalid_report_status_for_assignment", {
+    rejected: nextStatus,
+    keptAs: currentStatus,
+    note: "accident_reports.status only persists pending/verified/rejected/resolved; assignment lifecycle lives in app.incident_assignments.status",
+  });
+  return currentStatus;
+}
+
+// Derived: "under_review" if the report is still pending but already has an
+// assigned officer (or an active assignment). The DB never stores this value;
+// the frontend reads it as the report's display status.
+function computeDisplayStatus(row) {
+  if (!row || row.status !== "pending") {
+    return row?.status || null;
+  }
+  if (row.assigned_officer_id) {
+    return "under_review";
+  }
+  const assignmentStatus = String(row.latest_assignment_status || "").toLowerCase();
+  if (assignmentStatus === "active") {
+    return "under_review";
+  }
+  return "pending";
+}
+
+const ALERT_SEVERITY_VALUES = new Set(["low", "medium", "high"]);
 const ALERT_TYPE_VALUES = new Set([
   "incident",
   "weather",
@@ -28,13 +73,16 @@ const ALERT_TYPE_VALUES = new Set([
   "advisory",
 ]);
 const TARGET_TYPE_VALUES = new Set(["officer", "role", "zone"]);
-const INCIDENT_SCOPE_VALUES = new Set(["active", "nearby", "my", "field_reports"]);
+const INCIDENT_SCOPE_VALUES = new Set(["active", "nearby", "my", "field_reports", "all"]);
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
-const NEARBY_DISTANCE_METERS = 500;
-const ACTIVE_INCIDENT_STATUSES = ["pending", "under_review", "verified", "dispatched"];
+const NEARBY_DISTANCE_METERS = 5000;
+const MAX_MANUAL_HISTORY_NOTE_LENGTH = 1000;
+const MAX_USABLE_LOCATION_AGE_MS = 15 * 60 * 1000;
+const MAX_USABLE_LOCATION_ACCURACY_M = 200;
+
 const OFFICER_HISTORY_VISIBLE_ACTIONS = new Set([
   "verify_incident",
   "reject_incident",
@@ -45,10 +93,9 @@ const OFFICER_HISTORY_VISIBLE_ACTIONS = new Set([
   "mark_alert_read",
   "manual_log_entry",
 ]);
+
 const INTERNAL_HISTORY_ACTIONS = new Set(["location_update"]);
-const MAX_MANUAL_HISTORY_NOTE_LENGTH = 1000;
-const MAX_USABLE_LOCATION_AGE_MS = 15 * 60 * 1000;
-const MAX_USABLE_LOCATION_ACCURACY_M = 200;
+
 const HISTORY_ACTION_VALUES = new Set([
   "verify_incident",
   "reject_incident",
@@ -90,12 +137,12 @@ const INCIDENT_BASE_SQL = `
     commune.name AS commune_name,
     wilaya.id AS wilaya_id,
     wilaya.name AS wilaya_name,
-    concat_ws(' ', reporter.first_name, reporter.last_name) AS reporter_name,
+    CONCAT_WS(' ', reporter.first_name, reporter.last_name) AS reporter_name,
     reporter.email AS reporter_email,
     reporter.avatar_url AS reporter_avatar_url,
-    concat_ws(' ', assigned.first_name, assigned.last_name) AS assigned_officer_name,
-    concat_ws(' ', verifier.first_name, verifier.last_name) AS verified_officer_name,
-    concat_ws(' ', resolver.first_name, resolver.last_name) AS resolved_officer_name,
+    CONCAT_WS(' ', assigned.first_name, assigned.last_name) AS assigned_officer_name,
+    CONCAT_WS(' ', verifier.first_name, verifier.last_name) AS verified_officer_name,
+    CONCAT_WS(' ', resolver.first_name, resolver.last_name) AS resolved_officer_name,
     latest_assignment.id AS latest_assignment_id,
     latest_assignment.assignment_type AS latest_assignment_type,
     latest_assignment.status AS latest_assignment_status,
@@ -174,6 +221,7 @@ function isValidUuid(value) {
 
 function normalizeUuid(value, fieldName, { required = false } = {}) {
   const normalized = String(value || "").trim();
+
   if (!normalized) {
     if (required) {
       throw createError(400, `${fieldName} is required`);
@@ -210,6 +258,7 @@ function normalizeInteger(
 
 function normalizeCoordinate(value, fieldName, { min, max }) {
   const parsed = Number(value);
+
   if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
     throw createError(400, `${fieldName} must be a valid coordinate`);
   }
@@ -247,6 +296,7 @@ function normalizeString(value, fieldName, { required = false, maxLength = 255 }
   }
 
   const normalized = value.trim();
+
   if (!normalized) {
     if (required) {
       throw createError(400, `${fieldName} is required`);
@@ -281,6 +331,7 @@ function normalizeDateTime(value, fieldName, { required = false } = {}) {
   }
 
   const parsed = value instanceof Date ? value : new Date(value);
+
   if (Number.isNaN(parsed.getTime())) {
     throw createError(400, `${fieldName} must be a valid datetime`);
   }
@@ -324,6 +375,7 @@ function normalizePageParams(query = {}) {
 
 function normalizeIncidentStatus(value, fieldName = "status", { required = false } = {}) {
   const normalized = String(value || "").trim().toLowerCase();
+
   if (!normalized) {
     if (required) {
       throw createError(400, `${fieldName} is required`);
@@ -340,6 +392,7 @@ function normalizeIncidentStatus(value, fieldName = "status", { required = false
 
 function normalizeAlertSeverity(value, fieldName = "severity", { required = false } = {}) {
   const normalized = String(value || "").trim().toLowerCase();
+
   if (!normalized) {
     if (required) {
       throw createError(400, `${fieldName} is required`);
@@ -356,6 +409,7 @@ function normalizeAlertSeverity(value, fieldName = "severity", { required = fals
 
 function normalizeAlertType(value, fieldName = "alertType", { required = false } = {}) {
   const normalized = String(value || "").trim().toLowerCase();
+
   if (!normalized) {
     if (required) {
       throw createError(400, `${fieldName} is required`);
@@ -372,6 +426,7 @@ function normalizeAlertType(value, fieldName = "alertType", { required = false }
 
 function normalizeTargetType(value) {
   const normalized = String(value || "").trim().toLowerCase();
+
   if (!TARGET_TYPE_VALUES.has(normalized)) {
     throw createError(400, "targetType is invalid");
   }
@@ -381,15 +436,16 @@ function normalizeTargetType(value) {
 
 function normalizeIncidentScope(value) {
   const normalized = String(value || "active").trim().toLowerCase();
+
   if (!INCIDENT_SCOPE_VALUES.has(normalized)) {
     throw createError(400, "scope is invalid");
   }
+
   return normalized;
 }
 
 function severityLabelFromHint(value) {
   const numeric = Number(value);
-  if (numeric >= 4) return "critical";
   if (numeric >= 3) return "high";
   if (numeric >= 2) return "medium";
   return "low";
@@ -397,13 +453,12 @@ function severityLabelFromHint(value) {
 
 function notificationPriorityFromSeverity(severity) {
   switch (String(severity || "").trim().toLowerCase()) {
-    case "critical":
     case "high":
-      return 1;
+      return 3;
     case "medium":
       return 2;
     default:
-      return 3;
+      return 1;
   }
 }
 
@@ -472,7 +527,7 @@ function extractRoleSnapshot(value) {
   return [];
 }
 
-function formatPerson(id, name, email = null) {
+function formatPerson(id, name, email = null, avatarUrl = null) {
   if (!id && !name && !email) {
     return null;
   }
@@ -481,6 +536,8 @@ function formatPerson(id, name, email = null) {
     id: id || null,
     name: name || email || null,
     email: email || null,
+    avatar_url: avatarUrl || null,
+    avatarUrl: avatarUrl || null,
   };
 }
 
@@ -508,7 +565,7 @@ async function ensurePoliceProfile(userId, db = pool) {
         created_at,
         updated_at
       )
-      VALUES ($1::uuid, FALSE, TRUE, NOW(), NOW())
+      VALUES ($1, FALSE, TRUE, NOW(), NOW())
       ON CONFLICT (user_id) DO NOTHING
     `,
     [userId],
@@ -528,7 +585,7 @@ async function fetchOfficerContext(userId, db = pool) {
           FROM auth.user_roles ur
           JOIN auth.roles r
             ON r.id = ur.role_id
-          WHERE ur.user_id = $1::uuid
+          WHERE ur.user_id = $1
           GROUP BY ur.user_id
         ),
         active_assignments AS (
@@ -536,7 +593,7 @@ async function fetchOfficerContext(userId, db = pool) {
             MAX(CASE WHEN zone_level = 'wilaya' AND is_active THEN admin_area_id END) AS active_wilaya_id,
             MAX(CASE WHEN zone_level = 'commune' AND is_active THEN admin_area_id END) AS active_commune_id
           FROM app.police_work_zone_assignments
-          WHERE officer_user_id = $1::uuid
+          WHERE officer_user_id = $1
             AND is_active = TRUE
             AND (expires_at IS NULL OR expires_at > NOW())
         ),
@@ -592,7 +649,7 @@ async function fetchOfficerContext(userId, db = pool) {
           ON active_commune.id = active_assignments.active_commune_id
         LEFT JOIN subordinate_counts
           ON subordinate_counts.supervisor_user_id = u.id
-        WHERE u.id = $1::uuid
+        WHERE u.id = $1
         LIMIT 1
       `,
       [userId],
@@ -611,7 +668,7 @@ async function fetchOfficerContext(userId, db = pool) {
           ST_Y(location::geometry) AS lat,
           ST_X(location::geometry) AS lng
         FROM app.officer_location_updates
-        WHERE officer_user_id = $1::uuid
+        WHERE officer_user_id = $1
         ORDER BY captured_at DESC, id DESC
         LIMIT 1
       `,
@@ -722,7 +779,7 @@ async function requireAdminArea(areaId, expectedLevel = null, db = pool) {
       FROM gis.admin_areas area
       LEFT JOIN gis.admin_areas parent
         ON parent.id = area.parent_id
-      WHERE area.id = $1::bigint
+      WHERE area.id = $1
       LIMIT 1
     `,
     [normalizedAreaId],
@@ -776,7 +833,13 @@ function mapIncidentRow(row) {
     row.reporter_role_snapshot || row.reported_by_role_snapshot,
   );
 
-  const reportedByPerson = formatPerson(row.reported_by, row.reporter_name, row.reporter_email);
+  const reportedByPerson = formatPerson(
+    row.reported_by,
+    row.reporter_name,
+    row.reporter_email,
+  );
+
+  const displayStatus = computeDisplayStatus(row);
 
   return {
     id: row.id,
@@ -784,7 +847,13 @@ function mapIncidentRow(row) {
     incidentType: row.incident_type,
     title: row.title || "",
     description: row.description || "",
-    status: row.status,
+    // status is the displayed value (kept as the API contract everything
+    // currently reads); rawStatus exposes the persisted lifecycle value so
+    // callers that need DB truth (not display) can read it. The DB only ever
+    // stores pending/verified/rejected/resolved — see PERSISTABLE_REPORT_STATUS_VALUES.
+    status: displayStatus,
+    rawStatus: row.status,
+    displayStatus,
     severityHint,
     severity: severityLabelFromHint(severityHint),
     locationLabel: row.location_label || "",
@@ -850,7 +919,7 @@ async function getIncidentMedia(reportId, db = pool) {
         url,
         uploaded_at
       FROM app.report_media
-      WHERE report_id = $1::uuid
+      WHERE report_id = $1
       ORDER BY uploaded_at ASC NULLS LAST, id ASC
     `,
     [reportId],
@@ -905,8 +974,12 @@ async function getOperationHistoryRows(
         history.*,
         COUNT(*) OVER() AS total_count,
         CONCAT_WS(' ', officer.first_name, officer.last_name) AS officer_name,
+        officer.avatar_url AS officer_avatar_url,
         report.title AS report_title,
-        alert.title AS alert_title
+        report.severity_hint AS report_severity_hint,
+        report.status AS report_status,
+        alert.title AS alert_title,
+        alert.severity AS alert_severity
       FROM app.police_operation_history history
       LEFT JOIN auth.users officer
         ON officer.id = history.officer_user_id
@@ -930,11 +1003,18 @@ async function getOperationHistoryRows(
     note: row.note || null,
     metadata: row.metadata || {},
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-    officer: formatPerson(row.officer_user_id, row.officer_name),
+    officer: formatPerson(row.officer_user_id, row.officer_name, null, row.officer_avatar_url),
     reportId: row.report_id || null,
     reportTitle: row.report_title || null,
+    reportSeverity: row.report_severity_hint != null
+      ? severityLabelFromHint(row.report_severity_hint)
+      : null,
+    reportStatus: row.report_status || null,
     alertId: row.alert_id || null,
     alertTitle: row.alert_title || null,
+    alertSeverity: row.alert_severity
+      ? String(row.alert_severity).toLowerCase()
+      : null,
   }));
 
   return {
@@ -973,7 +1053,7 @@ async function recordOperationHistory(
         metadata,
         created_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7, $8::jsonb, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
     `,
     [
       officerUserId,
@@ -1043,7 +1123,7 @@ function applyIncidentScope({
         ${NEARBY_DISTANCE_METERS}::double precision
       )
     `);
-    whereClauses.push(`base.status <> 'rejected'`);
+    whereClauses.push(`base.status not in ('rejected', 'archived')`);
     whereClauses.push(`base.status <> 'resolved'`);
     return { locationRequired: false };
   }
@@ -1051,6 +1131,7 @@ function applyIncidentScope({
   if (scope === "my") {
     values.push(officerUserId);
     const userParam = values.length;
+
     whereClauses.push(`
       (
         base.reported_by = $${userParam}::uuid
@@ -1064,11 +1145,13 @@ function applyIncidentScope({
         )
       )
     `);
+
     return { locationRequired: false };
   }
 
   if (scope === "field_reports") {
-    whereClauses.push(`base.status <> 'rejected'`);
+    whereClauses.push(`base.status not in ('rejected', 'archived')`);
+
     if (workZoneCommuneId) {
       values.push(workZoneCommuneId);
       whereClauses.push(`base.commune_id = $${values.length}::bigint`);
@@ -1076,6 +1159,19 @@ function applyIncidentScope({
       values.push(workZoneWilayaId);
       whereClauses.push(`base.wilaya_id = $${values.length}::bigint`);
     }
+
+    return { locationRequired: false };
+  }
+
+  if (scope === "all") {
+    if (workZoneCommuneId) {
+      values.push(workZoneCommuneId);
+      whereClauses.push(`base.commune_id = $${values.length}::bigint`);
+    } else if (workZoneWilayaId) {
+      values.push(workZoneWilayaId);
+      whereClauses.push(`base.wilaya_id = $${values.length}::bigint`);
+    }
+
     return { locationRequired: false };
   }
 
@@ -1102,14 +1198,16 @@ function applyIncidentFilters({ whereClauses, values, filters = {} }) {
   if (filters.severity) {
     const severity = String(filters.severity).trim().toLowerCase();
 
+    if (!ALERT_SEVERITY_VALUES.has(severity)) {
+      throw createError(400, "severity is invalid");
+    }
+
     if (severity === "low") {
       whereClauses.push(`COALESCE(base.severity_hint, 0) <= 1`);
     } else if (severity === "medium") {
       whereClauses.push(`COALESCE(base.severity_hint, 0) = 2`);
     } else if (severity === "high") {
-      whereClauses.push(`COALESCE(base.severity_hint, 0) = 3`);
-    } else if (severity === "critical") {
-      whereClauses.push(`COALESCE(base.severity_hint, 0) >= 4`);
+      whereClauses.push(`COALESCE(base.severity_hint, 0) >= 3`);
     }
   }
 
@@ -1253,7 +1351,6 @@ async function listPoliceIncidents(
 
   try {
     const result = await db.query(sql, values);
-
     const items = result.rows.map(mapIncidentRow);
     const total = Number(result.rows[0]?.total_count || 0);
 
@@ -1340,7 +1437,7 @@ async function getPoliceDashboard(officerUserId, db = pool) {
           SELECT
             COUNT(*) FILTER (
               WHERE base.status <> 'resolved'
-                AND base.status <> 'rejected'
+                AND base.status not in ('rejected', 'archived')
                 AND (
                   ($1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
                   OR ($1::bigint IS NULL AND $2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
@@ -1349,7 +1446,7 @@ async function getPoliceDashboard(officerUserId, db = pool) {
             COUNT(*) FILTER (
               WHERE COALESCE(base.severity_hint, 0) >= 3
                 AND base.status <> 'resolved'
-                AND base.status <> 'rejected'
+                AND base.status not in ('rejected', 'archived')
                 AND (
                   ($1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
                   OR ($1::bigint IS NULL AND $2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
@@ -1371,10 +1468,54 @@ async function getPoliceDashboard(officerUserId, db = pool) {
       ),
     ]);
 
-  const unreadAlertsCount = alerts.unreadCount;
   const activeItems = activeIncidents.items || [];
   const nearbyItems = nearbyIncidents.items || [];
   const myItems = myIncidents.items || [];
+
+  const allIncidentIds = Array.from(
+    new Set(
+      [...activeItems, ...nearbyItems, ...myItems]
+        .map((item) => item.id)
+        .filter(Boolean),
+    ),
+  );
+
+  const mediaByIncidentId = new Map();
+  if (allIncidentIds.length > 0) {
+    const mediaResult = await db.query(
+      `
+        SELECT id, report_id, media_type, url, uploaded_at
+        FROM app.report_media
+        WHERE report_id = ANY($1::uuid[])
+        ORDER BY uploaded_at ASC NULLS LAST, id ASC
+      `,
+      [allIncidentIds],
+    );
+
+    for (const row of mediaResult.rows) {
+      const reportId = row.report_id;
+      if (!mediaByIncidentId.has(reportId)) {
+        mediaByIncidentId.set(reportId, []);
+      }
+      mediaByIncidentId.get(reportId).push({
+        id: row.id,
+        mediaType: row.media_type,
+        url: row.url,
+        uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : null,
+      });
+    }
+  }
+
+  function attachMedia(items) {
+    return items.map((item) => ({
+      ...item,
+      media: mediaByIncidentId.get(item.id) || [],
+    }));
+  }
+
+  const activeWithMedia = attachMedia(activeItems);
+  const nearbyWithMedia = attachMedia(nearbyItems);
+  const myWithMedia = attachMedia(myItems);
 
   return {
     officer: officerContext.officer,
@@ -1385,27 +1526,33 @@ async function getPoliceDashboard(officerUserId, db = pool) {
       activeCount: Number(statsResult.rows[0]?.active_count || 0),
       highPriorityCount: Number(statsResult.rows[0]?.high_priority_count || 0),
       pendingVerificationCount: Number(statsResult.rows[0]?.pending_verification_count || 0),
-      unreadAlertsCount,
+      unreadAlertsCount: alerts.unreadCount,
     },
-    activeIncidents: activeItems,
-    nearbyIncidents: nearbyItems,
+    activeIncidents: activeWithMedia,
+    nearbyIncidents: nearbyWithMedia,
     nearbyLocationRequired: Boolean(nearbyIncidents.locationRequired),
-    myIncidents: myItems,
+    myIncidents: myWithMedia,
     recentHistory: recentHistory.items,
-    mapMarkers: [...activeItems, ...nearbyItems, ...myItems].map((item) => ({
+    mapMarkers: [...activeWithMedia, ...nearbyWithMedia, ...myWithMedia].map((item) => ({
       id: item.id,
       title: item.title,
+      description: item.description,
+      incidentType: item.incidentType,
       severity: item.severity,
       status: item.status,
       lat: item.location?.lat,
       lng: item.location?.lng,
       locationLabel: item.locationLabel,
+      occurredAt: item.occurredAt,
+      createdAt: item.createdAt,
+      media: (item.media || []).slice(0, 3),
     })),
   };
 }
 
 async function getPoliceMe(officerUserId, db = pool) {
   const context = await fetchOfficerContext(officerUserId, db);
+
   return {
     officer: context.officer,
     workZone: context.workZone,
@@ -1416,6 +1563,7 @@ async function getPoliceMe(officerUserId, db = pool) {
 
 async function getPoliceWorkZoneOptions(officerUserId, { wilayaId = null } = {}, db = pool) {
   const context = await fetchOfficerContext(officerUserId, db);
+
   const selectedWilayaId = wilayaId
     ? normalizeInteger(wilayaId, "wilayaId")
     : context.workZone?.wilaya?.id || null;
@@ -1546,25 +1694,35 @@ async function updatePoliceWorkZone(officerUserId, payload = {}, db = pool) {
 async function updatePoliceLocation(officerUserId, payload = {}, db = pool) {
   const lat = normalizeCoordinate(payload.lat, "lat", { min: -90, max: 90 });
   const lng = normalizeCoordinate(payload.lng, "lng", { min: -180, max: 180 });
-  const accuracyM = normalizeOptionalNumber(
-    payload.accuracyM ?? payload.accuracy_m,
-    "accuracyM",
-    { min: 0 },
-  );
+  const accuracyM = normalizeOptionalNumber(payload.accuracyM ?? payload.accuracy_m, "accuracyM", {
+    min: 0,
+  });
   const heading = normalizeOptionalNumber(payload.heading, "heading", { min: 0, max: 360 });
-  const speedKmh = normalizeOptionalNumber(
-    payload.speedKmh ?? payload.speed_kmh,
-    "speedKmh",
-    { min: 0 },
-  );
+  const speedKmh = normalizeOptionalNumber(payload.speedKmh ?? payload.speed_kmh, "speedKmh", {
+    min: 0,
+  });
   const capturedAt =
     normalizeDateTime(payload.capturedAt ?? payload.captured_at, "capturedAt", {
       required: false,
     }) || new Date();
-  const source = normalizeString(payload.source || "device", "source", {
+  const rawSource = normalizeString(payload.source || "device", "source", {
     required: true,
     maxLength: 50,
   });
+  // Accept "gps", "device", "browser", "cached", "fallback", "fallback_test".
+  // Any other string is collapsed to "device" so an attacker cannot poison the
+  // audit trail with arbitrary labels. Fallback variants and an explicit
+  // `isFallback: true` flag both resolve to "fallback_test" so the row is
+  // never confused with a trusted GPS reading downstream.
+  const isFallbackInput = payload.isFallback === true
+    || payload.isFallback === "true"
+    || /^fallback/i.test(rawSource);
+  let source = "device";
+  if (isFallbackInput) {
+    source = "fallback_test";
+  } else if (/^(gps|device|browser|cached)$/i.test(rawSource)) {
+    source = rawSource.toLowerCase();
+  }
 
   const client = await db.connect();
   let locationRow = null;
@@ -1623,6 +1781,7 @@ async function updatePoliceLocation(officerUserId, payload = {}, db = pool) {
         heading,
         speedKmh,
         source,
+        isFallback: source === "fallback_test",
         capturedAt: capturedAt.toISOString(),
       },
     });
@@ -1695,11 +1854,14 @@ async function applyIncidentAction(officerUserId, reportId, handler, db = pool) 
 
 async function verifyIncident(officerUserId, reportId, payload = {}, db = pool) {
   const note = normalizeOptionalNote(payload.note);
+  let priorStatus = null;
 
-  return applyIncidentAction(
+  const detail = await applyIncidentAction(
     officerUserId,
     reportId,
     async ({ client, currentRow }) => {
+      priorStatus = currentRow.status;
+
       await client.query(
         `
           UPDATE app.accident_reports
@@ -1717,22 +1879,36 @@ async function verifyIncident(officerUserId, reportId, payload = {}, db = pool) 
         officerUserId,
         reportId,
         actionType: "verify_incident",
-        fromStatus: currentRow.status,
+        fromStatus: priorStatus,
         toStatus: "verified",
         note,
       });
     },
     db,
   );
+
+  // Post-commit: notify the officer's supervisor of the status change.
+  dispatchSupervisorStatusChange({
+    officerUserId,
+    reportId,
+    oldStatus: priorStatus,
+    newStatus: "verified",
+    db,
+  });
+
+  return detail;
 }
 
 async function rejectIncident(officerUserId, reportId, payload = {}, db = pool) {
   const note = normalizeOptionalNote(payload.note, "note");
+  let priorStatus = null;
 
-  return applyIncidentAction(
+  const detail = await applyIncidentAction(
     officerUserId,
     reportId,
     async ({ client, currentRow }) => {
+      priorStatus = currentRow.status;
+
       await client.query(
         `
           UPDATE app.accident_reports
@@ -1750,13 +1926,23 @@ async function rejectIncident(officerUserId, reportId, payload = {}, db = pool) 
         officerUserId,
         reportId,
         actionType: "reject_incident",
-        fromStatus: currentRow.status,
+        fromStatus: priorStatus,
         toStatus: "rejected",
         note,
       });
     },
     db,
   );
+
+  dispatchSupervisorStatusChange({
+    officerUserId,
+    reportId,
+    oldStatus: priorStatus,
+    newStatus: "rejected",
+    db,
+  });
+
+  return detail;
 }
 
 async function assignSelfToIncident(officerUserId, reportId, payload = {}, db = pool) {
@@ -1794,15 +1980,24 @@ async function assignSelfToIncident(officerUserId, reportId, payload = {}, db = 
         [reportId, officerUserId, note],
       );
 
+      // Do not touch accident_reports.status here — "under_review" is a
+      // display-only state. The assignment lifecycle is tracked in
+      // app.incident_assignments.status (set to 'active' just above).
+      const nextStatus = sanitizeReportStatusWrite(
+        currentRow.status === "pending" ? "under_review" : currentRow.status,
+        currentRow.status,
+      );
+
       await client.query(
         `
           UPDATE app.accident_reports
           SET
             assigned_officer_id = $2::uuid,
+            status = $3::text,
             updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [reportId, officerUserId],
+        [reportId, officerUserId, nextStatus],
       );
 
       await recordOperationHistory(client, {
@@ -1821,11 +2016,14 @@ async function assignSelfToIncident(officerUserId, reportId, payload = {}, db = 
 async function updateIncidentStatus(officerUserId, reportId, payload = {}, db = pool) {
   const nextStatus = normalizeIncidentStatus(payload.status, "status", { required: true });
   const note = normalizeOptionalNote(payload.note);
+  let priorStatus = null;
 
-  return applyIncidentAction(
+  const detail = await applyIncidentAction(
     officerUserId,
     reportId,
     async ({ client, currentRow }) => {
+      priorStatus = currentRow.status;
+
       const updateClauses = ["status = $2::text", "updated_at = NOW()"];
       const values = [reportId, nextStatus];
 
@@ -1858,17 +2056,62 @@ async function updateIncidentStatus(officerUserId, reportId, payload = {}, db = 
         officerUserId,
         reportId,
         actionType: "update_status",
-        fromStatus: currentRow.status,
+        fromStatus: priorStatus,
         toStatus: nextStatus,
         note,
       });
     },
     db,
   );
+
+  dispatchSupervisorStatusChange({
+    officerUserId,
+    reportId,
+    oldStatus: priorStatus,
+    newStatus: nextStatus,
+    db,
+  });
+
+  return detail;
+}
+
+// Resolve the officer's supervisor and fire the orchestrator. Detached
+// (no await): runs after the parent function has returned so a slow
+// fan-out can't delay the HTTP response or fail the action.
+function dispatchSupervisorStatusChange({ officerUserId, reportId, oldStatus, newStatus, db }) {
+  if (!officerUserId || !reportId || !newStatus) return;
+  if (oldStatus === newStatus) return;
+
+  (async () => {
+    try {
+      const supervisorRow = await db.query(
+        `select supervisor_user_id from app.police_profiles where user_id = $1::uuid limit 1`,
+        [officerUserId],
+      );
+      const supervisorUserId = supervisorRow.rows[0]?.supervisor_user_id || null;
+      if (!supervisorUserId) return;
+      await notifySupervisorOfOfficerStatusChange({
+        reportId,
+        officerUserId,
+        supervisorUserId,
+        oldStatus,
+        newStatus,
+        db,
+      });
+    } catch (error) {
+      console.warn("[notify-orchestrator] supervisor_status_change_failed", {
+        reportId,
+        officerUserId,
+        newStatus,
+        message: error.message,
+      });
+    }
+  })();
 }
 
 async function addIncidentFieldNote(officerUserId, reportId, payload = {}, db = pool) {
   const note = normalizeOptionalNote(payload.note, "note");
+
   if (!note) {
     throw createError(400, "note is required");
   }
@@ -1885,6 +2128,116 @@ async function addIncidentFieldNote(officerUserId, reportId, payload = {}, db = 
         toStatus: currentRow.status,
         note,
       });
+    },
+    db,
+  );
+}
+
+async function updateIncidentFieldNote(
+  officerUserId,
+  reportId,
+  historyId,
+  payload = {},
+  db = pool,
+) {
+  const note = normalizeOptionalNote(payload.note, "note");
+
+  if (!note) {
+    throw createError(400, "note is required");
+  }
+
+  const numericHistoryId = Number.parseInt(historyId, 10);
+  if (!Number.isInteger(numericHistoryId) || numericHistoryId <= 0) {
+    throw createError(400, "history id must be a positive integer");
+  }
+
+  return applyIncidentAction(
+    officerUserId,
+    reportId,
+    async ({ client }) => {
+      const existing = await client.query(
+        `
+          SELECT id, officer_user_id, report_id, action_type
+          FROM app.police_operation_history
+          WHERE id = $1::bigint
+          LIMIT 1
+        `,
+        [numericHistoryId],
+      );
+
+      const row = existing.rows[0];
+      if (!row) {
+        throw createError(404, "Field note not found");
+      }
+      if (row.action_type !== "field_note") {
+        throw createError(400, "Only field notes can be edited");
+      }
+      if (row.report_id !== reportId) {
+        throw createError(400, "Field note does not belong to this incident");
+      }
+      if (row.officer_user_id !== officerUserId) {
+        throw createError(403, "You can only edit your own field notes");
+      }
+
+      await client.query(
+        `
+          UPDATE app.police_operation_history
+          SET note = $2::text
+          WHERE id = $1::bigint
+        `,
+        [numericHistoryId, note],
+      );
+    },
+    db,
+  );
+}
+
+async function deleteIncidentFieldNote(
+  officerUserId,
+  reportId,
+  historyId,
+  db = pool,
+) {
+  const numericHistoryId = Number.parseInt(historyId, 10);
+  if (!Number.isInteger(numericHistoryId) || numericHistoryId <= 0) {
+    throw createError(400, "history id must be a positive integer");
+  }
+
+  return applyIncidentAction(
+    officerUserId,
+    reportId,
+    async ({ client }) => {
+      const existing = await client.query(
+        `
+          SELECT id, officer_user_id, report_id, action_type
+          FROM app.police_operation_history
+          WHERE id = $1::bigint
+          LIMIT 1
+        `,
+        [numericHistoryId],
+      );
+
+      const row = existing.rows[0];
+      if (!row) {
+        throw createError(404, "Field note not found");
+      }
+      if (row.action_type !== "field_note") {
+        throw createError(400, "Only field notes can be deleted");
+      }
+      if (row.report_id !== reportId) {
+        throw createError(400, "Field note does not belong to this incident");
+      }
+      if (row.officer_user_id !== officerUserId) {
+        throw createError(403, "You can only delete your own field notes");
+      }
+
+      await client.query(
+        `
+          DELETE FROM app.police_operation_history
+          WHERE id = $1::bigint
+        `,
+        [numericHistoryId],
+      );
     },
     db,
   );
@@ -1964,15 +2317,23 @@ async function requestIncidentBackup(officerUserId, reportId, payload = {}, db =
     reportId,
     async ({ client, currentRow, officerContext }) => {
       const supervisorUserId = await getSupervisorRecipientUserId(officerContext, client);
+      // "under_review" is display-only; the persisted status stays whatever
+      // it was. assigned_officer_id is the field that flips display state.
+      const nextStatus = sanitizeReportStatusWrite(
+        currentRow.status === "pending" ? "under_review" : currentRow.status,
+        currentRow.status,
+      );
+
       await client.query(
         `
           UPDATE app.accident_reports
           SET
-            assigned_officer_id = COALESCE(assigned_officer_id, $2::uuid),
+            status = $2::text,
+            assigned_officer_id = COALESCE(assigned_officer_id, $3::uuid),
             updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [reportId, officerUserId],
+        [reportId, nextStatus, officerUserId],
       );
 
       await recordOperationHistory(client, {
@@ -1984,35 +2345,46 @@ async function requestIncidentBackup(officerUserId, reportId, payload = {}, db =
         note,
       });
 
+      // Capture the supervisor id so we can notify after commit.
       if (supervisorUserId) {
-        supervisorNotificationRows = await insertNotificationsForUsers(client, [
-          {
-            userId: supervisorUserId,
-            reportId,
-            operationalAlertId: null,
-            priority: 1,
-            eventType: "POLICE_BACKUP_REQUESTED",
-            title: "Backup requested",
-            body: `Officer requested backup for ${currentRow.title || buildDisplayIncidentId(reportId)}.`,
-            data: {
-              reportId,
-              requestedBy: officerUserId,
-              source: "police",
-              action: "request_backup",
-            },
-          },
-        ]);
+        supervisorNotificationRows = [{ userId: supervisorUserId, reportId, requesterId: officerUserId }];
       }
     },
     db,
   );
 
-  await Promise.allSettled(
-    supervisorNotificationRows.map(async (notification) => {
-      emitNotificationCreatedToUser(notification.userId, notification);
-      await evaluateAndSendPushForNotification(notification, db);
-    }),
-  );
+  // Post-commit fan-out via orchestrator:
+  //  - Supervisor gets a single targeted notification (existing behaviour, now on all platforms).
+  //  - Nearby on-duty officers get the urgent backup-requested fan-out.
+  Promise.allSettled([
+    ...(supervisorNotificationRows.map((row) =>
+      notifyNearbyOfficersForBackup({
+        reportId: row.reportId,
+        requesterOfficerId: row.requesterId,
+        db,
+      }).catch((error) => {
+        console.warn("[notify-orchestrator] backup_nearby_failed", {
+          reportId: row.reportId,
+          message: error.message,
+        });
+      }),
+    )),
+    ...(supervisorNotificationRows.map((row) =>
+      notifySupervisorOfOfficerStatusChange({
+        reportId: row.reportId,
+        officerUserId: row.requesterId,
+        supervisorUserId: row.userId,
+        oldStatus: null,
+        newStatus: "backup_requested",
+        db,
+      }).catch((error) => {
+        console.warn("[notify-orchestrator] backup_supervisor_failed", {
+          reportId: row.reportId,
+          message: error.message,
+        });
+      }),
+    )),
+  ]);
 
   return detail;
 }
@@ -2080,6 +2452,7 @@ function mapPoliceAlertRow(row) {
 async function getPoliceAlertAccessRow(officerUserId, officerContext, alertId = null, db = pool) {
   const { roleTargets, adminAreaIds } = getOfficerAlertTargetFilters(officerContext);
   const values = [officerUserId, roleTargets, adminAreaIds];
+
   const alertFilterSql = alertId ? `AND operational_alert.id = $${values.push(alertId)}::uuid` : "";
 
   const result = await db.query(
@@ -2145,15 +2518,10 @@ async function getPoliceAlertAccessRow(officerUserId, officerContext, alertId = 
   return result.rows[0] || null;
 }
 
-async function listPoliceAlerts(
-  officerUserId,
-  { page = DEFAULT_PAGE, pageSize = DEFAULT_PAGE_SIZE } = {},
-  db = pool,
-) {
+async function listPoliceAlerts(officerUserId, { page = DEFAULT_PAGE, pageSize = DEFAULT_PAGE_SIZE } = {}, db = pool) {
   const officerContext = await fetchOfficerContext(officerUserId, db);
   const { roleTargets, adminAreaIds } = getOfficerAlertTargetFilters(officerContext);
   const offset = (page - 1) * pageSize;
-  const queryValues = [officerUserId, roleTargets, adminAreaIds, pageSize, offset];
 
   const alertsSql = `
     WITH targeted_alerts AS (
@@ -2253,7 +2621,7 @@ async function listPoliceAlerts(
   `;
 
   const [result, unreadCountResult] = await Promise.all([
-    db.query(alertsSql, queryValues),
+    db.query(alertsSql, [officerUserId, roleTargets, adminAreaIds, pageSize, offset]),
     db.query(unreadCountSql, [officerUserId, roleTargets, adminAreaIds]),
   ]);
 
@@ -2276,12 +2644,7 @@ async function listPoliceAlerts(
 async function markPoliceAlertAsRead(officerUserId, alertId, db = pool) {
   const normalizedAlertId = normalizeUuid(alertId, "alertId", { required: true });
   const officerContext = await fetchOfficerContext(officerUserId, db);
-  const alertRow = await getPoliceAlertAccessRow(
-    officerUserId,
-    officerContext,
-    normalizedAlertId,
-    db,
-  );
+  const alertRow = await getPoliceAlertAccessRow(officerUserId, officerContext, normalizedAlertId, db);
 
   if (!alertRow) {
     throw createError(404, "Alert was not found");
@@ -2356,8 +2719,14 @@ async function listPoliceOperationHistory(officerUserId, query = {}, db = pool) 
   const actionType = query.actionType ? String(query.actionType).trim().toLowerCase() : null;
   const reportId = query.reportId ? normalizeUuid(query.reportId, "reportId") : null;
 
-  if (actionType && !HISTORY_ACTION_VALUES.has(actionType)) {
-    throw createError(400, "actionType is invalid");
+  if (actionType) {
+    if (!HISTORY_ACTION_VALUES.has(actionType)) {
+      throw createError(400, "actionType is invalid");
+    }
+
+    if (INTERNAL_HISTORY_ACTIONS.has(actionType) || !OFFICER_HISTORY_VISIBLE_ACTIONS.has(actionType)) {
+      throw createError(400, "actionType is not available in officer history");
+    }
   }
 
   const { items, total } = await getOperationHistoryRows(
@@ -2451,15 +2820,145 @@ async function canSupervisorManageOfficer(supervisorUserId, officerUserId, db = 
   return Boolean(row && row.supervisor_user_id === supervisorUserId);
 }
 
+// Returns the commune_id that bounds a supervisor's operational scope.
+// Resolution order: police_profiles.default_commune_id → active commune-level
+// work-zone assignment. Wilaya is intentionally NOT used as a fallback because
+// supervisor visibility is commune-bound by policy.
+async function getSupervisorCommuneId(supervisorUserId, db = pool) {
+  const profileResult = await db.query(
+    `
+      SELECT default_commune_id
+      FROM app.police_profiles
+      WHERE user_id = $1::uuid
+      LIMIT 1
+    `,
+    [supervisorUserId],
+  );
+
+  const defaultCommuneId = profileResult.rows[0]?.default_commune_id ?? null;
+  if (defaultCommuneId != null) {
+    return Number(defaultCommuneId);
+  }
+
+  const assignmentResult = await db.query(
+    `
+      SELECT admin_area_id
+      FROM app.police_work_zone_assignments
+      WHERE officer_user_id = $1::uuid
+        AND LOWER(zone_level) = 'commune'
+        AND is_active = TRUE
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY assigned_at DESC
+      LIMIT 1
+    `,
+    [supervisorUserId],
+  );
+
+  return assignmentResult.rows[0]?.admin_area_id != null
+    ? Number(assignmentResult.rows[0].admin_area_id)
+    : null;
+}
+
+// Returns true if the given officer is operating in the given commune,
+// either via their police_profiles.default_commune_id or via an active
+// commune-level work-zone assignment.
+async function isOfficerInCommune(officerUserId, communeId, db = pool) {
+  const result = await db.query(
+    `
+      SELECT 1
+      FROM app.police_profiles pp
+      WHERE pp.user_id = $1::uuid
+        AND (
+          pp.default_commune_id = $2::bigint
+          OR EXISTS (
+            SELECT 1
+            FROM app.police_work_zone_assignments pwa
+            WHERE pwa.officer_user_id = pp.user_id
+              AND pwa.admin_area_id = $2::bigint
+              AND LOWER(pwa.zone_level) = 'commune'
+              AND pwa.is_active = TRUE
+              AND (pwa.expires_at IS NULL OR pwa.expires_at > NOW())
+          )
+        )
+      LIMIT 1
+    `,
+    [officerUserId, communeId],
+  );
+
+  return result.rowCount > 0;
+}
+
+function formatDistanceLabel(distanceMeters) {
+  if (distanceMeters == null || !Number.isFinite(Number(distanceMeters))) {
+    return "Location unavailable";
+  }
+
+  const meters = Number(distanceMeters);
+  if (meters < 1000) {
+    return `${Math.round(meters)} m away`;
+  }
+
+  return `${(meters / 1000).toFixed(1)} km away`;
+}
+
+function mapOfficerListRow(row) {
+  return {
+    id: row.id,
+    name: row.full_name || row.email || "Officer",
+    email: row.email,
+    phone: row.phone || null,
+    avatarUrl: row.avatar_url || "",
+    badgeNumber: row.badge_number || null,
+    rank: row.rank || null,
+    isOnDuty: Boolean(row.is_on_duty),
+    workZone: {
+      wilaya: mapLocationSummary(
+        row.scope_wilaya_id != null ? Number(row.scope_wilaya_id) : null,
+        row.scope_wilaya_name,
+        row.scope_wilaya_id ? "wilaya" : null,
+      ),
+      commune: mapLocationSummary(
+        row.scope_commune_id != null ? Number(row.scope_commune_id) : null,
+        row.scope_commune_name,
+        row.scope_commune_id ? "commune" : null,
+      ),
+    },
+    latestLocation:
+      row.lat == null || row.lng == null
+        ? null
+        : {
+            lat: Number(row.lat),
+            lng: Number(row.lng),
+            accuracyM: row.accuracy_m == null ? null : Number(row.accuracy_m),
+            capturedAt: row.captured_at ? new Date(row.captured_at).toISOString() : null,
+          },
+  };
+}
+
 async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
   const supervisorContext = await assertSupervisorAccess(supervisorUser, db);
   const isAdmin = supervisorContext.officer.roles.some((role) => normalizeRoleName(role) === "admin");
+  const includeAllAdmin =
+    isAdmin
+    && query.allCommunes != null
+    && String(query.allCommunes).trim().toLowerCase() === "true";
   const search = query.search ? String(query.search).trim().toLowerCase() : null;
-  const wilayaId = query.wilayaId ? normalizeInteger(query.wilayaId, "wilayaId") : null;
-  const communeId = query.communeId ? normalizeInteger(query.communeId, "communeId") : null;
   const onDuty = query.onDuty == null ? null : String(query.onDuty).trim().toLowerCase() === "true";
 
+  let supervisorCommuneId = null;
+  if (!includeAllAdmin) {
+    supervisorCommuneId = await getSupervisorCommuneId(supervisorUser.userId, db);
+
+    if (supervisorCommuneId == null) {
+      throw createError(
+        409,
+        "Supervisor commune is not configured. Set a default commune on the police profile or assign an active commune-level work zone.",
+      );
+    }
+  }
+
   const values = [];
+  // Police-role filter (covers police, police_officer, police_supervisor variants).
   const whereClauses = [
     `
       EXISTS (
@@ -2468,14 +2967,32 @@ async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
         JOIN auth.roles officer_role_names
           ON officer_role_names.id = officer_roles.role_id
         WHERE officer_roles.user_id = u.id
-          AND LOWER(officer_role_names.name) = 'police'
+          AND regexp_replace(LOWER(officer_role_names.name), '[^a-z]', '', 'g')
+              IN ('police', 'policeofficer', 'policesupervisor')
       )
     `,
   ];
 
-  if (!isAdmin) {
-    values.push(supervisorUser.userId);
-    whereClauses.push(`pp.supervisor_user_id = $${values.length}::uuid`);
+  // Exclude the supervisor themselves.
+  values.push(supervisorUser.userId);
+  whereClauses.push(`u.id <> $${values.length}::uuid`);
+
+  if (!includeAllAdmin) {
+    values.push(supervisorCommuneId);
+    whereClauses.push(`
+      (
+        pp.default_commune_id = $${values.length}::bigint
+        OR EXISTS (
+          SELECT 1
+          FROM app.police_work_zone_assignments pwa
+          WHERE pwa.officer_user_id = u.id
+            AND pwa.admin_area_id = $${values.length}::bigint
+            AND LOWER(pwa.zone_level) = 'commune'
+            AND pwa.is_active = TRUE
+            AND (pwa.expires_at IS NULL OR pwa.expires_at > NOW())
+        )
+      )
+    `);
   }
 
   if (onDuty != null) {
@@ -2494,25 +3011,14 @@ async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
     `);
   }
 
-  if (wilayaId) {
-    values.push(wilayaId);
-    whereClauses.push(`
-      (
-        active_wilaya.id = $${values.length}::bigint
-        OR (active_commune.parent_id IS NOT NULL AND active_commune.parent_id = $${values.length}::bigint)
-      )
-    `);
-  }
-
-  if (communeId) {
-    values.push(communeId);
-    whereClauses.push(`active_commune.id = $${values.length}::bigint`);
-  }
-
+  // Officer scope columns: prefer the active commune-level assignment, fall
+  // back to police_profiles.default_commune_id / default_wilaya_id.
   const result = await db.query(
     `
       SELECT
         u.id,
+        u.first_name,
+        u.last_name,
         CONCAT_WS(' ', u.first_name, u.last_name) AS full_name,
         u.email,
         u.phone,
@@ -2520,10 +3026,10 @@ async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
         pp.badge_number,
         pp.rank,
         pp.is_on_duty,
-        active_wilaya.id AS active_wilaya_id,
-        active_wilaya.name AS active_wilaya_name,
-        active_commune.id AS active_commune_id,
-        active_commune.name AS active_commune_name,
+        COALESCE(active_commune.id, default_commune.id) AS scope_commune_id,
+        COALESCE(active_commune.name, default_commune.name) AS scope_commune_name,
+        COALESCE(active_wilaya.id, default_wilaya.id) AS scope_wilaya_id,
+        COALESCE(active_wilaya.name, default_wilaya.name) AS scope_wilaya_name,
         latest_location.captured_at,
         latest_location.accuracy_m,
         ST_Y(latest_location.location::geometry) AS lat,
@@ -2531,18 +3037,24 @@ async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
       FROM app.police_profiles pp
       JOIN auth.users u
         ON u.id = pp.user_id
-      LEFT JOIN app.police_work_zone_assignments active_wilaya_assignment
-        ON active_wilaya_assignment.officer_user_id = u.id
-       AND active_wilaya_assignment.zone_level = 'wilaya'
-       AND active_wilaya_assignment.is_active = TRUE
-      LEFT JOIN gis.admin_areas active_wilaya
-        ON active_wilaya.id = active_wilaya_assignment.admin_area_id
+      LEFT JOIN gis.admin_areas default_commune
+        ON default_commune.id = pp.default_commune_id
+      LEFT JOIN gis.admin_areas default_wilaya
+        ON default_wilaya.id = pp.default_wilaya_id
       LEFT JOIN app.police_work_zone_assignments active_commune_assignment
         ON active_commune_assignment.officer_user_id = u.id
        AND active_commune_assignment.zone_level = 'commune'
        AND active_commune_assignment.is_active = TRUE
+       AND (active_commune_assignment.expires_at IS NULL OR active_commune_assignment.expires_at > NOW())
       LEFT JOIN gis.admin_areas active_commune
         ON active_commune.id = active_commune_assignment.admin_area_id
+      LEFT JOIN app.police_work_zone_assignments active_wilaya_assignment
+        ON active_wilaya_assignment.officer_user_id = u.id
+       AND active_wilaya_assignment.zone_level = 'wilaya'
+       AND active_wilaya_assignment.is_active = TRUE
+       AND (active_wilaya_assignment.expires_at IS NULL OR active_wilaya_assignment.expires_at > NOW())
+      LEFT JOIN gis.admin_areas active_wilaya
+        ON active_wilaya.id = active_wilaya_assignment.admin_area_id
       LEFT JOIN LATERAL (
         SELECT *
         FROM app.officer_location_updates location_updates
@@ -2557,37 +3069,166 @@ async function listSupervisorOfficers(supervisorUser, query = {}, db = pool) {
   );
 
   return {
-    items: result.rows.map((row) => ({
-      id: row.id,
-      name: row.full_name || row.email || "Officer",
-      email: row.email,
-      phone: row.phone || null,
-      avatarUrl: row.avatar_url || "",
-      badgeNumber: row.badge_number || null,
-      rank: row.rank || null,
-      isOnDuty: Boolean(row.is_on_duty),
-      workZone: {
-        wilaya: mapLocationSummary(
-          row.active_wilaya_id,
-          row.active_wilaya_name,
-          row.active_wilaya_id ? "wilaya" : null,
-        ),
-        commune: mapLocationSummary(
-          row.active_commune_id,
-          row.active_commune_name,
-          row.active_commune_id ? "commune" : null,
-        ),
-      },
-      latestLocation:
-        row.lat == null || row.lng == null
-          ? null
-          : {
-              lat: Number(row.lat),
-              lng: Number(row.lng),
-              accuracyM: row.accuracy_m == null ? null : Number(row.accuracy_m),
-              capturedAt: row.captured_at ? new Date(row.captured_at).toISOString() : null,
-            },
-    })),
+    items: result.rows.map(mapOfficerListRow),
+    scope: includeAllAdmin
+      ? { mode: "admin_all" }
+      : { mode: "commune", communeId: supervisorCommuneId },
+  };
+}
+
+// Returns the assignable officers for a given incident, restricted to the
+// supervisor's commune and sorted by distance from the incident location.
+async function listAssignableOfficersForIncident(
+  supervisorUser,
+  reportId,
+  query = {},
+  db = pool,
+) {
+  await assertSupervisorAccess(supervisorUser, db);
+  const normalizedReportId = normalizeUuid(reportId, "reportId", { required: true });
+
+  const supervisorCommuneId = await getSupervisorCommuneId(supervisorUser.userId, db);
+  if (supervisorCommuneId == null) {
+    throw createError(
+      409,
+      "Supervisor commune is not configured. Set a default commune on the police profile or assign an active commune-level work zone.",
+    );
+  }
+
+  const reportResult = await db.query(
+    `
+      SELECT id, incident_location, title
+      FROM app.accident_reports
+      WHERE id = $1::uuid
+      LIMIT 1
+    `,
+    [normalizedReportId],
+  );
+
+  const report = reportResult.rows[0] || null;
+  if (!report) {
+    throw createError(404, "Incident was not found");
+  }
+
+  const onDuty = query.onDuty == null ? null : String(query.onDuty).trim().toLowerCase() === "true";
+
+  const values = [supervisorUser.userId, supervisorCommuneId, normalizedReportId];
+  const filters = [];
+
+  if (onDuty != null) {
+    values.push(onDuty);
+    filters.push(`pp.is_on_duty = $${values.length}`);
+  }
+
+  const result = await db.query(
+    `
+      WITH incident AS (
+        SELECT id, incident_location
+        FROM app.accident_reports
+        WHERE id = $3::uuid
+      ),
+      latest_location AS (
+        SELECT DISTINCT ON (officer_user_id)
+          officer_user_id,
+          location,
+          accuracy_m,
+          captured_at
+        FROM app.officer_location_updates
+        ORDER BY officer_user_id, captured_at DESC, id DESC
+      )
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        CONCAT_WS(' ', u.first_name, u.last_name) AS full_name,
+        u.email,
+        u.avatar_url,
+        pp.badge_number,
+        pp.rank,
+        pp.is_on_duty,
+        COALESCE(active_commune.id, default_commune.id) AS scope_commune_id,
+        COALESCE(active_commune.name, default_commune.name) AS scope_commune_name,
+        COALESCE(active_wilaya.id, default_wilaya.id) AS scope_wilaya_id,
+        COALESCE(active_wilaya.name, default_wilaya.name) AS scope_wilaya_name,
+        ll.captured_at,
+        ll.accuracy_m,
+        ST_Y(ll.location::geometry) AS lat,
+        ST_X(ll.location::geometry) AS lng,
+        CASE
+          WHEN ll.location IS NULL OR i.incident_location IS NULL THEN NULL
+          ELSE ST_Distance(ll.location::geography, i.incident_location::geography)
+        END AS distance_meters
+      FROM app.police_profiles pp
+      JOIN auth.users u
+        ON u.id = pp.user_id
+      LEFT JOIN latest_location ll
+        ON ll.officer_user_id = u.id
+      LEFT JOIN gis.admin_areas default_commune
+        ON default_commune.id = pp.default_commune_id
+      LEFT JOIN gis.admin_areas default_wilaya
+        ON default_wilaya.id = pp.default_wilaya_id
+      LEFT JOIN app.police_work_zone_assignments active_commune_assignment
+        ON active_commune_assignment.officer_user_id = u.id
+       AND active_commune_assignment.zone_level = 'commune'
+       AND active_commune_assignment.is_active = TRUE
+       AND (active_commune_assignment.expires_at IS NULL OR active_commune_assignment.expires_at > NOW())
+      LEFT JOIN gis.admin_areas active_commune
+        ON active_commune.id = active_commune_assignment.admin_area_id
+      LEFT JOIN app.police_work_zone_assignments active_wilaya_assignment
+        ON active_wilaya_assignment.officer_user_id = u.id
+       AND active_wilaya_assignment.zone_level = 'wilaya'
+       AND active_wilaya_assignment.is_active = TRUE
+       AND (active_wilaya_assignment.expires_at IS NULL OR active_wilaya_assignment.expires_at > NOW())
+      LEFT JOIN gis.admin_areas active_wilaya
+        ON active_wilaya.id = active_wilaya_assignment.admin_area_id
+      CROSS JOIN incident i
+      WHERE u.id <> $1::uuid
+        AND EXISTS (
+          SELECT 1
+          FROM auth.user_roles ur
+          JOIN auth.roles r ON r.id = ur.role_id
+          WHERE ur.user_id = u.id
+            AND regexp_replace(LOWER(r.name), '[^a-z]', '', 'g')
+                IN ('police', 'policeofficer', 'policesupervisor')
+        )
+        AND (
+          pp.default_commune_id = $2::bigint
+          OR EXISTS (
+            SELECT 1
+            FROM app.police_work_zone_assignments pwa
+            WHERE pwa.officer_user_id = u.id
+              AND pwa.admin_area_id = $2::bigint
+              AND LOWER(pwa.zone_level) = 'commune'
+              AND pwa.is_active = TRUE
+              AND (pwa.expires_at IS NULL OR pwa.expires_at > NOW())
+          )
+        )
+        ${filters.length > 0 ? "AND " + filters.join(" AND ") : ""}
+      ORDER BY
+        CASE WHEN ll.location IS NULL THEN 1 ELSE 0 END ASC,
+        distance_meters ASC NULLS LAST,
+        pp.is_on_duty DESC,
+        full_name ASC,
+        u.id ASC
+    `,
+    values,
+  );
+
+  return {
+    items: result.rows.map((row) => {
+      const base = mapOfficerListRow(row);
+      const distanceMeters = row.distance_meters == null ? null : Number(row.distance_meters);
+      return {
+        ...base,
+        distanceMeters,
+        distanceLabel: formatDistanceLabel(distanceMeters),
+      };
+    }),
+    incident: {
+      id: report.id,
+      title: report.title || null,
+    },
+    scope: { mode: "commune", communeId: supervisorCommuneId },
   };
 }
 
@@ -2601,6 +3242,7 @@ async function resolveAlertRecipients(
 
   if (targetType === "officer") {
     const normalizedTargetUserId = normalizeUuid(targetUserId, "targetUserId", { required: true });
+
     if (!isAdmin && !(await canSupervisorManageOfficer(supervisorUser.userId, normalizedTargetUserId, db))) {
       throw createError(403, "You cannot target this officer");
     }
@@ -2647,7 +3289,7 @@ async function resolveAlertRecipients(
             zone_assignments.admin_area_id = $${values.length}::bigint
             OR assigned_areas.parent_id = $${values.length}::bigint
           )
-        )
+      )
     `);
   }
 
@@ -2703,6 +3345,7 @@ async function createSupervisorAlert(supervisorUser, payload = {}, db = pool) {
 
   const derivedStatus = startsAt > new Date() ? "scheduled" : "active";
   const client = await db.connect();
+
   let alertRow = null;
   let insertedNotifications = [];
 
@@ -2807,10 +3450,37 @@ async function createSupervisorAlert(supervisorUser, payload = {}, db = pool) {
       ],
     );
 
+    await client.query(
+      `
+        INSERT INTO app.operational_alert_events (
+          alert_id,
+          event_type,
+          actor_user_id,
+          from_status,
+          to_status,
+          note,
+          metadata
+        )
+        VALUES ($1::uuid, $2::text, $3::uuid, NULL, $4::text, NULL, $5::jsonb)
+      `,
+      [
+        alertRow.id,
+        derivedStatus === "active" ? "published" : "created",
+        supervisorUser.userId,
+        derivedStatus,
+        JSON.stringify({
+          source: "police_supervisor",
+          targetType,
+          recipientCount: recipients.length,
+          adminAreaId: adminArea.id,
+        }),
+      ],
+    );
+
     await recordOperationHistory(client, {
       officerUserId: supervisorUser.userId,
       alertId: alertRow.id,
-      actionType: "field_note",
+      actionType: "manual_log_entry",
       note: `Supervisor alert created for ${recipients.length} officer(s)`,
       metadata: {
         title,
@@ -2881,11 +3551,10 @@ async function createSupervisorAlert(supervisorUser, payload = {}, db = pool) {
 async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}, db = pool) {
   const officerUserId = normalizeUuid(payload.officerUserId, "officerUserId", { required: true });
   const note = normalizeOptionalNote(payload.note);
-  const priorityOverride = normalizeOptionalNumber(
-    payload.priorityOverride,
-    "priorityOverride",
-    { min: 1, max: 4 },
-  );
+  const priorityOverride = normalizeOptionalNumber(payload.priorityOverride, "priorityOverride", {
+    min: 1,
+    max: 4,
+  });
   const assignmentType = String(payload.assignmentType || "supervisor").trim().toLowerCase();
 
   if (!["supervisor", "manual"].includes(assignmentType)) {
@@ -2895,15 +3564,47 @@ async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}
   const supervisorContext = await assertSupervisorAccess(supervisorUser, db);
   const isAdmin = supervisorContext.officer.roles.some((role) => normalizeRoleName(role) === "admin");
 
-  if (!isAdmin && !(await canSupervisorManageOfficer(supervisorUser.userId, officerUserId, db))) {
-    throw createError(403, "You cannot assign incidents to this officer");
+  // Commune-scope eligibility: an officer must operate inside the supervisor's
+  // commune (default or active commune-level assignment) before assignment.
+  // Admins bypass the commune gate, matching the listing semantics.
+  if (!isAdmin) {
+    const supervisorCommuneId = await getSupervisorCommuneId(supervisorUser.userId, db);
+    if (supervisorCommuneId == null) {
+      throw createError(
+        409,
+        "Supervisor commune is not configured. Set a default commune on the police profile or assign an active commune-level work zone.",
+      );
+    }
+
+    const officerInScope = await isOfficerInCommune(officerUserId, supervisorCommuneId, db);
+    if (!officerInScope) {
+      throw createError(403, "Officer is outside your commune scope");
+    }
   }
 
   const client = await db.connect();
-  let officerNotifications = [];
+  let newAssignmentId = null;
+  let previousAssignedOfficerId = null;
+  // incident_assignments.status values are constrained to ('active','closed','cancelled')
+  // by 20260422_police_module.sql. The orchestrator notification has Accept/Decline
+  // actions, but until we widen that constraint we record the assignment as 'active'
+  // — the existing UI already treats supervisor-driven assignments as immediately active.
+  const assignmentStatus = "active";
 
   try {
     await client.query("BEGIN");
+
+    // Lock the report row to serialize concurrent assignment writes and capture
+    // the previously assigned officer for the audit trail.
+    const lockedReport = await client.query(
+      `SELECT id, status, assigned_officer_id FROM app.accident_reports WHERE id = $1::uuid FOR UPDATE`,
+      [reportId],
+    );
+    if (lockedReport.rowCount === 0) {
+      throw createError(404, "Incident was not found");
+    }
+    previousAssignedOfficerId = lockedReport.rows[0].assigned_officer_id || null;
+
     const currentRow = await requireIncidentRow(reportId, client);
 
     await client.query(
@@ -2918,7 +3619,7 @@ async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}
       [reportId],
     );
 
-    await client.query(
+    const insertedAssignment = await client.query(
       `
         INSERT INTO app.incident_assignments (
           report_id,
@@ -2930,17 +3631,22 @@ async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}
           note,
           assigned_at
         )
-        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 'active', $5, $6, NOW())
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6, $7, NOW())
+        RETURNING id
       `,
-      [reportId, officerUserId, supervisorUser.userId, assignmentType, priorityOverride, note],
+      [reportId, officerUserId, supervisorUser.userId, assignmentType, assignmentStatus, priorityOverride, note],
     );
+    newAssignmentId = insertedAssignment.rows[0]?.id ?? null;
 
+    // Update ONLY assigned_officer_id + updated_at. Do not touch status —
+    // accident_reports.status is constrained to pending/verified/rejected/resolved
+    // and represents the REPORT lifecycle, not the assignment lifecycle. The
+    // "under review" UI state is computed by mapIncidentRow via computeDisplayStatus.
     await client.query(
       `
         UPDATE app.accident_reports
         SET
           assigned_officer_id = $2::uuid,
-          status = CASE WHEN status = 'pending' THEN 'under_review' ELSE status END,
           updated_at = NOW()
         WHERE id = $1::uuid
       `,
@@ -2952,30 +3658,20 @@ async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}
       reportId,
       actionType: "assign_officer",
       fromStatus: currentRow.status,
-      toStatus: currentRow.status === "pending" ? "under_review" : currentRow.status,
+      toStatus: currentRow.status,
       note,
       metadata: {
+        action: "SUPERVISOR_ASSIGNED_INCIDENT",
+        reportId,
+        assignmentId: newAssignmentId,
+        officerUserId,
+        supervisorUserId: supervisorUser.userId,
+        previousAssignedOfficerId,
+        assignmentStatus,
         assignedOfficerId: officerUserId,
         priorityOverride,
       },
     });
-
-    officerNotifications = await insertNotificationsForUsers(client, [
-      {
-        userId: officerUserId,
-        reportId,
-        operationalAlertId: null,
-        priority: 1,
-        eventType: "POLICE_INCIDENT_ASSIGNED",
-        title: "Incident assigned",
-        body: `A supervisor assigned ${currentRow.title || buildDisplayIncidentId(reportId)} to you.`,
-        data: {
-          reportId,
-          assignedBy: supervisorUser.userId,
-          action: "assign_incident",
-        },
-      },
-    ]);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -2985,36 +3681,51 @@ async function assignIncidentBySupervisor(supervisorUser, reportId, payload = {}
     client.release();
   }
 
-  await Promise.allSettled(
-    officerNotifications.map(async (notification) => {
-      emitNotificationCreatedToUser(notification.userId, notification);
-      await evaluateAndSendPushForNotification(notification, db);
-    }),
-  );
+  // Fan-out happens after COMMIT so we never notify for a rolled-back row.
+  // Orchestrator handles all platforms (in-app + web push + mobile push + email
+  // gating + delivery_log + dedupe) — no need to drive insert/emit/push inline.
+  notifyOfficerAssignedToIncident({
+    reportId,
+    assignmentId: newAssignmentId,
+    officerUserId,
+    supervisorUserId: supervisorUser.userId,
+    db,
+  }).catch((error) => {
+    console.warn("[notify-orchestrator] officer_assignment_failed", {
+      reportId,
+      officerUserId,
+      message: error.message,
+    });
+  });
 
   return getIncidentById(officerUserId, reportId, db);
 }
 
 module.exports = {
+  addIncidentFieldNote,
   addManualPoliceHistoryEntry,
   assignIncidentBySupervisor,
   assignSelfToIncident,
   createSupervisorAlert,
+  deleteIncidentFieldNote,
   getIncidentById,
   getPoliceDashboard,
   getPoliceMe,
   getPoliceWorkZoneOptions,
+  getSupervisorCommuneId,
+  isOfficerInCommune,
+  listAssignableOfficersForIncident,
   listPoliceAlerts,
   listPoliceIncidents,
   listPoliceOperationHistory,
   listSupervisorOfficers,
   markPoliceAlertAsRead,
+  normalizeIncidentListParams,
   rejectIncident,
   requestIncidentBackup,
+  updateIncidentFieldNote,
   updateIncidentStatus,
   updatePoliceLocation,
   updatePoliceWorkZone,
   verifyIncident,
-  addIncidentFieldNote,
-  normalizeIncidentListParams,
-}; 
+};

@@ -1,5 +1,5 @@
 const {verifyTokenAndSeller,verifyTokenAndAuthorizationA_S ,verifyTokenAndAuthorizationA_C, verifyTokenAndAdminandSeller, verifyToken,verifyTokenAndAuthorization, verifyTokenAndAdmin } = require("./verifytoken");
-const connection = require('../db');
+const connection = require('../db.js');
 const { query } = require("../utils/promiseQuery.js");
 const router = require("express").Router();
 

@@ -1,7 +1,20 @@
+const crypto = require("crypto");
 const createError = require("http-errors");
 const webPush = require("web-push");
 
 const pool = require("../db");
+
+// Mobile device pairing — see api/migrations/20260520_mobile_device_pairing_sessions.sql.
+// The pairing code is short-lived and one-time-use. The QR/deep-link only
+// carries the raw code; it does NOT carry any JWT, refresh token, password,
+// or Expo push token.
+const PAIRING_CODE_BYTES = 24; // 32-char base64url => >190 bits of entropy
+const PAIRING_TTL_MS = 5 * 60 * 1000;
+const PAIRING_DEFAULT_SCHEME = "siara://pair-device";
+const PAIRING_SCHEME = (() => {
+  const value = String(process.env.SIARA_MOBILE_PAIRING_SCHEME || PAIRING_DEFAULT_SCHEME).trim();
+  return value || PAIRING_DEFAULT_SCHEME;
+})();
 
 const PUSH_ELIGIBLE_EVENTS = new Set([
   "INCIDENT_REPORTED_IN_ZONE",
@@ -381,37 +394,7 @@ async function upsertPushSubscription(
   db = pool,
 ) {
   const subscription = normalizePushSubscriptionPayload(payload);
-
-  // TODO(schema): app.push_subscriptions has no UNIQUE(endpoint), so a real
-  // ON CONFLICT cannot be used. Try UPDATE-by-endpoint first; fall back to
-  // INSERT when no row matched.
-  const updated = await db.query(
-    `
-      update app.push_subscriptions
-      set
-        user_id = $1,
-        p256dh = $3,
-        auth = $4,
-        user_agent = $5,
-        is_active = true,
-        disabled_at = null
-      where endpoint = $2
-      returning *
-    `,
-    [
-      userId,
-      subscription.endpoint,
-      subscription.p256dh,
-      subscription.auth,
-      userAgent,
-    ],
-  );
-
-  if (updated.rows[0]) {
-    return mapPushSubscriptionRow(updated.rows[0]);
-  }
-
-  const inserted = await db.query(
+  const result = await db.query(
     `
       insert into app.push_subscriptions (
         user_id,
@@ -424,6 +407,14 @@ async function upsertPushSubscription(
         disabled_at
       )
       values ($1, $2, $3, $4, $5, true, now(), null)
+      on conflict (endpoint) do update
+      set
+        user_id = excluded.user_id,
+        p256dh = excluded.p256dh,
+        auth = excluded.auth,
+        user_agent = excluded.user_agent,
+        is_active = true,
+        disabled_at = null
       returning *
     `,
     [
@@ -435,7 +426,7 @@ async function upsertPushSubscription(
     ],
   );
 
-  return mapPushSubscriptionRow(inserted.rows[0] || null);
+  return mapPushSubscriptionRow(result.rows[0] || null);
 }
 
 async function deactivatePushSubscription(userId, endpoint, db = pool) {
@@ -457,41 +448,7 @@ async function deactivatePushSubscription(userId, endpoint, db = pool) {
 
 async function upsertMobilePushDevice(userId, payload, db = pool) {
   const device = normalizeMobilePushDevicePayload(payload);
-
-  // TODO(schema): app.mobile_push_devices has no UNIQUE(token), so a real
-  // ON CONFLICT cannot be used. Try UPDATE-by-token first; fall back to INSERT.
-  const updated = await db.query(
-    `
-      update app.mobile_push_devices
-      set
-        user_id = $1,
-        platform = $3,
-        provider = $4,
-        app_version = $5,
-        device_name = $6,
-        is_active = true,
-        disabled_at = null,
-        meta = $7::jsonb,
-        updated_at = now()
-      where token = $2
-      returning *
-    `,
-    [
-      userId,
-      device.token,
-      device.platform,
-      device.provider,
-      device.appVersion,
-      device.deviceName,
-      JSON.stringify(device.meta),
-    ],
-  );
-
-  if (updated.rows[0]) {
-    return mapMobilePushDeviceRow(updated.rows[0]);
-  }
-
-  const inserted = await db.query(
+  const result = await db.query(
     `
       insert into app.mobile_push_devices (
         user_id,
@@ -507,6 +464,17 @@ async function upsertMobilePushDevice(userId, payload, db = pool) {
         updated_at
       )
       values ($1, $2, $3, $4, $5, $6, true, null, $7::jsonb, now(), now())
+      on conflict (token) do update
+      set
+        user_id = excluded.user_id,
+        platform = excluded.platform,
+        provider = excluded.provider,
+        app_version = excluded.app_version,
+        device_name = excluded.device_name,
+        is_active = true,
+        disabled_at = null,
+        meta = excluded.meta,
+        updated_at = now()
       returning *
     `,
     [
@@ -520,7 +488,7 @@ async function upsertMobilePushDevice(userId, payload, db = pool) {
     ],
   );
 
-  return mapMobilePushDeviceRow(inserted.rows[0] || null);
+  return mapMobilePushDeviceRow(result.rows[0] || null);
 }
 
 async function deactivateMobilePushDevice(userId, token, db = pool) {
@@ -539,6 +507,312 @@ async function deactivateMobilePushDevice(userId, token, db = pool) {
   );
 
   return mapMobilePushDeviceRow(result.rows[0] || null);
+}
+
+// ---------- Mobile device pairing (QR flow) ----------
+
+function generatePairingCode() {
+  // base64url is URL-safe and survives transport via deep links / QR / clipboard.
+  return crypto.randomBytes(PAIRING_CODE_BYTES).toString("base64url");
+}
+
+function hashPairingCode(code) {
+  return crypto.createHash("sha256").update(String(code || "")).digest("hex");
+}
+
+function buildPairingUrl(code) {
+  // The scheme is configurable so a build with a different deep-link host
+  // (e.g. https://siara.dz/m/pair) can be used in production without a
+  // code change. The raw code is the only secret-bearing part.
+  return `${PAIRING_SCHEME}?code=${encodeURIComponent(code)}`;
+}
+
+function mapMobileDevicePairingSessionRow(row, { includeDevice = false } = {}) {
+  if (!row) return null;
+
+  const session = {
+    id: row.id,
+    userId: row.user_id,
+    status: row.status,
+    deviceId: row.device_id || null,
+    deviceName: row.device_name || null,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    completedAt: row.completed_at || null,
+    cancelledAt: row.cancelled_at || null,
+    meta: normalizeObject(row.meta),
+  };
+
+  if (includeDevice && row.device) {
+    session.device = row.device;
+  }
+
+  return session;
+}
+
+// Marks any pending pairing rows whose expires_at is in the past as expired.
+// We do this inline so the API never has to lean on a separate cron job.
+async function markExpiredPairingSessions(db = pool) {
+  await db.query(
+    `
+      update app.mobile_device_pairing_sessions
+      set status = 'expired'
+      where status = 'pending'
+        and expires_at <= now()
+    `,
+  );
+}
+
+async function createMobileDevicePairingSession(userId, options = {}, db = pool) {
+  if (!userId) {
+    throw createError(400, "userId is required");
+  }
+
+  const meta = normalizeObject(options.meta);
+  const code = generatePairingCode();
+  const codeHash = hashPairingCode(code);
+  const expiresAt = new Date(Date.now() + PAIRING_TTL_MS);
+
+  let result;
+  try {
+    result = await db.query(
+      `
+        insert into app.mobile_device_pairing_sessions (
+          user_id,
+          code_hash,
+          status,
+          expires_at,
+          meta
+        )
+        values ($1::uuid, $2::text, 'pending', $3::timestamptz, $4::jsonb)
+        returning *
+      `,
+      [userId, codeHash, expiresAt.toISOString(), JSON.stringify(meta)],
+    );
+  } catch (error) {
+    // Astronomically unlikely (32-char base64url collision) — surface clearly
+    // rather than leaking a Postgres error to the client.
+    if (error?.code === "23505") {
+      throw createError(500, "Failed to issue pairing code, please retry");
+    }
+    throw error;
+  }
+
+  const session = mapMobileDevicePairingSessionRow(result.rows[0]);
+
+  console.info("[push] pairing_session_created", {
+    userId,
+    sessionId: session?.id,
+    expiresAt: session?.expiresAt,
+  });
+
+  return {
+    session,
+    // The raw code is returned only on creation. The frontend renders it
+    // inside a QR; the backend stores only its hash and forgets the plaintext.
+    code,
+    pairingUrl: buildPairingUrl(code),
+    expiresAt: session?.expiresAt,
+  };
+}
+
+async function getMobileDevicePairingSession(userId, sessionId, db = pool) {
+  if (!userId) throw createError(400, "userId is required");
+  if (!sessionId) throw createError(400, "sessionId is required");
+
+  await markExpiredPairingSessions(db);
+
+  const result = await db.query(
+    `
+      select s.*,
+        d.id as d_id,
+        d.token as d_token,
+        d.platform as d_platform,
+        d.provider as d_provider,
+        d.device_name as d_device_name,
+        d.app_version as d_app_version,
+        d.is_active as d_is_active,
+        d.last_used_at as d_last_used_at,
+        d.created_at as d_created_at,
+        d.updated_at as d_updated_at
+      from app.mobile_device_pairing_sessions s
+      left join app.mobile_push_devices d on d.id = s.device_id
+      where s.id = $1::uuid
+        and s.user_id = $2::uuid
+    `,
+    [sessionId, userId],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw createError(404, "Pairing session not found");
+  }
+
+  const session = mapMobileDevicePairingSessionRow(row);
+  if (row.d_id) {
+    session.device = {
+      id: row.d_id,
+      platform: row.d_platform,
+      provider: row.d_provider,
+      deviceName: row.d_device_name,
+      appVersion: row.d_app_version,
+      isActive: Boolean(row.d_is_active),
+      lastUsedAt: row.d_last_used_at,
+      createdAt: row.d_created_at,
+      updatedAt: row.d_updated_at,
+    };
+  }
+
+  return session;
+}
+
+async function cancelMobileDevicePairingSession(userId, sessionId, db = pool) {
+  if (!userId) throw createError(400, "userId is required");
+  if (!sessionId) throw createError(400, "sessionId is required");
+
+  const result = await db.query(
+    `
+      update app.mobile_device_pairing_sessions
+      set
+        status = 'cancelled',
+        cancelled_at = coalesce(cancelled_at, now())
+      where id = $1::uuid
+        and user_id = $2::uuid
+        and status = 'pending'
+      returning *
+    `,
+    [sessionId, userId],
+  );
+
+  if (!result.rows[0]) {
+    // Either it never existed for this user, or it has already moved past
+    // pending (completed / expired / cancelled). All three are treated as
+    // a no-op for the UI's "Cancel" button.
+    return null;
+  }
+
+  return mapMobileDevicePairingSessionRow(result.rows[0]);
+}
+
+async function completeMobileDevicePairingSession(userId, payload, db = pool) {
+  if (!userId) throw createError(400, "userId is required");
+  const input = normalizeObject(payload);
+  const code = String(input.code || "").trim();
+  if (!code) {
+    throw createError(400, "code is required");
+  }
+
+  // Expire stale sessions FIRST so a freshly-expired code is recognised as
+  // expired rather than as an invalid code.
+  await markExpiredPairingSessions(db);
+
+  const codeHash = hashPairingCode(code);
+  const sessionLookup = await db.query(
+    `
+      select *
+      from app.mobile_device_pairing_sessions
+      where code_hash = $1::text
+      limit 1
+    `,
+    [codeHash],
+  );
+
+  const sessionRow = sessionLookup.rows[0];
+  if (!sessionRow) {
+    console.info("[push] pairing_invalid", {
+      userId,
+      reason: "code_not_found",
+    });
+    throw createError(400, "Invalid pairing code");
+  }
+
+  if (sessionRow.user_id !== userId) {
+    // Critical security check: the user completing the pairing must be the
+    // same user who created the session. We log this but return a generic
+    // "invalid" error so a different account cannot probe for valid codes.
+    console.warn("[push] pairing_user_mismatch", {
+      attemptingUserId: userId,
+      sessionUserId: sessionRow.user_id,
+      sessionId: sessionRow.id,
+    });
+    throw createError(403, "Pairing code does not belong to this user");
+  }
+
+  if (sessionRow.status === "completed") {
+    console.info("[push] pairing_invalid", {
+      userId,
+      sessionId: sessionRow.id,
+      reason: "already_completed",
+    });
+    throw createError(409, "Pairing code has already been used");
+  }
+
+  if (sessionRow.status === "cancelled") {
+    throw createError(410, "Pairing code was cancelled");
+  }
+
+  if (sessionRow.status === "expired" || new Date(sessionRow.expires_at) <= new Date()) {
+    console.info("[push] pairing_expired", {
+      userId,
+      sessionId: sessionRow.id,
+      expiresAt: sessionRow.expires_at,
+    });
+    throw createError(410, "Pairing code has expired");
+  }
+
+  // Reuse the existing mobile push device upsert so the QR flow funnels into
+  // the same destinations table as the auto-registration path. sendPushToUser
+  // already iterates active mobile devices — no separate plumbing needed.
+  const device = await upsertMobilePushDevice(userId, payload, db);
+  if (!device) {
+    throw createError(500, "Failed to register mobile device");
+  }
+
+  const deviceNameForSession =
+    typeof input.deviceName === "string" && input.deviceName.trim()
+      ? input.deviceName.trim()
+      : device.deviceName || null;
+
+  const updateResult = await db.query(
+    `
+      update app.mobile_device_pairing_sessions
+      set
+        status = 'completed',
+        completed_at = now(),
+        device_id = $1::uuid,
+        device_name = $2::text
+      where id = $3::uuid
+        and user_id = $4::uuid
+        and status = 'pending'
+      returning *
+    `,
+    [device.id, deviceNameForSession, sessionRow.id, userId],
+  );
+
+  if (!updateResult.rows[0]) {
+    // Lost the race with a concurrent cancel/complete. The device upsert
+    // already happened; surface this as a clear conflict so the mobile UI
+    // can re-fetch state.
+    console.warn("[push] pairing_lost_race", {
+      userId,
+      sessionId: sessionRow.id,
+    });
+    throw createError(409, "Pairing session is no longer pending");
+  }
+
+  console.info("[push] pairing_completed", {
+    userId,
+    sessionId: sessionRow.id,
+    deviceId: device.id,
+    platform: device.platform,
+    provider: device.provider,
+    tokenPreview: previewToken(device.token),
+  });
+
+  return {
+    session: mapMobileDevicePairingSessionRow(updateResult.rows[0]),
+    device,
+  };
 }
 
 async function fetchActivePushSubscriptionsForUser(userId, db = pool) {
@@ -1494,4 +1768,9 @@ module.exports = {
   upsertPushSubscription,
   updateUserNotificationPreferences,
   deactivatePushSubscription,
+  // Mobile device pairing (QR flow)
+  createMobileDevicePairingSession,
+  getMobileDevicePairingSession,
+  completeMobileDevicePairingSession,
+  cancelMobileDevicePairingSession,
 };

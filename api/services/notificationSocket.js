@@ -17,7 +17,7 @@ function getUserRoom(userId) {
   return `user:${userId}`;
 }
 
-function emitAck(callback, payload) {
+function emitAck(callback, payload) {  
   if (typeof callback === "function") {
     callback(payload);
   }

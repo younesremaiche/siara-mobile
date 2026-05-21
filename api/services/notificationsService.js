@@ -10,7 +10,7 @@ const NOTIFICATION_SELECT_SQL = `
     n.status,
     n.priority,
     n.created_at,
-    n.sent_at,
+    n.sent_at, 
     n.delivered_at,
     n.read_at,
     n.event_type,

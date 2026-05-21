@@ -1,0 +1,223 @@
+{
+  "feature_list": [
+    "month",
+    "weekday",
+    "hour",
+    "hour_of_week",
+    "is_weekend",
+    "is_night",
+    "road_class",
+    "segment_length_m",
+    "oneway",
+    "bridge",
+    "tunnel",
+    "weather_temp",
+    "weather_dwpt",
+    "weather_rhum",
+    "weather_prcp",
+    "weather_wdir",
+    "weather_wspd",
+    "weather_pres",
+    "past_segment_positive_count",
+    "past_segment_positive_count_7d",
+    "past_segment_positive_count_30d",
+    "past_road_class_positive_count",
+    "past_segment_hourofweek_count"
+  ],
+  "example_request_rows": [
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 4,
+      "hour_of_week": 28,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "service",
+      "segment_length_m": 67.97693690219398,
+      "oneway": "B",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": NaN,
+      "weather_dwpt": NaN,
+      "weather_rhum": NaN,
+      "weather_prcp": NaN,
+      "weather_wdir": NaN,
+      "weather_wspd": NaN,
+      "weather_pres": NaN,
+      "past_segment_positive_count": 1,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 3494,
+      "past_segment_hourofweek_count": 0
+    },
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 4,
+      "hour_of_week": 28,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "service",
+      "segment_length_m": 430.2844789607343,
+      "oneway": "B",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": NaN,
+      "weather_dwpt": NaN,
+      "weather_rhum": NaN,
+      "weather_prcp": NaN,
+      "weather_wdir": NaN,
+      "weather_wspd": NaN,
+      "weather_pres": NaN,
+      "past_segment_positive_count": 0,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 3494,
+      "past_segment_hourofweek_count": 0
+    },
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 4,
+      "hour_of_week": 28,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "service",
+      "segment_length_m": 915.895740899724,
+      "oneway": "B",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": NaN,
+      "weather_dwpt": NaN,
+      "weather_rhum": NaN,
+      "weather_prcp": NaN,
+      "weather_wdir": NaN,
+      "weather_wspd": NaN,
+      "weather_pres": NaN,
+      "past_segment_positive_count": 2,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 3494,
+      "past_segment_hourofweek_count": 0
+    }
+  ],
+  "example_response": [
+    {
+      "risk_score": 0.577042677902602,
+      "calibrated_probability": 0.10377624528930698,
+      "risk_level": "moderate",
+      "confidence_score": 0.6279730551881577,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.604747341907904,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.5723865578158936,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count",
+          "value": null,
+          "importance": 0.38684976677681915,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count_30d",
+          "value": null,
+          "importance": 0.26060606787072205,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__hour",
+          "value": null,
+          "importance": 0.14115254094076563,
+          "direction": "increases_risk"
+        }
+      ]
+    },
+    {
+      "risk_score": 0.7654894162277264,
+      "calibrated_probability": 0.10377624528930698,
+      "risk_level": "moderate",
+      "confidence_score": 0.6279730551881577,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.604747341907904,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.5723865578158936,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count",
+          "value": null,
+          "importance": 0.38684976677681915,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count_30d",
+          "value": null,
+          "importance": 0.26060606787072205,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__hour",
+          "value": null,
+          "importance": 0.14115254094076563,
+          "direction": "increases_risk"
+        }
+      ]
+    },
+    {
+      "risk_score": 0.6447170082471179,
+      "calibrated_probability": 0.10377624528930698,
+      "risk_level": "moderate",
+      "confidence_score": 0.6279730551881577,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.604747341907904,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.5723865578158936,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count",
+          "value": null,
+          "importance": 0.38684976677681915,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_segment_positive_count_30d",
+          "value": null,
+          "importance": 0.26060606787072205,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__hour",
+          "value": null,
+          "importance": 0.14115254094076563,
+          "direction": "increases_risk"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "model_version": "occurrence_beta_v1",
+  "selected_model": "lightgbm",
+  "calibration_method": "isotonic",
+  "random_state": 42,
+  "time_window_hours": 1,
+  "train_end": "2021-04-30",
+  "valid_end": "2021-08-31",
+  "split_ranges": {
+    "train": {
+      "min": "2016-06-21T07:00:00",
+      "max": "2021-04-30T00:00:00",
+      "rows": 1040343
+    },
+    "valid": {
+      "min": "2021-04-30T03:00:00",
+      "max": "2021-08-30T22:00:00",
+      "rows": 130919
+    },
+    "test": {
+      "min": "2021-08-31T04:00:00",
+      "max": "2023-03-31T22:00:00",
+      "rows": 559130
+    }
+  },
+  "negative_sampler_stats": {
+    "negative_ratio_requested": {
+      "train": 5,
+      "valid": 10,
+      "test": 10
+    },
+    "negative_ratio_strategy": "per_split",
+    "negative_rows_built": 1445963,
+    "skipped_rows": 0,
+    "fallback_counts": {
+      "exact_road_class_month_weekday_hour": 203487,
+      "road_class_weekday_hour": 71678,
+      "road_class_only": 9134,
+      "all_segments": 130
+    },
+    "per_split": {
+      "train": {
+        "positives": 201851,
+        "negatives": 838492,
+        "requested_ratio": 5,
+        "achieved_ratio": 4.154014594923979,
+        "fallback_counts": {
+          "exact_road_class_month_weekday_hour": 176921,
+          "road_class_weekday_hour": 23518,
+          "road_class_only": 1346,
+          "all_segments": 66
+        },
+        "skipped_rows": 0
+      },
+      "valid": {
+        "positives": 16110,
+        "negatives": 114809,
+        "requested_ratio": 10,
+        "achieved_ratio": 7.126567349472378,
+        "fallback_counts": {
+          "road_class_only": 4432,
+          "road_class_weekday_hour": 8958,
+          "exact_road_class_month_weekday_hour": 2694,
+          "all_segments": 26
+        },
+        "skipped_rows": 0
+      },
+      "test": {
+        "positives": 66468,
+        "negatives": 492662,
+        "requested_ratio": 10,
+        "achieved_ratio": 7.412017813082987,
+        "fallback_counts": {
+          "road_class_only": 3356,
+          "road_class_weekday_hour": 39202,
+          "exact_road_class_month_weekday_hour": 23872,
+          "all_segments": 38
+        },
+        "skipped_rows": 0
+      }
+    },
+    "overlap_with_positives": 0
+  },
+  "negative_ratios": {
+    "train": 5,
+    "valid": 10,
+    "test": 10,
+    "strategy": "per_split"
+  },
+  "weather_coverage": {
+    "rows_seen": 1730392,
+    "unique_cache_keys_requested": 1719072,
+    "cache_hits": 1282314,
+    "cache_hit_rate": 0.7410540501805372,
+    "weather_available_rows": 1281778,
+    "weather_available_rate": 0.7407442937785196,
+    "skipped_fetch": true,
+    "cached_weather_only": true,
+    "live_weather_fetch_used": false
+  },
+  "weather_summary": {
+    "total_rows": 1730392,
+    "weather_available_rate": 0.7407442937785196,
+    "weather_missing_rates": {
+      "weather_temp": 0.25929558157920285,
+      "weather_dwpt": 0.25930425013522945,
+      "weather_rhum": 0.25930425013522945,
+      "weather_prcp": 0.3108688667076593,
+      "weather_snow": 1.0,
+      "weather_wdir": 0.26241048271143186,
+      "weather_wspd": 0.2607640349701108,
+      "weather_wpgt": 1.0,
+      "weather_pres": 0.28806189580164493,
+      "weather_tsun": 1.0,
+      "weather_coco": 0.48675733591001347
+    },
+    "rows_all_weather_missing": 448614,
+    "live_weather_fetch_disabled": true
+  },
+  "skip_weather_fetch": true,
+  "cached_weather_only": true,
+  "live_weather_fetch_used": false,
+  "weather_available_rate": 0.7407442937785196,
+  "weather_missing_rates": {
+    "weather_temp": 0.25929558157920285,
+    "weather_dwpt": 0.25930425013522945,
+    "weather_rhum": 0.25930425013522945,
+    "weather_prcp": 0.3108688667076593,
+    "weather_snow": 1.0,
+    "weather_wdir": 0.26241048271143186,
+    "weather_wspd": 0.2607640349701108,
+    "weather_wpgt": 1.0,
+    "weather_pres": 0.28806189580164493,
+    "weather_tsun": 1.0,
+    "weather_coco": 0.48675733591001347
+  },
+  "weather_imputation_strategy": {
+    "numeric_weather": "SimpleImputer(strategy='median', keep_empty_features=True)",
+    "precipitation": "median (fill_value=0 not used)",
+    "categorical_weather": "SimpleImputer(strategy='constant', fill_value='unknown') + OneHotEncoder(handle_unknown='ignore')",
+    "missing_flags": "kept as 0/1 numeric features; never imputed as continuous weather",
+    "weather_available": "kept as 0/1 numeric feature",
+    "no_row_dropping_for_missing_weather": true
+  },
+  "exclude_weather_missingness_features": true,
+  "excluded_weather_missingness_columns": [
+    "weather_available",
+    "weather_temp_missing",
+    "weather_rhum_missing",
+    "weather_prcp_missing",
+    "weather_wspd_missing",
+    "weather_pres_missing",
+    "weather_coco_missing"
+  ],
+  "exclude_weather_features": false,
+  "excluded_weather_columns": [],
+  "exclude_noisy_weather_features": true,
+  "excluded_noisy_weather_columns": [
+    "weather_snow",
+    "weather_wpgt",
+    "weather_tsun",
+    "weather_coco"
+  ],
+  "tune_lightgbm": false,
+  "tune_trials": 0,
+  "best_lightgbm_params": null,
+  "weather_availability_target_rate": {
+    "0": 0.0002184506056431587,
+    "1": 0.22182546431597358
+  },
+  "feature_count": 23,
+  "categorical_features": [
+    "road_class",
+    "oneway",
+    "bridge",
+    "tunnel"
+  ],
+  "numeric_features": [
+    "month",
+    "weekday",
+    "hour",
+    "hour_of_week",
+    "is_weekend",
+    "is_night",
+    "segment_length_m",
+    "weather_temp",
+    "weather_dwpt",
+    "weather_rhum",
+    "weather_prcp",
+    "weather_wdir",
+    "weather_wspd",
+    "weather_pres",
+    "past_segment_positive_count",
+    "past_segment_positive_count_7d",
+    "past_segment_positive_count_30d",
+    "past_road_class_positive_count",
+    "past_segment_hourofweek_count"
+  ],
+  "leakage_columns_excluded": [
+    "City",
+    "Description",
+    "End_Time",
+    "ID",
+    "Severity",
+    "Source",
+    "Start_Time",
+    "Street",
+    "Zipcode",
+    "accident_count",
+    "geometry",
+    "index_right",
+    "snap_distance_m"
+  ],
+  "risk_level_thresholds": {
+    "low": 0.0,
+    "moderate": 0.05,
+    "high": 0.2,
+    "critical": 0.5
+  },
+  "model_comparison": [
+    {
+      "model_name": "lightgbm",
+      "pr_auc": 0.22520259357388808,
+      "roc_auc": 0.6656564962056458,
+      "brier": 0.43315837007214686,
+      "fit_seconds": 19.8
+    },
+    {
+      "model_name": "hist_gradient_boosting",
+      "pr_auc": 0.2175638499772169,
+      "roc_auc": 0.6673542388829975,
+      "brier": 0.4160665611727867,
+      "fit_seconds": 51.85
+    },
+    {
+      "model_name": "logistic_regression",
+      "pr_auc": 0.20389834077200786,
+      "roc_auc": 0.6552524191002596,
+      "brier": 0.30801805665315113,
+      "fit_seconds": 10.06
+    }
+  ],
+  "explanation_source": "shap",
+  "used_shap": true,
+  "started_at": "2026-05-17T08:05:14.300370+00:00",
+  "completed_at": "2026-05-17T08:10:19.741510+00:00",
+  "smoke_test": false,
+  "training_prevalence": 0.19402350955406053,
+  "training_prevalence_note": "Sampled training prevalence is artificial (driven by --negative-ratio). Calibrated probabilities reflect this prior, not the real-world base rate. Re-calibrate against realistic exposure (e.g. all segment-hours) before interpreting absolute probabilities."
+}

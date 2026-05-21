@@ -3,6 +3,7 @@ const pool = require("../db");
 function parseArgs(argv) {
   const args = {
     alertId: null,
+    userId: null,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
@@ -10,10 +11,75 @@ function parseArgs(argv) {
     if (value === "--alert-id" && argv[index + 1]) {
       args.alertId = argv[index + 1];
       index += 1;
+    } else if (value === "--user" && argv[index + 1]) {
+      args.userId = argv[index + 1];
+      index += 1;
     }
   }
 
   return args;
+}
+
+// --user mode: dump the notification-related state for one user so we can
+// answer "why didn't user X get a push?" without grepping logs. Prints the
+// account-wide prefs, per-category prefs, registered devices, last known
+// location, the 10 most recent notifications, and the 20 most recent
+// delivery_log rows.
+async function runUserDiagnostic(client, userId) {
+  const exists = await client.query(
+    `select id, email from auth.users where id = $1::uuid limit 1`,
+    [userId],
+  );
+  if (!exists.rows[0]) {
+    throw new Error(`User ${userId} not found.`);
+  }
+
+  const [account, categories, web, mobile, location, notifications, delivery] = await Promise.all([
+    client.query(`select * from app.user_notification_preferences where user_id = $1::uuid`, [userId]),
+    client.query(
+      `select category, in_app_enabled, mobile_push_enabled, web_push_enabled, email_enabled, important_only
+         from app.user_notification_category_preferences where user_id = $1::uuid order by category`,
+      [userId],
+    ),
+    client.query(
+      `select id, endpoint, user_agent, is_active, created_at, last_used_at
+         from app.push_subscriptions where user_id = $1::uuid order by created_at desc`,
+      [userId],
+    ),
+    client.query(
+      `select id, platform, provider, device_name, is_active, created_at, last_used_at
+         from app.mobile_push_devices where user_id = $1::uuid order by created_at desc`,
+      [userId],
+    ),
+    client.query(
+      `select ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng,
+              accuracy_m, source, captured_at
+         from app.user_last_known_location where user_id = $1::uuid`,
+      [userId],
+    ),
+    client.query(
+      `select id, event_type, status, priority, title, created_at, sent_at, read_at
+         from app.notifications where user_id = $1::uuid
+         order by created_at desc limit 10`,
+      [userId],
+    ),
+    client.query(
+      `select notification_id, channel, platform, status, error_message, attempted_at, delivered_at
+         from app.notification_delivery_log where user_id = $1::uuid
+         order by attempted_at desc limit 20`,
+      [userId],
+    ),
+  ]);
+
+  return {
+    user: exists.rows[0],
+    accountPreferences: account.rows[0] || null,
+    categoryPreferences: categories.rows,
+    devices: { web: web.rows, mobile: mobile.rows },
+    lastKnownLocation: location.rows[0] || null,
+    recentNotifications: notifications.rows,
+    recentDeliveryAttempts: delivery.rows,
+  };
 }
 
 async function fetchSampleAlert(client, alertId = null) {
@@ -234,28 +300,43 @@ async function main() {
       order by column_name asc
     `);
 
-    const sampleAlert = await fetchSampleAlert(client, args.alertId);
-    if (!sampleAlert) {
-      throw new Error("No active alert with a supported zone was found for diagnostics.");
+    if (args.userId) {
+      // User-scoped diagnostic — skip the alert-rule scenario sweep and report
+      // everything the orchestrator + push pipeline knows about one user.
+      const userDiagnostic = await runUserDiagnostic(client, args.userId);
+      console.log(JSON.stringify({
+        mode: "user",
+        environment: environment.rows[0] || {},
+        triggerCheck: triggerCheck.rows,
+        functionCheck: functionCheck.rows,
+        notificationColumns: notificationColumns.rows,
+        user: userDiagnostic,
+      }, null, 2));
+    } else {
+      const sampleAlert = await fetchSampleAlert(client, args.alertId);
+      if (!sampleAlert) {
+        throw new Error("No active alert with a supported zone was found for diagnostics.");
+      }
+
+      const scenarios = buildScenarioRows(sampleAlert);
+      const scenarioResults = [];
+
+      for (const scenario of scenarios) {
+        scenarioResults.push(
+          await runScenario(client, sampleAlert.alert_id, sampleAlert.user_id, scenario),
+        );
+      }
+
+      console.log(JSON.stringify({
+        mode: "alert",
+        environment: environment.rows[0] || {},
+        triggerCheck: triggerCheck.rows,
+        functionCheck: functionCheck.rows,
+        notificationColumns: notificationColumns.rows,
+        sampleAlert,
+        scenarioResults,
+      }, null, 2));
     }
-
-    const scenarios = buildScenarioRows(sampleAlert);
-    const scenarioResults = [];
-
-    for (const scenario of scenarios) {
-      scenarioResults.push(
-        await runScenario(client, sampleAlert.alert_id, sampleAlert.user_id, scenario),
-      );
-    }
-
-    console.log(JSON.stringify({
-      environment: environment.rows[0] || {},
-      triggerCheck: triggerCheck.rows,
-      functionCheck: functionCheck.rows,
-      notificationColumns: notificationColumns.rows,
-      sampleAlert,
-      scenarioResults,
-    }, null, 2));
   } finally {
     client.release();
     await pool.end();

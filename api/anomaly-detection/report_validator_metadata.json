@@ -1,0 +1,67 @@
+{
+  "model_name": "siara-report-validator",
+  "model_version": "1.0.0",
+  "labels": [
+    "real",
+    "spam",
+    "out_of_context",
+    "invalid_location",
+    "suspicious"
+  ],
+  "training_date": "2026-04-28T09:23:33Z",
+  "test_size": 0.2,
+  "random_state": 42,
+  "training_examples": 112,
+  "metrics": {
+    "real": {
+      "precision": 0.8888888888888888,
+      "recall": 1.0,
+      "f1-score": 0.9411764705882353,
+      "support": 8.0
+    },
+    "spam": {
+      "precision": 0.6666666666666666,
+      "recall": 0.5,
+      "f1-score": 0.5714285714285714,
+      "support": 4.0
+    },
+    "out_of_context": {
+      "precision": 0.6666666666666666,
+      "recall": 0.8,
+      "f1-score": 0.7272727272727273,
+      "support": 5.0
+    },
+    "invalid_location": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 2.0
+    },
+    "suspicious": {
+      "precision": 0.3333333333333333,
+      "recall": 0.25,
+      "f1-score": 0.2857142857142857,
+      "support": 4.0
+    },
+    "accuracy": 0.7391304347826086,
+    "macro avg": {
+      "precision": 0.711111111111111,
+      "recall": 0.71,
+      "f1-score": 0.705118411000764,
+      "support": 23.0
+    },
+    "weighted avg": {
+      "precision": 0.714975845410628,
+      "recall": 0.7391304347826086,
+      "f1-score": 0.7214933404191717,
+      "support": 23.0
+    }
+  },
+  "thresholds": {
+    "text_high_confidence": 0.65,
+    "near_road_strict_m": 100.0,
+    "near_road_relaxed_m": 250.0
+  },
+  "input_format": "title + ' ' + description + ' ' + incident_type",
+  "score_units": "decimal probabilities in [0, 1]"
+}

@@ -277,14 +277,9 @@ async function createNotificationsForReport(reportId, db = pool) {
           )
         from matching_alerts
         cross join report_context
-        -- TODO(schema): app.alert_trigger_log has no UNIQUE(alert_id,report_id);
-        -- pre-filter via NOT EXISTS to avoid duplicate trigger rows.
-        where not exists (
-          select 1
-          from app.alert_trigger_log existing
-          where existing.alert_id = matching_alerts.alert_id
-            and existing.report_id = report_context.report_id
-        )
+        on conflict (alert_id, report_id)
+          where report_id is not null
+          do nothing
         returning alert_id
       ),
       notification_candidates as (
@@ -348,15 +343,7 @@ async function createNotificationsForReport(reportId, db = pool) {
             on matching_alerts.alert_id = inserted_logs.alert_id
           where matching_alerts.user_id = notification_candidates.user_id
         )
-        -- TODO(schema): app.notifications has no UNIQUE(user_id,report_id,channel);
-        -- dedupe via NOT EXISTS instead of ON CONFLICT.
-        and not exists (
-          select 1
-          from app.notifications existing
-          where existing.user_id = notification_candidates.user_id
-            and existing.report_id = report_context.report_id
-            and existing.channel = 'websocket'
-        )
+        on conflict (user_id, report_id, channel) do nothing
         returning *
       )
       select

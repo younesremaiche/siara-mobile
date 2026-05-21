@@ -74,15 +74,11 @@ function roundScore(value, digits = 2) {
 function deriveZoneRiskLevel(score) {
   const normalized = clampScore(score);
 
-  if (normalized >= 75) {
-    return "critical";
-  }
-
-  if (normalized >= 50) {
+  if (normalized >= 67) {
     return "high";
   }
 
-  if (normalized >= 25) {
+  if (normalized >= 34) {
     return "medium";
   }
 
@@ -395,8 +391,8 @@ async function fetchAlertSnapshotMetrics(
         count(*) FILTER (WHERE alert_zone_scope.effective_status = 'scheduled')::int AS scheduled_alert_count,
         count(*) FILTER (
           WHERE alert_zone_scope.effective_status = 'active'
-            AND alert_zone_scope.severity = 'critical'
-        )::int AS critical_alert_count,
+            AND alert_zone_scope.severity = 'high'
+        )::int AS high_severity_alert_count,
         round(
           least(
             100,
@@ -404,9 +400,8 @@ async function fetchAlertSnapshotMetrics(
               CASE
                 WHEN alert_zone_scope.effective_status = 'active' THEN
                   CASE alert_zone_scope.severity
-                    WHEN 'critical' THEN 50
-                    WHEN 'high' THEN 35
-                    WHEN 'medium' THEN 20
+                    WHEN 'high' THEN 50
+                    WHEN 'medium' THEN 25
                     ELSE 10
                   END
                 ELSE 0
@@ -432,7 +427,7 @@ async function fetchAlertSnapshotMetrics(
       {
         activeAlertCount: safeNumber(row.active_alert_count, 0),
         scheduledAlertCount: safeNumber(row.scheduled_alert_count, 0),
-        criticalAlertCount: safeNumber(row.critical_alert_count, 0),
+        highSeverityAlertCount: safeNumber(row.high_severity_alert_count, 0),
         alertScore: safeNullableNumber(row.alert_score),
       },
     ]),
@@ -535,7 +530,7 @@ async function buildZoneSummarySnapshot(period, windowStart, windowEnd, db = poo
       reportScore,
       activeAlertCount: safeNumber(alerts.activeAlertCount, 0),
       scheduledAlertCount: safeNumber(alerts.scheduledAlertCount, 0),
-      criticalAlertCount: safeNumber(alerts.criticalAlertCount, 0),
+      highSeverityAlertCount: safeNumber(alerts.highSeverityAlertCount, 0),
       alertScore,
       incidentEventCount: safeNumber(history.incidentEventCount, 0),
       incidentHistoryScore,
@@ -567,6 +562,16 @@ async function persistZoneSummarySnapshot(period, snapshotAt, summaries, db = po
   try {
     await client.query("BEGIN");
 
+    // Wipe any previous snapshots for this period so we never accumulate
+    // multiple rows per zone (the table's unique constraint includes
+    // snapshot_at, which would otherwise let duplicates pile up on every
+    // rebuild and show as repeated rows in the admin Zone Management table).
+    await client.query(
+      `DELETE FROM ml.zone_risk_summary
+        WHERE period_type = $1`,
+      [period],
+    );
+
     for (const summary of summaries) {
       const params = [
         summary.adminAreaId,
@@ -587,7 +592,7 @@ async function persistZoneSummarySnapshot(period, snapshotAt, summaries, db = po
         summary.reportScore,
         summary.activeAlertCount,
         summary.scheduledAlertCount,
-        summary.criticalAlertCount,
+        summary.highSeverityAlertCount,
         summary.alertScore,
         summary.incidentEventCount,
         summary.incidentHistoryScore,
@@ -607,7 +612,7 @@ async function persistZoneSummarySnapshot(period, snapshotAt, summaries, db = po
             centroid, geom, road_segment_count, predicted_road_count, model_avg_score,
             model_weighted_score, top_road_risk_score, recent_report_count,
             verified_report_count, pending_report_count, flagged_report_count, report_score,
-            active_alert_count, scheduled_alert_count, critical_alert_count, alert_score,
+            active_alert_count, scheduled_alert_count, high_severity_alert_count, alert_score,
             incident_event_count, incident_history_score, final_risk_score, risk_level,
             confidence_avg, trend_vs_previous, top_road_segment_id, top_road_name, metadata
           )
@@ -671,21 +676,14 @@ async function rebuildZoneRiskSummary(period = DEFAULT_PERIOD, db = pool) {
 
 async function ensureZoneRiskSummary(period = DEFAULT_PERIOD, db = pool) {
   const normalizedPeriod = normalizeZonePeriod(period);
-  // TODO(schema): ml.zone_risk_summary_current does not exist in this DB.
-  // Compute the latest-per-zone snapshot inline from ml.zone_risk_summary.
   const currentSummary = await db.query(
     `
-      WITH zone_risk_summary_current AS (
-        SELECT DISTINCT ON (admin_area_id, period_type) *
-        FROM ml.zone_risk_summary
-        WHERE period_type = $1
-          AND zone_level = 'wilaya'
-        ORDER BY admin_area_id, period_type, snapshot_at DESC
-      )
       SELECT
         count(*)::int AS zone_count,
         max(snapshot_at) AS latest_snapshot_at
-      FROM zone_risk_summary_current
+      FROM ml.zone_risk_summary
+      WHERE period_type = $1
+        AND zone_level = 'wilaya'
     `,
     [normalizedPeriod],
   );
@@ -735,7 +733,7 @@ function mapZoneSummaryRow(row, metric) {
     reportScore: safeNullableNumber(row.report_score),
     activeAlertCount: safeNumber(row.active_alert_count, 0),
     scheduledAlertCount: safeNumber(row.scheduled_alert_count, 0),
-    criticalAlertCount: safeNumber(row.critical_alert_count, 0),
+    highSeverityAlertCount: safeNumber(row.high_severity_alert_count, 0),
     alertScore: safeNullableNumber(row.alert_score),
     confidenceAvg: safeNullableNumber(row.confidence_avg),
     trendVsPrevious: safeNullableNumber(row.trend_vs_previous),
@@ -776,7 +774,7 @@ function buildZoneMapFeature(summary) {
       reportScore: summary.reportScore,
       activeAlertCount: summary.activeAlertCount,
       scheduledAlertCount: summary.scheduledAlertCount,
-      criticalAlertCount: summary.criticalAlertCount,
+      highSeverityAlertCount: summary.highSeverityAlertCount,
       alertScore: summary.alertScore,
       confidenceAvg: summary.confidenceAvg,
       trendVsPrevious: summary.trendVsPrevious,
@@ -794,48 +792,49 @@ async function getZoneMap(period = DEFAULT_PERIOD, metric = DEFAULT_METRIC, db =
   const normalizedMetric = normalizeZoneMetric(metric);
   const summaryState = await ensureZoneRiskSummary(normalizedPeriod, db);
 
-  // TODO(schema): ml.zone_risk_summary_current does not exist; replace with a
-  // CTE that selects the latest snapshot per (admin_area_id, period_type).
   const result = await db.query(
     `
-      WITH zone_risk_summary_current AS (
-        SELECT DISTINCT ON (admin_area_id, period_type) *
-        FROM ml.zone_risk_summary
-        WHERE period_type = $1
-          AND zone_level = 'wilaya'
-        ORDER BY admin_area_id, period_type, snapshot_at DESC
+      WITH latest AS (
+        SELECT DISTINCT ON (zsc.admin_area_id)
+          zsc.admin_area_id,
+          zsc.zone_name,
+          zsc.zone_level,
+          zsc.snapshot_at,
+          zsc.model_avg_score,
+          zsc.model_weighted_score,
+          zsc.top_road_risk_score,
+          zsc.recent_report_count,
+          zsc.verified_report_count,
+          zsc.pending_report_count,
+          zsc.flagged_report_count,
+          zsc.report_score,
+          zsc.active_alert_count,
+          zsc.scheduled_alert_count,
+          zsc.high_severity_alert_count,
+          zsc.alert_score,
+          zsc.confidence_avg,
+          zsc.trend_vs_previous,
+          zsc.top_road_name,
+          zsc.top_road_segment_id,
+          zsc.final_risk_score,
+          zsc.risk_level,
+          zsc.centroid,
+          zsc.geom
+        FROM ml.zone_risk_summary zsc
+        WHERE zsc.period_type = $1
+          AND zsc.zone_level = 'wilaya'
+        ORDER BY zsc.admin_area_id, zsc.snapshot_at DESC
       )
       SELECT
-        zsc.admin_area_id,
-        zsc.zone_name,
-        zsc.zone_level,
-        zsc.snapshot_at,
-        zsc.model_avg_score,
-        zsc.model_weighted_score,
-        zsc.top_road_risk_score,
-        zsc.recent_report_count,
-        zsc.verified_report_count,
-        zsc.pending_report_count,
-        zsc.flagged_report_count,
-        zsc.report_score,
-        zsc.active_alert_count,
-        zsc.scheduled_alert_count,
-        zsc.critical_alert_count,
-        zsc.alert_score,
-        zsc.confidence_avg,
-        zsc.trend_vs_previous,
-        zsc.top_road_name,
-        zsc.top_road_segment_id,
-        zsc.final_risk_score,
-        zsc.risk_level,
+        latest.*,
         ST_AsGeoJSON(
-          COALESCE(zsc.centroid, ST_PointOnSurface(zsc.geom))
+          COALESCE(latest.centroid, ST_PointOnSurface(latest.geom))
         )::jsonb AS centroid_geojson,
         ST_AsGeoJSON(
-          ST_SimplifyPreserveTopology(zsc.geom, $2::double precision)
+          ST_SimplifyPreserveTopology(latest.geom, $2::double precision)
         )::jsonb AS geometry_geojson
-      FROM zone_risk_summary_current zsc
-      ORDER BY zsc.zone_name ASC
+      FROM latest
+      ORDER BY latest.zone_name ASC
     `,
     [normalizedPeriod, SUMMARY_GEOMETRY_TOLERANCE],
   );
@@ -852,13 +851,12 @@ async function getZoneMap(period = DEFAULT_PERIOD, metric = DEFAULT_METRIC, db =
     period: normalizedPeriod,
     metric: normalizedMetric,
     generatedAt: summaryState.snapshotAt,
-    summarySource: "ml.zone_risk_summary (latest-per-zone)",
+    summarySource: "ml.zone_risk_summary",
     summaryRebuilt: summaryState.rebuilt,
     featureCollection,
     items,
     stats: {
       zoneCount: items.length,
-      critical: items.filter((item) => item.riskLevel === "critical").length,
       high: items.filter((item) => item.riskLevel === "high").length,
       medium: items.filter((item) => item.riskLevel === "medium").length,
       low: items.filter((item) => item.riskLevel === "low").length,
@@ -1048,18 +1046,8 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
   const periodConfig = getPeriodConfig(normalizedPeriod);
   await ensureZoneRiskSummary(normalizedPeriod, db);
 
-  // TODO(schema): ml.zone_risk_summary_current does not exist; replace with a
-  // CTE that selects the latest snapshot per (admin_area_id, period_type).
   const summaryResult = await db.query(
     `
-      WITH zone_risk_summary_current AS (
-        SELECT DISTINCT ON (admin_area_id, period_type) *
-        FROM ml.zone_risk_summary
-        WHERE period_type = $1
-          AND zone_level = 'wilaya'
-          AND admin_area_id = $2::bigint
-        ORDER BY admin_area_id, period_type, snapshot_at DESC
-      )
       SELECT
         zsc.admin_area_id,
         zsc.zone_name,
@@ -1075,7 +1063,7 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
         zsc.report_score,
         zsc.active_alert_count,
         zsc.scheduled_alert_count,
-        zsc.critical_alert_count,
+        zsc.high_severity_alert_count,
         zsc.alert_score,
         zsc.confidence_avg,
         zsc.trend_vs_previous,
@@ -1087,7 +1075,11 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
         ST_AsGeoJSON(
           ST_SimplifyPreserveTopology(zsc.geom, $3::double precision)
         )::jsonb AS geometry_geojson
-      FROM zone_risk_summary_current zsc
+      FROM ml.zone_risk_summary zsc
+      WHERE zsc.period_type = $1
+        AND zsc.zone_level = 'wilaya'
+        AND zsc.admin_area_id = $2::bigint
+      ORDER BY zsc.snapshot_at DESC
       LIMIT 1
     `,
     [normalizedPeriod, normalizedAdminAreaId, SUMMARY_GEOMETRY_TOLERANCE],
@@ -1122,7 +1114,7 @@ async function getZoneDetails(adminAreaId, period = DEFAULT_PERIOD, db = pool) {
     operationalAlertsSummary: {
       active: summary.activeAlertCount,
       scheduled: summary.scheduledAlertCount,
-      critical: summary.criticalAlertCount,
+      highSeverity: summary.highSeverityAlertCount,
       items: operationalAlerts,
     },
   };

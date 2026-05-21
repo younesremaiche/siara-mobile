@@ -2,6 +2,10 @@ const createError = require("http-errors");
 
 const pool = require("../db");
 const { refreshReporterTrustScore } = require("./reportSpamDetectionService");
+const {
+  dispatchNotificationToAllPlatforms,
+} = require("./notificationOrchestrator");
+const { emitNotificationCreatedToUser } = require("./notificationSocket");
 
 const DASHBOARD_TIMEZONE = "Africa/Algiers";
 const INCIDENT_FILTERS = Object.freeze({
@@ -36,6 +40,7 @@ const MODERATION_ACTIONS = new Set([
   "verify",
   "reject",
   "archive",
+  "unarchive",
   "merge",
   "flag",
   "request_info",
@@ -154,7 +159,7 @@ function mapSeverityLabel(value) {
 
 function normalizeSeverityHint(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "critical" || normalized === "high") {
+  if (normalized === "high") {
     return 3;
   }
   if (normalized === "medium") {
@@ -287,6 +292,8 @@ function buildIncidentBaseCte() {
         ar.latest_classified_at,
         ar.review_verdict,
         COALESCE(NULLIF(BTRIM(ar.location_label), ''), 'Unknown location') AS location,
+        ST_Y(ar.incident_location::geometry) AS lat,
+        ST_X(ar.incident_location::geometry) AS lng,
         latest_assessment.predicted_severity AS ai_severity_value,
         CASE
           WHEN lower(coalesce(latest_assessment.assessment_status, '')) IN ('completed', 'pending', 'failed')
@@ -341,6 +348,10 @@ function mapIncidentRow(row, now = new Date()) {
     incidentType: row.incident_type,
     title: row.title || "",
     location: row.location,
+    coordinates: {
+      lat: row.lat == null ? null : Number(row.lat),
+      lng: row.lng == null ? null : Number(row.lng),
+    },
     severity: mapSeverityLabel(severityValue),
     severitySource: hasCompletedAssessment && row.ai_severity_value != null ? "ai" : "hint",
     confidence: hasCompletedAssessment ? normalizeConfidenceScore(row.sortable_confidence) : null,
@@ -447,6 +458,8 @@ async function listAdminIncidents(
           base.incident_type,
           base.title,
           base.location,
+          base.lat,
+          base.lng,
           base.status,
           base.severity_hint,
           base.ml_status,
@@ -522,6 +535,12 @@ async function requireAdminIncidentRow(reportId, db = pool) {
         ar.reviewed_by,
         ar.reviewed_at,
         ar.review_notes,
+        ar.reject_reason,
+        ar.info_requested_at,
+        ar.info_requested_by,
+        ar.info_request_message,
+        ar.info_response,
+        ar.info_responded_at,
         ST_Y(ar.incident_location::geometry) AS lat,
         ST_X(ar.incident_location::geometry) AS lng,
         concat_ws(' ', reporter.first_name, reporter.last_name) AS reporter_name,
@@ -724,12 +743,16 @@ function buildTimelineEvent({ actor, action, note, toStatus, fromStatus }) {
       return `${actorText} rejected the report`;
     case "archive":
       return `${actorText} archived the report`;
+    case "unarchive":
+      return `${actorText} restored the report from the archive`;
     case "merge":
       return `${actorText} merged this report`;
     case "flag":
       return `${actorText} flagged this report for additional review`;
     case "request_info":
       return `${actorText} requested more information`;
+    case "info_response":
+      return `${actorText} answered the moderator's question`;
     case "change_severity":
       return note ? `${actorText} updated the severity (${note})` : `${actorText} updated the severity`;
     case "note":
@@ -846,6 +869,19 @@ async function getAdminIncidentDetail(reportId, db = pool) {
     modelVersion: row.latest_model_version || null,
     classifiedAt: row.latest_classified_at ? new Date(row.latest_classified_at).toISOString() : null,
     reviewVerdict: row.review_verdict || null,
+    rejectReason: row.reject_reason || null,
+    infoRequest: {
+      requestedAt: row.info_requested_at
+        ? new Date(row.info_requested_at).toISOString()
+        : null,
+      requestedBy: row.info_requested_by || null,
+      message: row.info_request_message || "",
+      response: row.info_response || "",
+      respondedAt: row.info_responded_at
+        ? new Date(row.info_responded_at).toISOString()
+        : null,
+      pending: Boolean(row.info_requested_at) && !row.info_responded_at,
+    },
     pendingSpamReview: hasPendingSpamReview(row),
     reporterScore: null,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
@@ -910,6 +946,26 @@ async function getAdminIncidentDetail(reportId, db = pool) {
   return incident;
 }
 
+const TERMINAL_STATUSES = new Set(["verified", "rejected", "archived", "merged"]);
+const REJECT_REASON_WHITELIST = new Set([
+  "spam",
+  "duplicate",
+  "off_topic",
+  "false_report",
+  "insufficient_evidence",
+  "wrong_location",
+  "other",
+]);
+
+function normalizeRejectReason(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return null;
+  if (!REJECT_REASON_WHITELIST.has(text)) {
+    throw createError(400, "rejectReason is not one of the allowed values");
+  }
+  return text;
+}
+
 async function applyAdminIncidentAction(
   reportId,
   {
@@ -917,12 +973,16 @@ async function applyAdminIncidentAction(
     note = null,
     severity = null,
     mergeTargetReportId = null,
+    rejectReason = null,
   } = {},
   reviewerUserId,
   db = pool,
 ) {
   const normalizedAction = normalizeModerationAction(action);
   const normalizedNote = normalizeOptionalNote(note);
+  const normalizedRejectReason = normalizedAction === "reject"
+    ? normalizeRejectReason(rejectReason)
+    : null;
   const client = await db.connect();
 
   try {
@@ -931,6 +991,23 @@ async function applyAdminIncidentAction(
     const currentRow = await requireAdminIncidentRow(reportId, client);
     const currentStatus = currentRow.status;
     const reporterUserId = currentRow.reported_by;
+
+    // Idempotency: re-applying the same terminal decision returns the current
+    // state instead of duplicating audit rows / flags / status writes. Lets
+    // the admin click "Approve" twice without weird side effects.
+    if (
+      TERMINAL_STATUSES.has(currentStatus)
+      && (
+        (normalizedAction === "verify"  && currentStatus === "verified")
+        || (normalizedAction === "reject"  && currentStatus === "rejected")
+        || (normalizedAction === "archive" && currentStatus === "archived")
+        || (normalizedAction === "merge"   && currentStatus === "merged")
+      )
+    ) {
+      await client.query("ROLLBACK");
+      return getAdminIncidentDetail(reportId, db);
+    }
+
     let nextStatus = currentStatus;
     let nextReviewVerdict = currentRow.review_verdict || null;
     const updateClauses = [];
@@ -948,6 +1025,8 @@ async function applyAdminIncidentAction(
       nextReviewVerdict = "confirmed_spam";
       updateClauses.push(`status = $${updateValues.length + 1}`);
       updateValues.push(nextStatus);
+      updateClauses.push(`reject_reason = $${updateValues.length + 1}`);
+      updateValues.push(normalizedRejectReason);
     }
 
     if (normalizedAction === "archive") {
@@ -956,10 +1035,34 @@ async function applyAdminIncidentAction(
       updateValues.push(nextStatus);
     }
 
-    if (normalizedAction === "flag") {
-      nextStatus = "flagged";
+    if (normalizedAction === "unarchive") {
+      if (currentStatus !== "archived") {
+        throw createError(409, "Only archived reports can be unarchived");
+      }
+      nextStatus = "pending";
+      nextReviewVerdict = "pending_review";
       updateClauses.push(`status = $${updateValues.length + 1}`);
       updateValues.push(nextStatus);
+    }
+
+    if (normalizedAction === "flag") {
+      // Flag escalates to another moderator — it does NOT change the report
+      // status. The open flag row inserted below is what surfaces it under the
+      // admin "Community Flagged" filter (via open_flag_count > 0). Leaving
+      // status as-is keeps the report in its current queue (pending / etc.)
+      // so the original moderation path isn't disrupted.
+    }
+
+    if (normalizedAction === "request_info") {
+      // Don't change status — the incident stays in its current queue while
+      // the reporter responds. We just stamp who/when/what was asked so the
+      // sidebar can show "waiting on reporter" and the reporter notification
+      // service can fire (when wired up).
+      updateClauses.push(`info_requested_at = now()`);
+      updateClauses.push(`info_requested_by = $${updateValues.length + 1}`);
+      updateValues.push(reviewerUserId);
+      updateClauses.push(`info_request_message = $${updateValues.length + 1}`);
+      updateValues.push(normalizedNote);
     }
 
     if (normalizedAction === "change_severity") {
@@ -972,7 +1075,11 @@ async function applyAdminIncidentAction(
     updateClauses.push(`reviewed_by = $${updateValues.length + 1}`);
     updateValues.push(reviewerUserId);
     updateClauses.push(`reviewed_at = now()`);
-    if (normalizedNote !== null) {
+    // review_notes is the moderator's INTERNAL note about the decision. For
+    // `request_info` the note is the question shown to the reporter — it
+    // already lives in info_request_message and must NOT be copied to
+    // review_notes (it would otherwise show up as an internal admin note).
+    if (normalizedNote !== null && normalizedAction !== "request_info") {
       updateClauses.push(`review_notes = $${updateValues.length + 1}`);
       updateValues.push(normalizedNote);
     }
@@ -1047,6 +1154,11 @@ async function applyAdminIncidentAction(
       );
     }
 
+    // For request_info, the "note" the admin typed is the public question to
+    // the reporter — already persisted in info_request_message. The audit row
+    // records the action itself; the question is intentionally NOT copied into
+    // note so it doesn't surface as an internal admin note in the timeline.
+    const auditNote = normalizedAction === "request_info" ? null : normalizedNote;
     await client.query(
       `
         INSERT INTO app.report_review_actions (
@@ -1059,7 +1171,7 @@ async function applyAdminIncidentAction(
         )
         VALUES ($1, $2, $3, $4, $5, $6)
       `,
-      [reportId, normalizedAction, currentStatus, nextStatus, normalizedNote, reviewerUserId],
+      [reportId, normalizedAction, currentStatus, nextStatus, auditNote, reviewerUserId],
     );
 
     await refreshReporterTrustScore(reporterUserId, client);
@@ -1067,6 +1179,100 @@ async function applyAdminIncidentAction(
     const incident = await getAdminIncidentDetail(reportId, client);
 
     await client.query("COMMIT");
+
+    // Notify the reporter after the txn commits. The orchestrator has many
+    // gates (user prefs, dedupe, category disables) that can silently swallow
+    // a "request_info" notification — so for this event we go straight to
+    // app.notifications via a direct INSERT. The row appearing in that table
+    // is what the notifications page reads, so this guarantees delivery.
+    // We still call the orchestrator AFTER the direct insert to opportunistically
+    // fan out push/email, but we don't depend on it.
+    if (normalizedAction === "request_info" && reporterUserId && reportId) {
+      const title = "A moderator needs more info";
+      const body = normalizedNote
+        ? `On your report: "${normalizedNote}"`
+        : "An admin asked for more details about one of your reports.";
+      const notificationData = {
+        reportId,
+        requestMessage: normalizedNote || null,
+        deepLink: `/notifications`,
+        category: "system",
+        eventType: "REPORT_INFO_REQUESTED",
+        important: true,
+      };
+
+      let directNotification = null;
+      try {
+        const insertResult = await pool.query(
+          `
+            INSERT INTO app.notifications (
+              user_id, report_id, channel, status, priority, created_at,
+              event_type, title, body, data
+            )
+            VALUES ($1::uuid, $2::uuid, 'websocket', 'pending', 1, now(),
+                    'REPORT_INFO_REQUESTED', $3, $4, $5::jsonb)
+            RETURNING id, user_id, report_id, channel, status, priority,
+                      created_at, sent_at, delivered_at, read_at,
+                      event_type, title, body, data
+          `,
+          [reporterUserId, reportId, title, body, JSON.stringify(notificationData)],
+        );
+        directNotification = insertResult.rows[0] || null;
+        console.info("[adminIncidentService] info_request notify inserted", {
+          notificationId: directNotification?.id,
+          userId: reporterUserId,
+          reportId,
+        });
+      } catch (insertError) {
+        console.error("[adminIncidentService] info_request notify INSERT failed", {
+          reportId,
+          reporterUserId,
+          message: insertError?.message,
+        });
+      }
+
+      // Live socket fanout — best-effort. If the user is online, the bell
+      // updates immediately; if not, the row above is still in the DB and
+      // shows up on next page load.
+      if (directNotification) {
+        try {
+          emitNotificationCreatedToUser(reporterUserId, {
+            ...directNotification,
+            createdAt: directNotification.created_at,
+            eventType: directNotification.event_type,
+            readAt: directNotification.read_at,
+          });
+        } catch (socketError) {
+          console.warn("[adminIncidentService] info_request socket emit failed", {
+            message: socketError?.message,
+          });
+        }
+      }
+
+      // Opportunistic — also kick the orchestrator so web/mobile push fires
+      // for users who opted in to that channel. We ignore the result because
+      // we already have a guaranteed in-app delivery above.
+      try {
+        await dispatchNotificationToAllPlatforms({
+          userId: reporterUserId,
+          eventType: "REPORT_INFO_REQUESTED",
+          title,
+          body,
+          reportId,
+          data: notificationData,
+          force: true,
+        });
+      } catch (_dispatchError) {
+        // Already logged the direct insert success; orchestrator failure is
+        // non-fatal because the row exists and the socket emit ran.
+      }
+    } else if (normalizedAction === "request_info") {
+      console.warn("[adminIncidentService] info_request notify SKIPPED — missing reporter or report id", {
+        hasReporter: Boolean(reporterUserId),
+        hasReportId: Boolean(reportId),
+      });
+    }
+
     return incident;
   } catch (error) {
     await client.query("ROLLBACK");

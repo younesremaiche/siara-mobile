@@ -9,7 +9,7 @@ Runtime configuration:
 - LLM_PROVIDER=ollama
 - OLLAMA_MODEL=gemma3:4b
 - OLLAMA_BASE_URL=http://localhost:11434
-- OLLAMA_TIMEOUT_SECONDS=120
+- OLLAMA_TIMEOUT_SECONDS=60
 - OLLAMA_STREAM_READ_TIMEOUT_SECONDS=300
 """
 
@@ -27,7 +27,7 @@ import requests
 DEFAULT_PROVIDER = "ollama"
 DEFAULT_MODEL = "gemma3:4b"
 DEFAULT_BASE_URL = "http://localhost:11434"
-DEFAULT_TIMEOUT_SECONDS = 120
+DEFAULT_TIMEOUT_SECONDS = 60
 DEFAULT_STREAM_READ_TIMEOUT_SECONDS = 300
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 
@@ -168,17 +168,7 @@ def call_ollama_chat(
     resolved_model = model or config["model"]
     resolved_base_url = (base_url or config["base_url"]).rstrip("/")
     resolved_timeout = timeout_seconds or config["timeout_seconds"]
-    request_timeout = (
-        config["connect_timeout_seconds"],
-        resolved_timeout,
-    )
     url = f"{resolved_base_url}/api/chat"
-    started_at = time.monotonic()
-
-    print(
-        "[quiz-explainer] non-stream request started "
-        f"model={resolved_model} base_url={resolved_base_url}"
-    )
 
     payload = {
         "model": resolved_model,
@@ -191,45 +181,22 @@ def call_ollama_chat(
     }
 
     try:
-        print("[quiz-explainer] Ollama connection started")
-        response = requests.post(url, json=payload, timeout=request_timeout)
+        response = requests.post(url, json=payload, timeout=resolved_timeout)
         response.raise_for_status()
     except requests.Timeout as exc:
-        elapsed_ms = int((time.monotonic() - started_at) * 1000)
-        print(
-            "[quiz-explainer] non-stream timeout "
-            f"after {elapsed_ms} ms: {exc}"
-        )
         raise OllamaUnavailableError(f"Ollama request timed out after {resolved_timeout} seconds") from exc
     except requests.RequestException as exc:
-        elapsed_ms = int((time.monotonic() - started_at) * 1000)
-        print(
-            "[quiz-explainer] non-stream request failed "
-            f"after {elapsed_ms} ms: {exc}"
-        )
         raise OllamaUnavailableError(f"Ollama request failed: {exc}") from exc
 
     try:
         body = response.json()
     except ValueError as exc:
-        elapsed_ms = int((time.monotonic() - started_at) * 1000)
-        print(
-            "[quiz-explainer] non-stream invalid JSON "
-            f"after {elapsed_ms} ms"
-        )
         raise OllamaUnavailableError("Ollama returned a non-JSON response") from exc
 
     content = body.get("message", {}).get("content")
     if not isinstance(content, str) or not content.strip():
-        elapsed_ms = int((time.monotonic() - started_at) * 1000)
-        print(
-            "[quiz-explainer] non-stream empty chat message "
-            f"after {elapsed_ms} ms"
-        )
         raise OllamaUnavailableError("Ollama returned an empty chat message")
 
-    elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    print(f"[quiz-explainer] non-stream completed in {elapsed_ms} ms")
     return content.strip()
 
 
@@ -317,25 +284,41 @@ def structure_quiz_explanation(explanation_text: Any) -> Dict[str, Any]:
     }
 
 
-def _stream_error_event(
+def _template_fallback_events(
+    result_data: Mapping[str, Any],
     *,
+    reason: str,
     started_at: float,
-    message: str,
-    code: str,
-    stage: str,
-    details: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Generator[Dict[str, Any], None, None]:
+    explanation_text = build_template_explanation(result_data)
     elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    payload = {
-        "error": message,
-        "code": code,
-        "stage": stage,
-        "elapsed_ms": elapsed_ms,
-        "fallback": False,
-    }
-    if details:
-        payload["details"] = details
-    return _stream_event("error", **payload)
+    print(f"[quiz-explainer] fallback used: {reason}")
+    print(f"[quiz-explainer] total generation duration {elapsed_ms} ms")
+    yield _stream_event(
+        "status",
+        status="fallback",
+        message="Using deterministic fallback explanation...",
+        fallback=True,
+        reason=reason,
+    )
+    yield _stream_event(
+        "chunk",
+        content=explanation_text,
+        fallback=True,
+    )
+    yield _stream_event(
+        "status",
+        status="done",
+        message="Explanation ready.",
+        fallback=True,
+    )
+    yield _stream_event(
+        "done",
+        explanation_text=explanation_text,
+        structured_explanation=structure_quiz_explanation(explanation_text),
+        fallback=True,
+        metadata={"generation_duration_ms": elapsed_ms},
+    )
 
 
 def stream_quiz_explanation(
@@ -357,13 +340,10 @@ def stream_quiz_explanation(
     )
 
     if config["provider"] != "ollama":
-        message = f"Ollama-only mode requires LLM_PROVIDER=ollama, got {config['provider']!r}"
-        print(f"[quiz-explainer] stream configuration error: {message}")
-        yield _stream_error_event(
+        yield from _template_fallback_events(
+            result_data,
+            reason=f"LLM provider is {config['provider']}",
             started_at=started_at,
-            message=message,
-            code="LLM_PROVIDER_UNSUPPORTED",
-            stage="config",
         )
         return
 
@@ -445,49 +425,68 @@ def stream_quiz_explanation(
                         "done",
                         explanation_text=explanation_text,
                         structured_explanation=structure_quiz_explanation(explanation_text),
+                        fallback=False,
                         metadata=metadata,
                     )
                     return
 
         raise OllamaUnavailableError("Ollama stream ended without a final done chunk")
     except requests.Timeout as exc:
-        message = "Ollama did not return a response in time."
-        print(f"[quiz-explainer] stream timeout: {exc}")
-        yield _stream_error_event(
+        yield from _template_fallback_events(
+            result_data,
+            reason=f"Ollama stream timed out: {exc}",
             started_at=started_at,
-            message=message,
-            code="OLLAMA_TIMEOUT",
-            stage="stream",
-            details=str(exc),
         )
     except requests.RequestException as exc:
-        message = "Ollama request failed while generating the explanation."
-        print(f"[quiz-explainer] stream request failed: {exc}")
-        yield _stream_error_event(
+        yield from _template_fallback_events(
+            result_data,
+            reason=f"Ollama stream failed: {exc}",
             started_at=started_at,
-            message=message,
-            code="OLLAMA_REQUEST_FAILED",
-            stage="stream",
-            details=str(exc),
         )
     except QuizExplainerError as exc:
-        print(f"[quiz-explainer] stream explainer error: {exc}")
-        yield _stream_error_event(
+        yield from _template_fallback_events(
+            result_data,
+            reason=str(exc),
             started_at=started_at,
-            message=str(exc),
-            code="OLLAMA_STREAM_ERROR",
-            stage="stream",
         )
     except Exception as exc:
-        message = "Unexpected Ollama stream failure."
-        print(f"[quiz-explainer] unexpected stream failure: {exc}")
-        yield _stream_error_event(
+        yield from _template_fallback_events(
+            result_data,
+            reason=f"Unexpected stream failure: {exc}",
             started_at=started_at,
-            message=message,
-            code="OLLAMA_UNEXPECTED_ERROR",
-            stage="stream",
-            details=str(exc),
         )
+
+
+def build_template_explanation(result_data: Mapping[str, Any]) -> str:
+    """Deterministic fallback used when Ollama is unavailable."""
+
+    label = _clean_text(result_data.get("overall_risk_label"), "unknown").lower()
+    score = result_data.get("overall_risk_score")
+    scale = _clean_text(result_data.get("score_scale"), "0-100")
+    risk_factors = _join_factor_labels(
+        _as_list(result_data.get("top_risk_factors")),
+        "No dominant risk-increasing factor was identified in the structured result.",
+    )
+    protective_factors = _join_factor_labels(
+        _as_list(result_data.get("top_protective_factors")),
+        "No dominant protective factor was identified in the structured result.",
+    )
+    advice_focus = _join_factor_labels(
+        _as_list(result_data.get("advice_focus")),
+        "Focus on steady speed, attention, safe distance, and rule-following.",
+    )
+
+    score_text = f"{score} on {scale}" if score is not None else f"the {scale} scale"
+
+    return "\n\n".join(
+        [
+            f"1. Short summary\nYour driver quiz result is {label}, with a score of {score_text}. This explanation describes the already-computed result and does not change the score.",
+            f"2. Main risk-increasing factors\nThe strongest risk-increasing signals are: {risk_factors}.",
+            f"3. Main protective factors\nThe strongest protective signals are: {protective_factors}.",
+            f"4. Practical advice\nUse this result as a prompt to practice safer habits: {advice_focus}",
+            "5. Brief disclaimer\nThis is an educational driving-safety explanation, not a diagnosis or a prediction that an accident will happen.",
+        ]
+    )
 
 
 def explain_quiz_result(result_data: Mapping[str, Any]) -> str:
@@ -495,14 +494,16 @@ def explain_quiz_result(result_data: Mapping[str, Any]) -> str:
 
     config = get_quiz_explainer_config()
     if config["provider"] != "ollama":
-        raise OllamaUnavailableError(
-            f"Ollama-only mode requires LLM_PROVIDER=ollama, got {config['provider']!r}"
-        )
+        return build_template_explanation(result_data)
 
-    messages = build_quiz_explanation_prompt(result_data)
-    return call_ollama_chat(
-        messages,
-        model=config["model"],
-        base_url=config["base_url"],
-        timeout_seconds=config["timeout_seconds"],
-    )
+    try:
+        messages = build_quiz_explanation_prompt(result_data)
+        return call_ollama_chat(
+            messages,
+            model=config["model"],
+            base_url=config["base_url"],
+            timeout_seconds=config["timeout_seconds"],
+        )
+    except QuizExplainerError as exc:
+        print(f"[quiz-explainer] Falling back to template explanation: {exc}")
+        return build_template_explanation(result_data)

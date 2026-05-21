@@ -16,6 +16,11 @@ const ALLOWED_TIME_RANGE_TYPES = new Set(["all", "day", "night", "custom"]);
 const ALLOWED_FREQUENCY_TYPES = new Set(["immediate", "digest", "first"]);
 const ALLOWED_DIGEST_INTERVALS = new Set(["hourly", "daily", "weekly"]);
 const ALLOWED_STATUSES = new Set(["active", "paused", "archived"]);
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return UUID_REGEX.test(String(value || "").trim());
+}
 
 function normalizeString(value) {
   if (typeof value !== "string") {
@@ -464,6 +469,29 @@ async function getAlertForUserOrThrow(userId, alertId, client = pool, options = 
   return alerts[0];
 }
 
+async function fetchUserProfileVisibility(userId, client = pool) {
+  const result = await client.query(
+    `
+      SELECT
+        u.id,
+        COALESCE(s.privacy_visibility, 'public') AS visibility
+      FROM auth.users u
+      LEFT JOIN app.user_profile_settings s
+        ON s.user_id = u.id
+      WHERE u.id = $1
+      LIMIT 1
+    `,
+    [userId],
+  );
+
+  const row = result.rows[0] || null;
+  if (!row) {
+    throw createError(404, "User not found");
+  }
+
+  return String(row.visibility || "public").toLowerCase() === "private" ? "private" : "public";
+}
+
 async function validateZoneInput(client, input) {
   const zoneType = normalizeString(input?.zoneType).toLowerCase();
 
@@ -639,6 +667,29 @@ router.get("/", verifyToken, async (req, res, next) => {
   try {
     const includeGeometry = parseBooleanQuery(req.query?.includeGeometry, false);
     const items = await fetchAlertsForUser(req.user.userId, { includeGeometry });
+    return res.status(200).json({ items });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/user/:userId", verifyToken, async (req, res, next) => {
+  try {
+    const includeGeometry = parseBooleanQuery(req.query?.includeGeometry, false);
+    const targetUserId = String(req.params.userId || "").trim();
+
+    if (!isUuid(targetUserId)) {
+      throw createError(400, "Invalid user id");
+    }
+
+    if (targetUserId !== req.user.userId) {
+      const visibility = await fetchUserProfileVisibility(targetUserId);
+      if (visibility === "private") {
+        return res.status(200).json({ items: [] });
+      }
+    }
+
+    const items = await fetchAlertsForUser(targetUserId, { includeGeometry });
     return res.status(200).json({ items });
   } catch (error) {
     return next(error);

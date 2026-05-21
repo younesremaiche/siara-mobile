@@ -1,5 +1,6 @@
 const router = require("express").Router();
 
+const pool = require("../db");
 const {
   assignIncidentBySupervisor,
   assignSelfToIncident,
@@ -8,6 +9,7 @@ const {
   getPoliceDashboard,
   getPoliceMe,
   getPoliceWorkZoneOptions,
+  listAssignableOfficersForIncident,
   listPoliceAlerts,
   listPoliceIncidents,
   listPoliceOperationHistory,
@@ -21,16 +23,53 @@ const {
   verifyIncident,
   addIncidentFieldNote,
   addManualPoliceHistoryEntry,
+  deleteIncidentFieldNote,
+  updateIncidentFieldNote,
   normalizeIncidentListParams,
 } = require("../services/policeService");
 const {
   verifyTokenAndPolice,
   verifyToken,
+  hasAnyRole,
+  hasRole,
+  POLICE_SUPERVISOR_ROLE_NAMES,
 } = require("./verifytoken");
+const { getPriorityQueue } = require("../services/policePriorityQueueService");
+const {
+  getSupervisorDashboard,
+  getSupervisorAnalytics,
+  getSupervisorGlobalMap,
+} = require("../services/supervisorService");
 
 async function requirePoliceSupervisor(req, res, next) {
   try {
-    return next();
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (hasAnyRole(req.user, POLICE_SUPERVISOR_ROLE_NAMES) || hasRole(req.user, "admin")) {
+      return next();
+    }
+
+    // Fallback: a user can also act as supervisor if at least one police profile
+    // lists them as supervisor_user_id, even when role normalization differs.
+    const result = await pool.query(
+      `
+        SELECT 1
+        FROM app.police_profiles
+        WHERE supervisor_user_id = $1::uuid
+        LIMIT 1
+      `,
+      [userId],
+    );
+
+    if (result.rowCount > 0) {
+      return next();
+    }
+
+    return res.status(403).json({ error: "Police supervisor access required" });
   } catch (error) {
     return next(error);
   }
@@ -140,6 +179,31 @@ router.post("/incidents/:id/field-note", verifyTokenAndPolice, async (req, res, 
   }
 });
 
+router.patch("/incidents/:id/field-note/:noteId", verifyTokenAndPolice, async (req, res, next) => {
+  try {
+    return res.status(200).json(await updateIncidentFieldNote(
+      req.user.userId,
+      req.params.id,
+      req.params.noteId,
+      req.body || {},
+    ));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/incidents/:id/field-note/:noteId", verifyTokenAndPolice, async (req, res, next) => {
+  try {
+    return res.status(200).json(await deleteIncidentFieldNote(
+      req.user.userId,
+      req.params.id,
+      req.params.noteId,
+    ));
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/alerts", verifyTokenAndPolice, async (req, res, next) => {
   try {
     const page = req.query?.page ? Number.parseInt(req.query.page, 10) : undefined;
@@ -192,6 +256,21 @@ router.post("/supervisor/alerts", verifyTokenAndPolice, requirePoliceSupervisor,
   }
 });
 
+router.get(
+  "/supervisor/incidents/:id/assignable-officers",
+  verifyTokenAndPolice,
+  requirePoliceSupervisor,
+  async (req, res, next) => {
+    try {
+      return res.status(200).json(
+        await listAssignableOfficersForIncident(req.user, req.params.id, req.query || {}),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
 router.post("/supervisor/incidents/:id/assign", verifyTokenAndPolice, requirePoliceSupervisor, async (req, res, next) => {
   try {
     return res.status(200).json(await assignIncidentBySupervisor(req.user, req.params.id, req.body || {}));
@@ -200,5 +279,38 @@ router.post("/supervisor/incidents/:id/assign", verifyTokenAndPolice, requirePol
   }
 });
 
-module.exports = router;
+router.get("/supervisor/dashboard", verifyTokenAndPolice, requirePoliceSupervisor, async (req, res, next) => {
+  try {
+    return res.status(200).json(await getSupervisorDashboard(req.user, req.query || {}));
+  } catch (error) {
+    return next(error);
+  }
+});
 
+router.get("/supervisor/analytics", verifyTokenAndPolice, requirePoliceSupervisor, async (req, res, next) => {
+  try {
+    return res.status(200).json(await getSupervisorAnalytics(req.user, req.query || {}));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/supervisor/global-map", verifyTokenAndPolice, requirePoliceSupervisor, async (req, res, next) => {
+  try {
+    return res.status(200).json(await getSupervisorGlobalMap(req.user));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/priority-queue", verifyTokenAndPolice, async (req, res, next) => {
+  try {
+    const limit = req.query?.limit ? Number(req.query.limit) : 25;
+    const result = await getPriorityQueue({ limit });
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+module.exports = router;

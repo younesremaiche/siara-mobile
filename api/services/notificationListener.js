@@ -68,7 +68,7 @@ async function handlePgNotification(message) {
   }
 
   if (NOTIFICATION_DEBUG_ENABLED) {
-    console.info("[notifications] notification_listener_received", {
+    console.info("[notifications] notify_received", {
       channel: message.channel,
       notificationId: payload.id,
       userId: payload.userId,
@@ -114,7 +114,7 @@ async function handlePgNotification(message) {
   }
 
   if (NOTIFICATION_DEBUG_ENABLED) {
-    console.info("[notifications] socket_notification_emitted", {
+    console.info("[notifications] emit_live", {
       notificationId: payload.id,
       userId: payload.userId,
       status: deliveredPayload.status,

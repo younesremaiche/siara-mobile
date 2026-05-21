@@ -1,0 +1,93 @@
+[
+  {
+    "pipeline_column": "hour",
+    "db_column": "hour",
+    "available": true
+  },
+  {
+    "pipeline_column": "weekday",
+    "db_column": "day_of_week",
+    "available": true
+  },
+  {
+    "pipeline_column": "month",
+    "db_column": "month",
+    "available": true
+  },
+  {
+    "pipeline_column": "is_weekend",
+    "db_column": "is_weekend",
+    "available": true
+  },
+  {
+    "pipeline_column": "is_night",
+    "db_column": "day_night",
+    "available": true,
+    "notes": "is_night=1 corresponds to day_night=night; flip downstream if needed."
+  },
+  {
+    "pipeline_column": "weather_temp",
+    "db_column": "temperature_c",
+    "available": true
+  },
+  {
+    "pipeline_column": "weather_rhum",
+    "db_column": "humidity_pct",
+    "available": true
+  },
+  {
+    "pipeline_column": "weather_pres",
+    "db_column": "pressure_hpa",
+    "available": true
+  },
+  {
+    "pipeline_column": "weather_wspd",
+    "db_column": "wind_speed_kmh",
+    "available": true,
+    "notes": "Meteostat hourly 'wspd' is reported in km/h."
+  },
+  {
+    "pipeline_column": "weather_prcp",
+    "db_column": "precip_mm",
+    "available": true
+  },
+  {
+    "pipeline_column": null,
+    "db_column": "visibility_km",
+    "available": false,
+    "notes": "Meteostat hourly point data does not expose visibility; populate when an alternative source is wired in."
+  },
+  {
+    "pipeline_column": "road_class",
+    "db_column": "road_class",
+    "available": true
+  },
+  {
+    "pipeline_column": "maxspeed_num",
+    "db_column": "maxspeed",
+    "available": true
+  },
+  {
+    "pipeline_column": "oneway",
+    "db_column": "oneway",
+    "available": true
+  },
+  {
+    "pipeline_column": null,
+    "db_column": "junction_flag",
+    "available": false,
+    "notes": "Not derived from OSM shapefile yet; intersection extraction pending."
+  },
+  {
+    "pipeline_column": null,
+    "db_column": "roundabout_flag",
+    "available": false,
+    "notes": "Not derived from OSM shapefile yet; tag 'junction=roundabout' parsing pending."
+  },
+  {
+    "pipeline_column": null,
+    "db_column": "urban_flag",
+    "available": false,
+    "notes": "Requires a land-use / built-area overlay; not wired in this beta."
+  }
+]

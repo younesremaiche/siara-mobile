@@ -1,7 +1,12 @@
 const router = require("express").Router();
 const createError = require("http-errors");
 const bcrypt = require("bcryptjs");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs/promises");
+const crypto = require("crypto");
 const pool = require("../db");
+const { configureCloudinary, isCloudinaryConfigured } = require("../config/cloudinary");
 
 const {
   EMAIL_VERIFICATION_REQUIRED_CODE,
@@ -11,7 +16,7 @@ const {
   loginUser,
   loginWithGoogle,
   mapUser,
-  registerUser, 
+  registerUser,
   requestPasswordReset,
   resetPassword,
   sendVerificationCode,
@@ -23,6 +28,26 @@ const {
   updateUserNotificationPreferences,
 } = require("../services/pushService");
 const { resolveOptionalAuthenticatedUser, verifyToken } = require("./verifytoken");
+
+const AVATAR_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_AVATAR_MIME_TYPES = new Set(["image/jpeg", "image/jpg", "image/pjpeg", "image/png", "image/webp"]);
+const AVATAR_UPLOAD_ROOT = path.join(__dirname, "..", "uploads", "avatars");
+
+const uploadAvatar = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fileSize: AVATAR_MAX_FILE_SIZE_BYTES,
+  },
+  fileFilter(_req, file, callback) {
+    if (!ALLOWED_AVATAR_MIME_TYPES.has(String(file?.mimetype || "").trim().toLowerCase())) {
+      callback(createError(400, "Only JPEG, PNG, and WebP images are allowed"));
+      return;
+    }
+
+    callback(null, true);
+  },
+});
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") {
@@ -55,6 +80,161 @@ function splitFullName(fullName) {
   };
 }
 
+function normalizePublicOrigin(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.replace(/\/+$/, "");
+}
+
+function resolvePublicOrigin(req) {
+  const fromEnv = normalizePublicOrigin(process.env.API_PUBLIC_ORIGIN)
+    || normalizePublicOrigin(process.env.SERVER_PUBLIC_ORIGIN);
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const forwardedHost = normalizeOptionalString(req.get("x-forwarded-host"));
+  const host = forwardedHost || normalizeOptionalString(req.get("host"));
+  if (!host) {
+    return "";
+  }
+
+  const forwardedProto = normalizeOptionalString(req.get("x-forwarded-proto"));
+  const protocol = forwardedProto || normalizeOptionalString(req.protocol) || "http";
+  return `${protocol}://${host}`;
+}
+
+function runAvatarUpload(req, res) {
+  return new Promise((resolve, reject) => {
+    uploadAvatar.single("avatar")(req, res, (error) => {
+      if (!error) {
+        resolve(req.file || null);
+        return;
+      }
+
+      if (error instanceof multer.MulterError) {
+        if (error.code === "LIMIT_FILE_SIZE") {
+          reject(createError(400, "Avatar image must be 5 MB or smaller"));
+          return;
+        }
+
+        if (error.code === "LIMIT_FILE_COUNT") {
+          reject(createError(400, "Only one avatar image can be uploaded"));
+          return;
+        }
+
+        if (error.code === "LIMIT_UNEXPECTED_FILE") {
+          reject(createError(400, 'Avatar file must be sent in the "avatar" field'));
+          return;
+        }
+      }
+
+      reject(error);
+    });
+  });
+}
+
+function toAvatarExtension(mimeType) {
+  const normalized = String(mimeType || "").trim().toLowerCase();
+
+  if (normalized === "image/png") {
+    return "png";
+  }
+  if (normalized === "image/webp") {
+    return "webp";
+  }
+
+  return "jpg";
+}
+
+async function uploadAvatarToCloudinary(file, userId) {
+  if (!Buffer.isBuffer(file?.buffer) || file.buffer.length === 0) {
+    throw createError(400, "Avatar image is empty");
+  }
+
+  if (!isCloudinaryConfigured()) {
+    throw createError(500, "Cloudinary is not configured");
+  }
+
+  const cloudinary = configureCloudinary();
+  if (!cloudinary) {
+    throw createError(500, "Cloudinary is not configured");
+  }
+
+  const folder = `siara/avatars/${userId}`;
+  const publicId = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+  const result = await new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        resource_type: "image",
+        overwrite: true,
+      },
+      (error, uploadResult) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(uploadResult);
+      },
+    );
+
+    stream.end(file.buffer);
+  });
+
+  if (!result?.secure_url) {
+    throw createError(502, "Avatar upload did not return a valid URL");
+  }
+
+  return {
+    avatarUrl: result.secure_url,
+    storageKey: result.public_id || null,
+    storageProvider: "cloudinary",
+  };
+}
+
+async function uploadAvatarToLocalStorage(file, userId, req) {
+  if (!Buffer.isBuffer(file?.buffer) || file.buffer.length === 0) {
+    throw createError(400, "Avatar image is empty");
+  }
+
+  const safeUserId = String(userId || "user").trim() || "user";
+  const extension = toAvatarExtension(file.mimetype);
+  const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${extension}`;
+  const userDirectory = path.join(AVATAR_UPLOAD_ROOT, safeUserId);
+  const absolutePath = path.join(userDirectory, filename);
+
+  await fs.mkdir(userDirectory, { recursive: true });
+  await fs.writeFile(absolutePath, file.buffer);
+
+  const relativePath = `/uploads/avatars/${safeUserId}/${filename}`;
+  const publicOrigin = resolvePublicOrigin(req);
+
+  return {
+    avatarUrl: publicOrigin ? `${publicOrigin}${relativePath}` : relativePath,
+    storageKey: `local:avatars/${safeUserId}/${filename}`,
+    storageProvider: "local",
+  };
+}
+
+async function uploadAvatarWithFallback(file, userId, req) {
+  try {
+    return await uploadAvatarToCloudinary(file, userId);
+  } catch (error) {
+    console.warn("[auth] avatar_upload_fallback_to_local", {
+      userId,
+      message: error?.message || "unknown_error",
+    });
+
+    return uploadAvatarToLocalStorage(file, userId, req);
+  }
+}
+
 function normalizeBoolean(value, fallback = null) {
   if (typeof value === "boolean") {
     return value;
@@ -69,6 +249,91 @@ function normalizeEnum(value, allowedValues, fallback = null) {
   }
 
   return allowedValues.includes(normalized) ? normalized : fallback;
+}
+
+async function fetchUserTrustSignals(userId, db = pool) {
+  const result = await db.query(
+    `
+      select
+        u.id,
+        u.trust_score,
+        u.trust_last_updated_at,
+        coalesce(v.legit_count, 0)::int as legit_count,
+        coalesce(v.spam_count, 0)::int as spam_count
+      from auth.users u
+      left join (
+        select
+          reported_by,
+          count(*) filter (where review_verdict = 'confirmed_legit')::int as legit_count,
+          count(*) filter (where review_verdict = 'confirmed_spam')::int as spam_count
+        from app.accident_reports
+        where reported_by = $1
+        group by reported_by
+      ) v
+        on v.reported_by = u.id
+      where u.id = $1
+      limit 1
+    `,
+    [userId],
+  );
+
+  const row = result.rows[0] || null;
+  if (!row) {
+    return {
+      trustScore: null,
+      signals: {
+        legitReports: 0,
+        spamReports: 0,
+        reviewedReports: 0,
+      },
+      generatedAt: null,
+      source: "unavailable",
+    };
+  }
+
+  const legitCount = Number(row.legit_count || 0);
+  const spamCount = Number(row.spam_count || 0);
+  const reviewedCount = legitCount + spamCount;
+
+  const storedTrustScoreRaw = Number(row.trust_score);
+  const hasStoredTrustScore = Number.isFinite(storedTrustScoreRaw);
+
+  let trustScore = null;
+  let source = "unavailable";
+
+  if (hasStoredTrustScore) {
+    trustScore = Number(Math.max(0, Math.min(100, storedTrustScoreRaw)).toFixed(2));
+    source = "stored";
+  } else if (reviewedCount > 0) {
+    trustScore = Number(
+      (
+        ((legitCount + 1) / (reviewedCount + 2))
+        * 100
+      ).toFixed(2),
+    );
+    source = "derived";
+  }
+
+  const generatedAt = row.trust_last_updated_at
+    ? new Date(row.trust_last_updated_at).toISOString()
+    : null;
+
+  return {
+    trustScore,
+    signals: {
+      legitReports: legitCount,
+      spamReports: spamCount,
+      reviewedReports: reviewedCount,
+    },
+    generatedAt,
+    source,
+  };
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
 }
 
 async function ensureUserProfileSettingsTable(db = pool) {
@@ -111,6 +376,7 @@ async function fetchUserSettings(userId, db = pool) {
         u.last_name,
         u.email,
         u.phone,
+        u.avatar_url,
         u.created_at,
         s.bio,
         s.location_label,
@@ -133,6 +399,8 @@ async function fetchUserSettings(userId, db = pool) {
     throw createError(404, "User profile not found");
   }
 
+  const trust = await fetchUserTrustSignals(userId, db);
+
   const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
   const emailPreferences = await fetchEmailPreferences(userId, db);
   const pushPreferences = await ensureUserNotificationPreferences(userId, db);
@@ -141,12 +409,18 @@ async function fetchUserSettings(userId, db = pool) {
     profile: {
       id: row.id,
       name: fullName || row.email || row.phone || "SIARA User",
+      avatarUrl: row.avatar_url || "",
+      avatar_url: row.avatar_url || "",
       bio: row.bio || "",
       location: row.location_label || "",
       email: row.email || "",
       phone: row.phone || "",
       language: row.language || "French",
       memberSince: row.created_at || null,
+      trustScore: trust.trustScore,
+      trustSignals: trust.signals,
+      trustScoreGeneratedAt: trust.generatedAt,
+      trustScoreSource: trust.source,
     },
     privacy: {
       visibility: row.privacy_visibility || "public",
@@ -165,6 +439,58 @@ async function fetchUserSettings(userId, db = pool) {
       inAppEnabled: Boolean(pushPreferences?.inAppEnabled),
       pushMode: pushPreferences?.pushMode || "important_only",
     },
+  };
+}
+
+async function fetchUserPrivacyVisibility(userId, db = pool) {
+  await ensureUserProfileSettingsTable(db);
+
+  await db.query(
+    `
+      insert into app.user_profile_settings (user_id)
+      values ($1)
+      on conflict (user_id) do nothing
+    `,
+    [userId],
+  );
+
+  const result = await db.query(
+    `
+      select
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.avatar_url,
+        coalesce(s.bio, '') as bio,
+        coalesce(s.privacy_visibility, 'public') as privacy_visibility
+      from auth.users u
+      left join app.user_profile_settings s
+        on s.user_id = u.id
+      where u.id = $1
+      limit 1
+    `,
+    [userId],
+  );
+
+  const row = result.rows[0] || null;
+  if (!row) {
+    throw createError(404, "User profile not found");
+  }
+
+  const trust = await fetchUserTrustSignals(userId, db);
+
+  return {
+    userId: row.id,
+    firstName: row.first_name || "",
+    lastName: row.last_name || "",
+    avatarUrl: row.avatar_url || "",
+    avatar_url: row.avatar_url || "",
+    bio: row.bio || "",
+    visibility: row.privacy_visibility,
+    trustScore: trust.trustScore,
+    trustSignals: trust.signals,
+    trustScoreGeneratedAt: trust.generatedAt,
+    trustScoreSource: trust.source,
   };
 }
 
@@ -239,6 +565,14 @@ router.post("/login", async (req, res, next) => {
         code: error.code,
         requiresEmailVerification: true,
         email: error.email || null,
+      });
+    }
+
+    if (error.code === "ACCOUNT_BANNED") {
+      return res.status(403).json({
+        message: error.message,
+        code: error.code,
+        ban: error.ban || { permanent: true, until: null, reason: null },
       });
     }
 
@@ -323,6 +657,78 @@ router.get("/settings", verifyToken, async (req, res, next) => {
   try {
     const settings = await fetchUserSettings(req.user.userId);
     return res.status(200).json(settings);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/users/:userId/privacy", verifyToken, async (req, res, next) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    if (!isUuid(userId)) {
+      throw createError(400, "Invalid user id");
+    }
+
+    const privacy = await fetchUserPrivacyVisibility(userId);
+    const isOwner = req.user?.userId === userId;
+    const isPrivate = privacy.visibility === "private";
+    const canViewActivity = isOwner || !isPrivate;
+    const displayName = [privacy.firstName, privacy.lastName].filter(Boolean).join(" ").trim() || "SIARA User";
+    const safeName = canViewActivity ? displayName : "Private User";
+    const safeAvatarUrl = canViewActivity ? String(privacy.avatarUrl || "") : "";
+    const safeBio = canViewActivity ? String(privacy.bio || "") : "";
+
+    return res.status(200).json({
+      userId,
+      visibility: privacy.visibility,
+      isPrivate,
+      canViewActivity,
+      name: safeName,
+      avatarUrl: safeAvatarUrl,
+      avatar_url: safeAvatarUrl,
+      bio: safeBio,
+      trustScore: privacy.trustScore,
+      trustSignals: privacy.trustSignals,
+      trustScoreGeneratedAt: privacy.trustScoreGeneratedAt,
+      trustScoreSource: privacy.trustScoreSource,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/settings/avatar", verifyToken, async (req, res, next) => {
+  try {
+    const file = await runAvatarUpload(req, res);
+    if (!file) {
+      throw createError(400, "Avatar image is required");
+    }
+
+    const uploadedAvatar = await uploadAvatarWithFallback(file, req.user.userId, req);
+
+    await pool.query(
+      `
+        update auth.users
+        set
+          avatar_url = $2,
+          updated_at = now()
+        where id = $1
+      `,
+      [req.user.userId, uploadedAvatar.avatarUrl],
+    );
+
+    const nextUser = {
+      ...req.user,
+      avatar_url: uploadedAvatar.avatarUrl,
+    };
+
+    return res.status(200).json({
+      ok: true,
+      avatarUrl: uploadedAvatar.avatarUrl,
+      avatar_url: uploadedAvatar.avatarUrl,
+      storageProvider: uploadedAvatar.storageProvider,
+      user: mapUser(nextUser),
+    });
   } catch (error) {
     return next(error);
   }
