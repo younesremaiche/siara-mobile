@@ -214,13 +214,39 @@ export async function fetchNearbyZones({
   return result;
 }
 
-// GET /api/risk/forecast24h?lat&lng&timestamp
-export async function fetchRiskForecast24h({ lat, lng, timestamp, signal, force = false } = {}) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    throw new Error('fetchRiskForecast24h: invalid coordinates');
+function normaliseForecastArgs(input, lngArg, optionsArg = {}) {
+  if (input && typeof input === 'object') return input;
+  const options = optionsArg && typeof optionsArg === 'object'
+    ? optionsArg
+    : { timestamp: optionsArg };
+  return { ...options, lat: input, lng: lngArg };
+}
+
+function normaliseForecastPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const points = Array.isArray(payload.points) ? payload.points : [];
+  const nowPoint = payload.now_point && typeof payload.now_point === 'object'
+    ? payload.now_point
+    : null;
+  return {
+    ...payload,
+    now_point: nowPoint,
+    points,
+  };
+}
+
+// GET /api/risk/forecast24h?lat&lng&lon&timestamp
+export async function fetchRiskForecast24h(input, lngArg, optionsArg) {
+  const { lat, lng, timestamp, signal, force = false } = normaliseForecastArgs(input, lngArg, optionsArg);
+  const point = { lat: Number(lat), lng: Number(lng) };
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+    if (__DEV__) {
+      console.log('[forecast24h] request skipped', { lat, lng, reason: 'invalid coordinates' });
+    }
+    return { now_point: null, points: [] };
   }
 
-  const ck = coordKey(lat, lng, 2);
+  const ck = coordKey(point.lat, point.lng, 2);
   const ts = timestamp || new Date().toISOString();
   const cacheKey = `${ck}:${minuteBucket(ts)}`;
   if (!force) {
@@ -229,13 +255,38 @@ export async function fetchRiskForecast24h({ lat, lng, timestamp, signal, force 
   }
 
   const query = new URLSearchParams({
-    lat: String(Number(lat)),
-    lng: String(Number(lng)),
+    lat: String(point.lat),
+    lng: String(point.lng),
+    lon: String(point.lng),
     timestamp: ts,
   }).toString();
-  const result = await request(`/api/risk/forecast24h?${query}`, { method: 'GET', signal });
-  forecastCache.set(cacheKey, result);
-  return result;
+
+  if (__DEV__) {
+    console.log('[forecast24h] request', { lat: point.lat, lng: point.lng, timestamp: ts });
+  }
+
+  try {
+    const result = await request(`/api/risk/forecast24h?${query}`, { method: 'GET', signal });
+    const normalised = normaliseForecastPayload(result);
+    const pointsLength = normalised?.points?.length || 0;
+    const hasNowPoint = Boolean(normalised?.now_point);
+    if (__DEV__) {
+      console.log('[forecast24h] response', { hasNowPoint, pointsLength });
+    }
+    if (normalised && (hasNowPoint || pointsLength > 0)) {
+      forecastCache.set(cacheKey, normalised);
+    }
+    return normalised || { now_point: null, points: [] };
+  } catch (error) {
+    if (__DEV__) {
+      console.log('[forecast24h] response', {
+        hasNowPoint: false,
+        pointsLength: 0,
+        status: error?.status || 'error',
+      });
+    }
+    throw error;
+  }
 }
 
 // POST /api/predictions/explain-risk — concise "Why?" explanation.

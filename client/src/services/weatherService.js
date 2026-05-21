@@ -17,12 +17,49 @@ function minuteBucket(timestampIso) {
   return `${date.getUTCFullYear()}-${date.getUTCMonth()}-${date.getUTCDate()}-${date.getUTCHours()}`;
 }
 
-export async function fetchCurrentWeather({ lat, lng, timestamp, signal, force = false } = {}) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    throw new Error('fetchCurrentWeather: invalid coordinates');
+function normaliseWeatherArgs(input, lngArg, optionsArg = {}) {
+  if (input && typeof input === 'object') return input;
+  const options = optionsArg && typeof optionsArg === 'object'
+    ? optionsArg
+    : { timestamp: optionsArg };
+  return { ...options, lat: input, lng: lngArg };
+}
+
+function numberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normaliseWeatherResponse(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  return {
+    ...payload,
+    temperature_c: numberOrNull(payload.temperature_c ?? payload.temperature ?? payload.temp_c),
+    condition: payload.condition || payload.weather_condition || payload.weather || 'Weather',
+    visibility_km: numberOrNull(payload.visibility_km ?? payload.visibility),
+    wind_kmh: numberOrNull(payload.wind_kmh ?? payload.wind_speed_kmh ?? payload.wind_speed),
+    wind_direction: payload.wind_direction ?? payload.wind_deg ?? null,
+    humidity_pct: numberOrNull(payload.humidity_pct ?? payload.humidity),
+    pressure_hpa: numberOrNull(payload.pressure_hpa ?? payload.pressure),
+    precipitation_mm: numberOrNull(payload.precipitation_mm ?? payload.precipitation),
+    timestamp_iso: payload.timestamp_iso ?? payload.timestamp ?? null,
+    snapshot_time_iso: payload.snapshot_time_iso ?? null,
+    snapshot_source: payload.snapshot_source ?? null,
+    fetched_at_iso: payload.fetched_at_iso ?? null,
+  };
+}
+
+export async function fetchCurrentWeather(input, lngArg, optionsArg) {
+  const { lat, lng, timestamp, signal, force = false } = normaliseWeatherArgs(input, lngArg, optionsArg);
+  const point = { lat: Number(lat), lng: Number(lng) };
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) {
+    if (__DEV__) {
+      console.log('[weather] request skipped', { lat, lng, reason: 'invalid coordinates' });
+    }
+    return null;
   }
 
-  const ck = coordKey(lat, lng, 2);
+  const ck = coordKey(point.lat, point.lng, 2);
   const cacheKey = `${ck}:${minuteBucket(timestamp)}`;
   if (!force) {
     const cached = weatherCache.get(cacheKey);
@@ -30,17 +67,40 @@ export async function fetchCurrentWeather({ lat, lng, timestamp, signal, force =
   }
 
   const params = new URLSearchParams({
-    lat: String(Number(lat)),
-    lng: String(Number(lng)),
+    lat: String(point.lat),
+    lng: String(point.lng),
   });
   if (timestamp) params.set('timestamp', timestamp);
 
-  const result = await request(`/api/weather/current?${params.toString()}`, {
-    method: 'GET',
-    signal,
-  });
-  weatherCache.set(cacheKey, result);
-  return result;
+  if (__DEV__) {
+    console.log('[weather] request', { lat: point.lat, lng: point.lng, timestamp: timestamp || null });
+  }
+
+  try {
+    const result = await request(`/api/weather/current?${params.toString()}`, {
+      method: 'GET',
+      signal,
+    });
+    const normalised = normaliseWeatherResponse(result);
+    if (__DEV__) {
+      console.log('[weather] response keys/status', {
+        status: normalised ? 'ok' : 'empty',
+        keys: result && typeof result === 'object' ? Object.keys(result) : [],
+      });
+    }
+    if (normalised) {
+      weatherCache.set(cacheKey, normalised);
+    }
+    return normalised;
+  } catch (error) {
+    if (__DEV__) {
+      console.log('[weather] response keys/status', {
+        status: error?.status || 'error',
+        keys: [],
+      });
+    }
+    throw error;
+  }
 }
 
 export function clearWeatherCache() {

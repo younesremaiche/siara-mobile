@@ -54,6 +54,12 @@ function positiveInteger(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function currentHourIsoBucket() {
+  const date = new Date();
+  date.setMinutes(0, 0, 0);
+  return date.toISOString();
+}
+
 function buildKey(prefix, { lat, lng, timestamp, extra }) {
   return `${prefix}:${coordKey(lat, lng, 3) || 'na'}:${timestamp || 'now'}:${extra || ''}`;
 }
@@ -88,7 +94,7 @@ export async function fetchOccurrenceRiskSegment({
     throw buildInputRequiredError('Beta model needs a road segment and time-window features before prediction.');
   }
 
-  const bucket = timeBucket || time_bucket || timestamp || new Date().toISOString().slice(0, 13);
+  const bucket = timeBucket || time_bucket || timestamp || currentHourIsoBucket();
   const cacheKey = buildKey('occ-segment', {
     lat: validRoadSegmentId,
     lng: 0,
@@ -136,7 +142,7 @@ export async function predictOccurrenceRiskBatch({
   force = false,
 } = {}) {
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error('predictOccurrenceRiskBatch: rows[] is required');
+    throw buildInputRequiredError('Beta model input row is incomplete.');
   }
 
   const normalisedRows = rows
@@ -149,7 +155,7 @@ export async function predictOccurrenceRiskBatch({
     .filter(Boolean);
 
   if (normalisedRows.length === 0) {
-    throw new Error('predictOccurrenceRiskBatch: no rows with valid coordinates');
+    throw buildInputRequiredError('Beta model input row is incomplete.');
   }
 
   // Stable key so re-ordering identical rows still hits cache.

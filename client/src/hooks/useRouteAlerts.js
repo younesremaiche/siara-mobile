@@ -54,6 +54,32 @@ function normaliseAlert(alert) {
   };
 }
 
+function normaliseRoutePath(path) {
+  if (!Array.isArray(path)) return [];
+  return path
+    .map((point) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        const lat = Number(point[0]);
+        const lng = Number(point[1]);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+      }
+      if (point && typeof point === 'object') {
+        const lat = Number(point.lat ?? point.latitude);
+        const lng = Number(point.lng ?? point.lon ?? point.longitude);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function normaliseLivePosition(position) {
+  if (!position) return null;
+  const lat = Number(position.lat ?? position.latitude);
+  const lng = Number(position.lng ?? position.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
 export default function useRouteAlerts({
   active,
   route,
@@ -98,12 +124,12 @@ export default function useRouteAlerts({
   // Auto-dismiss alerts the driver has now passed (within AUTO_PASS_DISMISS_M).
   // Runs on every render; cheap because it only loops over the current alert
   // list (typically 0–3 entries).
-  const pos = positionRef?.current || null;
+  const pos = normaliseLivePosition(positionRef?.current);
   useEffect(() => {
     if (!pos || !alerts.length) return;
     const passed = alerts.filter((alert) => {
       if (!alert.location) return false;
-      return distanceMeters({ lat: pos.latitude, lng: pos.longitude }, alert.location) < AUTO_PASS_DISMISS_M;
+      return distanceMeters(pos, alert.location) < AUTO_PASS_DISMISS_M;
     });
     if (passed.length === 0) return;
     setAlerts((prev) => prev.filter((alert) => !passed.find((p) => p.id === alert.id)));
@@ -114,9 +140,15 @@ export default function useRouteAlerts({
 
   // Polling driver — fires on enable, on noticeable movement, and on a timer.
   useEffect(() => {
-    if (!active || !positionRef) return undefined;
-    const hasUsablePath = Array.isArray(route?.path) && route.path.length >= 2;
-    if (!hasUsablePath) {
+    if (!active || !positionRef || !route) {
+      setAlerts([]);
+      setState('idle');
+      setError('');
+      return undefined;
+    }
+
+    const path = normaliseRoutePath(route?.path);
+    if (path.length < 2) {
       // Backend requires routeSnapshot.path; until we have one, stay quiet.
       setAlerts([]);
       setState('idle');
@@ -128,9 +160,10 @@ export default function useRouteAlerts({
     let timer = null;
     let movementTimer = null;
     const controllerHolder = { current: null };
+    const routeForAlerts = { ...route, path };
 
     async function pollOnce({ forced = false } = {}) {
-      const liveLoc = positionRef.current;
+      const liveLoc = normaliseLivePosition(positionRef.current);
       if (!liveLoc) return;
 
       if (!forced) {
@@ -139,8 +172,8 @@ export default function useRouteAlerts({
         const tooClose =
           lastFrom
           && distanceMeters(
-            { lat: lastFrom.latitude, lng: lastFrom.longitude },
-            { lat: liveLoc.latitude, lng: liveLoc.longitude },
+            lastFrom,
+            liveLoc,
           ) < MIN_MOVE_M
           && Date.now() - lastFetchAtRef.current < pollMs - 500;
         if (tooClose) return;
@@ -157,9 +190,9 @@ export default function useRouteAlerts({
       try {
         // Always send the full route so backend can validate routeSnapshot.path.
         const body = await fetchNavigationRouteAlerts({
-          route,
+          route: routeForAlerts,
           route_id: routeId,
-          userLocation: { lat: liveLoc.latitude, lng: liveLoc.longitude },
+          userLocation: liveLoc,
           destination,
           look_ahead_m: lookAheadM,
           exclude_ids: collectActiveMutedIds(),
@@ -210,12 +243,12 @@ export default function useRouteAlerts({
     // Cheap movement watcher: every 2s check if the live position has shifted
     // far enough to warrant an earlier poll.
     movementTimer = setInterval(() => {
-      const liveLoc = positionRef.current;
+      const liveLoc = normaliseLivePosition(positionRef.current);
       const lastFrom = lastPolledFromRef.current;
       if (!liveLoc || !lastFrom) return;
       const moved = distanceMeters(
-        { lat: lastFrom.latitude, lng: lastFrom.longitude },
-        { lat: liveLoc.latitude, lng: liveLoc.longitude },
+        lastFrom,
+        liveLoc,
       );
       if (moved >= MIN_MOVE_M && Date.now() - lastFetchAtRef.current > 4_000) {
         pollOnce({ forced: true });

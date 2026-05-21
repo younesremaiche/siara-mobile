@@ -91,6 +91,7 @@ function buildRecommendation(slots) {
 export default function useDepartureOptions({
   origin,
   destination,
+  baselineTimestamp,
   enabled = true,
 } = {}) {
   const [data, setData] = useState(null);
@@ -116,7 +117,8 @@ export default function useDepartureOptions({
     setError('');
 
     try {
-      const baseMs = Date.now();
+      const parsedBaselineMs = baselineTimestamp ? Date.parse(baselineTimestamp) : NaN;
+      const baseMs = Number.isFinite(parsedBaselineMs) ? parsedBaselineMs : Date.now();
       const timestamps = DEPARTURE_OFFSETS_MIN.map((offsetMin) => (
         new Date(baseMs + offsetMin * 60_000).toISOString()
       ));

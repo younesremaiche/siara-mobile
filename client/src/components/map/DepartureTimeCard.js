@@ -197,6 +197,7 @@ export default function DepartureTimeCard({
   const { data, state, error, retry } = useDepartureOptions({
     origin,
     destination,
+    baselineTimestamp,
     enabled: enabled && hasOrigin && hasDestination,
   });
 

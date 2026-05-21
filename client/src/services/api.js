@@ -15,7 +15,12 @@ export function setInMemoryAccessToken(token) {
 
 export async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
-  const { withAuth = false, accessToken = null, ...fetchOptions } = options;
+  const {
+    withAuth = false,
+    accessToken = null,
+    headers: optionHeaders,
+    ...fetchOptions
+  } = options;
 
   const isFormDataBody =
     typeof FormData !== 'undefined'
@@ -23,7 +28,7 @@ export async function request(path, options = {}) {
 
   let headers = {
     ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-    ...options.headers,
+    ...optionHeaders,
   };
 
   if (isFormDataBody && headers['Content-Type']) {
@@ -38,9 +43,15 @@ export async function request(path, options = {}) {
     }
   }
 
+  headers = Object.fromEntries(
+    Object.entries(headers).filter(([, value]) => value !== undefined && value !== null),
+  );
+
   if (__DEV__) {
+    const logHeaders = { ...headers };
+    if (logHeaders.Authorization) logHeaders.Authorization = '***';
     console.log(`[api] ${fetchOptions.method || 'GET'} ${url}`, {
-      headers: { ...headers, Authorization: headers.Authorization ? '***' : undefined },
+      headers: logHeaders,
     });
   }
 

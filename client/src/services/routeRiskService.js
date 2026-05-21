@@ -95,6 +95,19 @@ export async function fetchDepartureOptions({
   if (!origin || !destination) {
     throw new Error('fetchDepartureOptions: origin and destination required');
   }
+  const originLat = Number(origin.lat);
+  const originLng = Number(origin.lng);
+  const destinationLat = Number(destination.lat);
+  const destinationLng = Number(destination.lng);
+  if (
+    !Number.isFinite(originLat)
+    || !Number.isFinite(originLng)
+    || !Number.isFinite(destinationLat)
+    || !Number.isFinite(destinationLng)
+  ) {
+    throw new Error('fetchDepartureOptions: origin and destination required');
+  }
+
   const validTimestamps = Array.isArray(timestamps)
     ? timestamps
       .map((timestamp) => {
@@ -114,11 +127,11 @@ export async function fetchDepartureOptions({
   }
 
   const body = {
-    origin: { lat: Number(origin.lat), lng: Number(origin.lng) },
+    origin: { lat: originLat, lng: originLng },
     destination: {
       ...(destination.name ? { name: destination.name } : {}),
-      lat: Number(destination.lat),
-      lng: Number(destination.lng),
+      lat: destinationLat,
+      lng: destinationLng,
     },
     timestamps: validTimestamps,
   };
@@ -176,6 +189,11 @@ export async function fetchNavigationRouteAlerts({
   if (!livePosition) {
     throw new Error('fetchNavigationRouteAlerts: position required');
   }
+  const liveLat = Number(livePosition.lat ?? livePosition.latitude);
+  const liveLng = Number(livePosition.lng ?? livePosition.longitude);
+  if (!Number.isFinite(liveLat) || !Number.isFinite(liveLng)) {
+    throw new Error('fetchNavigationRouteAlerts: position required');
+  }
 
   const path = normaliseRoutePath(route?.path);
   if (path.length < 2) {
@@ -196,8 +214,8 @@ export async function fetchNavigationRouteAlerts({
   const body = {
     routeSnapshot,
     userLocation: {
-      lat: Number(livePosition.lat ?? livePosition.latitude),
-      lng: Number(livePosition.lng ?? livePosition.longitude),
+      lat: liveLat,
+      lng: liveLng,
     },
     ...(destination ? { destination } : {}),
     ...(Number.isFinite(Number(heading_deg)) ? { heading_deg: Number(heading_deg) } : {}),
