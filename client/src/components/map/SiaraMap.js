@@ -15,7 +15,6 @@ import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../theme/colors';
-import { API_BASE_URL } from '../../config/api';
 import useNearbyReports from '../../hooks/useNearbyReports';
 import { buildReportMarker } from './ReportMarker';
 import GuidedRouteSelector from './GuidedRouteSelector';
@@ -24,6 +23,17 @@ import {
   requestRouteGuidance,
   searchGuidanceDestinations,
 } from '../../services/routeGuidanceService';
+import {
+  fetchCurrentRisk,
+  fetchRiskOverlay,
+  fetchRiskExplanation,
+  fetchNearbyZones,
+} from '../../services/riskService';
+import {
+  fetchHeatmapClusters,
+  fetchAlertZonesOverlay,
+} from '../../services/mapRiskService';
+import { isAbortError } from '../../utils/requestCache';
 import {
   DEFAULT_LAT,
   DEFAULT_LNG,
@@ -307,6 +317,9 @@ const SiaraMap = React.forwardRef(function SiaraMap({
   }, [userLocation]);
 
   // ── API: Current risk ──
+  // fetchCurrentRisk applies its own GPS-jitter de-dup + TTL cache; the effect
+  // still uses an AbortController so a stale request is dropped when the user
+  // moves before the response lands.
   useEffect(() => {
     if (!userLocation || locationStatus !== 'granted') {
       setCurrentRisk(null);
@@ -315,33 +328,28 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       return undefined;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     setCurrentRiskState('loading');
     setCurrentRiskError('');
 
-    fetch(`${API_BASE_URL}/api/risk/current`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lat: userLocation.latitude,
-        lng: userLocation.longitude,
-        timestamp: selectedTimestampIso,
-      }),
+    fetchCurrentRisk({
+      lat: userLocation.latitude,
+      lng: userLocation.longitude,
+      timestamp: selectedTimestampIso,
+      signal: controller.signal,
     })
-      .then((response) => response.json())
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setCurrentRisk(data);
         setCurrentRiskState('success');
       })
       .catch((error) => {
-        if (!cancelled) {
-          setCurrentRiskState('error');
-          setCurrentRiskError(error.message || 'Failed to load current risk');
-        }
+        if (isAbortError(error)) return;
+        setCurrentRiskState('error');
+        setCurrentRiskError(error.message || 'Failed to load current risk');
       });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [userLocation, locationStatus, selectedTimestampIso]);
 
   // ── API: AI overlay ──
@@ -353,7 +361,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       return undefined;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     setOverlayState('loading');
     setOverlayError('');
     const rows = markers.slice(0, 200).map((marker) => ({
@@ -362,14 +370,9 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       lng: marker.lng ?? marker.lon ?? marker.longitude,
     }));
 
-    fetch(`${API_BASE_URL}/api/risk/overlay`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timestamp: selectedTimestampIso, rows }),
-    })
-      .then((response) => response.json())
+    fetchRiskOverlay({ timestamp: selectedTimestampIso, rows, signal: controller.signal })
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const bySegment = {};
         for (const item of data?.results || []) {
           bySegment[String(item.segment_id ?? item.index)] = item;
@@ -378,13 +381,12 @@ const SiaraMap = React.forwardRef(function SiaraMap({
         setOverlayState('success');
       })
       .catch((error) => {
-        if (!cancelled) {
-          setOverlayState('error');
-          setOverlayError(error.message || 'Overlay error');
-        }
+        if (isAbortError(error)) return;
+        setOverlayState('error');
+        setOverlayError(error.message || 'Overlay error');
       });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [mapLayer, userLocation, markers, selectedTimestampIso]);
 
   // ── API: Nearby roads ──
@@ -406,34 +408,29 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     if (key === nearbyKeyRef.current) return undefined;
     nearbyKeyRef.current = key;
 
-    let cancelled = false;
+    const controller = new AbortController();
     setNearbyRoutesState('loading');
     setNearbyRoutesError('');
-    fetch(`${API_BASE_URL}/api/risk/nearby-zones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lat: userLocation.latitude,
-        lng: userLocation.longitude,
-        radius_km: NEARBY_RADIUS_KM,
-        max_destinations: NEARBY_MAX_DESTINATIONS,
-        timestamp: selectedTimestampIso,
-      }),
+    fetchNearbyZones({
+      lat: userLocation.latitude,
+      lng: userLocation.longitude,
+      radius_km: NEARBY_RADIUS_KM,
+      max_destinations: NEARBY_MAX_DESTINATIONS,
+      timestamp: selectedTimestampIso,
+      signal: controller.signal,
     })
-      .then((response) => response.json())
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setNearbyRoutes(Array.isArray(data?.routes) ? data.routes : []);
         setNearbyRoutesState('success');
       })
       .catch((error) => {
-        if (!cancelled) {
-          setNearbyRoutesState('error');
-          setNearbyRoutesError(error.message || 'Nearby routes error');
-        }
+        if (isAbortError(error)) return;
+        setNearbyRoutesState('error');
+        setNearbyRoutesError(error.message || 'Nearby routes error');
       });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [mapLayer, userLocation, locationStatus, selectedTimestampIso]);
 
   // ── API: DBSCAN heatmap clusters ──
@@ -445,35 +442,30 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       return undefined;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       setHeatClustersState('loading');
-      const params = new URLSearchParams({
-        north: mapBounds.north,
-        south: mapBounds.south,
-        east: mapBounds.east,
-        west: mapBounds.west,
+      fetchHeatmapClusters({
+        bounds: mapBounds,
         hours: 24,
         zoom: mapBounds.zoom || mapViewport?.zoom || 10,
-      });
-      fetch(`${API_BASE_URL}/api/map/report-danger-heatmap?${params}`)
-        .then((r) => r.json())
+        signal: controller.signal,
+      })
         .then((data) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           const clusters = Array.isArray(data?.clusters) ? data.clusters : Array.isArray(data) ? data : [];
           setHeatClusters(clusters);
           setHeatClustersState('success');
         })
         .catch((err) => {
-          if (!cancelled) {
-            setHeatClustersState('error');
-            setHeatClustersError(err.message || 'Heatmap data error');
-          }
+          if (isAbortError(err)) return;
+          setHeatClustersState('error');
+          setHeatClustersError(err.message || 'Heatmap data error');
         });
     }, 350);
 
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [mapLayer, mapBounds, selectedTimestampIso, mapViewport?.zoom]);
@@ -486,21 +478,21 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       return undefined;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     setAlertZonesState('loading');
-    fetch(`${API_BASE_URL}/alerts`)
-      .then((r) => r.json())
+    fetchAlertZonesOverlay({ signal: controller.signal })
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const zones = Array.isArray(data?.alerts) ? data.alerts : Array.isArray(data) ? data : [];
         setAlertZones(zones);
         setAlertZonesState('success');
       })
-      .catch(() => {
-        if (!cancelled) setAlertZonesState('error');
+      .catch((err) => {
+        if (isAbortError(err)) return;
+        setAlertZonesState('error');
       });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [mapLayer]);
 
   // ── Memoized data ──
@@ -1010,17 +1002,12 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
       setShapLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/api/risk/explain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            segment_id: String(marker.id),
-            lat: marker.lat ?? marker.latitude,
-            lng: marker.lng ?? marker.longitude,
-            timestamp: selectedTimestampIso,
-          }),
+        const explanation = await fetchRiskExplanation({
+          segment_id: String(marker.id),
+          lat: marker.lat ?? marker.latitude,
+          lng: marker.lng ?? marker.longitude,
+          timestamp: selectedTimestampIso,
         });
-        const explanation = await response.json();
         const enrichedMarker = { ...marker, risk, explanation };
         if (setSelectedIncident) setSelectedIncident(enrichedMarker);
         setShapExplanation(explanation);
@@ -1150,16 +1137,11 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     setRouteExplainError('');
     setShapLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/risk/explain`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          segment_id: String(segId),
-          timestamp: selectedTimestampIso,
-          top_k: 8,
-        }),
+      const explanation = await fetchRiskExplanation({
+        segment_id: String(segId),
+        timestamp: selectedTimestampIso,
+        top_k: 8,
       });
-      const explanation = await response.json();
       const enriched = {
         ...explanation,
         danger_percent: Number.isFinite(Number(explanation?.danger_percent))

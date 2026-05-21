@@ -19,6 +19,8 @@ import {
   getSegmentPath,
   normalizeDangerLevel,
 } from '../../utils/mapHelpers';
+import RouteAlertOverlay from '../../components/map/RouteAlertOverlay';
+import useRouteAlerts from '../../hooks/useRouteAlerts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -128,6 +130,21 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
   const [panelH,    setPanelH]    = useState(230);
 
   const post = useCallback((msg) => webRef.current?.postMessage(JSON.stringify(msg)), []);
+
+  // ── Look-ahead route alerts ──
+  // Polls /api/navigation/route-alerts via the live GPS ref (no re-renders on
+  // every fix). The hook handles dedup, mute, and auto-dismiss when the driver
+  // passes the hazard.
+  const {
+    alerts: routeAlerts,
+    state: routeAlertsState,
+    mute: muteRouteAlert,
+    dismiss: dismissRouteAlert,
+  } = useRouteAlerts({
+    active: Boolean(selectedRoute),
+    route: selectedRoute,
+    positionRef: liveLocRef,
+  });
 
   // ── map data ──
   const polylines   = useMemo(() => buildNavPolylines(selectedRoute), [selectedRoute]);
@@ -264,6 +281,15 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
         </LinearGradient>
       </Animated.View>
 
+      {/* ── LIVE ROUTE ALERT OVERLAY ── */}
+      <RouteAlertOverlay
+        alerts={routeAlerts}
+        state={routeAlertsState}
+        onMute={muteRouteAlert}
+        onDismiss={dismissRouteAlert}
+        style={[s.alertOverlay, { top: insets.top + 84 }]}
+      />
+
       {/* ── RECENTER FAB ── */}
       <Animated.View style={[s.fabWrap, { bottom: panelH + 14, transform: [{ scale: fabScale }] }]}>
         <TouchableOpacity style={[s.fab, following && s.fabOn]} onPress={recenter} activeOpacity={0.8}>
@@ -389,6 +415,9 @@ const s = StyleSheet.create({
     flexShrink: 0,
   },
   headerBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff', letterSpacing: 0.3 },
+
+  // ── live route alert overlay ──
+  alertOverlay: { position: 'absolute', left: 12, right: 12, zIndex: 11 },
 
   // ── recenter FAB ──
   fabWrap: { position: 'absolute', right: 16, zIndex: 10 },

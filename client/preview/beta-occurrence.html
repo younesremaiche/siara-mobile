@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SIARA · Beta Occurrence-Risk Section (mockup)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  /* SIARA palette — mirrors client/src/theme/colors.js */
+  :root {
+    --primary: #7A3DF0;
+    --secondary: #1D4ED8;
+    --accent: #0FA958;
+    --bg: #F6F7FB;
+    --surface: #FFFFFF;
+    --heading: #232323;
+    --text: #4A4A4A;
+    --subtext: #6B7280;
+    --grey-light: #9CA3AF;
+    --border: #E5E7EB;
+    --violet-light: rgba(124,58,237,0.08);
+    --violet-border: rgba(124,58,237,0.2);
+    --blue-light: rgba(59,130,246,0.08);
+    --severity-low: #22c55e;
+    --severity-medium: #eab308;
+    --severity-high: #f97316;
+    --severity-critical: #ef4444;
+    --warning: #F4A261;
+    --error: #DC2626;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif;
+    background: #0F172A; color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Layout: phone frame + right rail ── */
+  .page {
+    display: flex; gap: 32px; flex-wrap: wrap;
+    align-items: flex-start; justify-content: center;
+    padding: 32px 24px 64px;
+  }
+  .phone {
+    width: 390px; height: 800px;
+    border-radius: 44px; background: #000; padding: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+    position: relative; flex-shrink: 0;
+  }
+  .phone-screen {
+    width: 100%; height: 100%;
+    border-radius: 34px; overflow: hidden;
+    position: relative; background: var(--bg);
+  }
+  .notch {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 110px; height: 28px; background: #000; border-radius: 18px; z-index: 50;
+  }
+
+  /* ── Top guidance sheet content (just the upper context cards) ── */
+  .sheet-stack {
+    padding: 56px 14px 14px;
+    height: 100%;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .sheet-stack::-webkit-scrollbar { width: 0; height: 0; }
+  .sheet-handle {
+    width: 38px; height: 5px; border-radius: 3px;
+    background: var(--border);
+    margin: 0 auto 6px;
+  }
+
+  /* Existing "Current risk" card (decorative — gives context) */
+  .ctx-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 14px 16px;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.06);
+  }
+  .ctx-title {
+    font-size: 11px; font-weight: 800; color: var(--primary);
+    letter-spacing: 0.8px; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .ctx-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .ctx-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--severity-medium);
+  }
+  .ctx-pct {
+    font-size: 22px; font-weight: 800;
+    color: var(--severity-medium);
+  }
+  .ctx-label { flex: 1; font-size: 13px; font-weight: 700; color: var(--heading); }
+
+  /* ── BETA Occurrence card ── */
+  .beta-card {
+    background: #fff;
+    border-radius: 20px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.06);
+    border: 1.5px dashed var(--violet-border);
+  }
+  .beta-head {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 16px 12px;
+    background: linear-gradient(135deg, rgba(124,58,237,0.10), rgba(29,78,216,0.06));
+    border-bottom: 1px solid var(--violet-border);
+  }
+  .beta-icon {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    background: var(--violet-light);
+    color: var(--primary);
+    display: grid; place-items: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .beta-head-body { flex: 1; min-width: 0; }
+  .beta-row1 {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 2px;
+  }
+  .beta-title {
+    font-size: 14px; font-weight: 800; color: var(--heading);
+  }
+  .beta-pill {
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.7px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #7A3DF0, #1D4ED8);
+    color: #fff;
+    text-transform: uppercase;
+  }
+  .beta-sub {
+    font-size: 11px; color: var(--subtext); line-height: 1.45;
+  }
+
+  /* Body */
+  .beta-body { padding: 14px 16px 4px; }
+
+  /* Horizon tabs */
+  .horizon-row {
+    display: flex; gap: 6px; margin-bottom: 12px;
+  }
+  .horizon-tab {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 7px 8px;
+    text-align: center;
+    font-size: 11px; font-weight: 700;
+    cursor: pointer;
+  }
+  .horizon-tab.active {
+    border-color: var(--primary);
+    background: var(--violet-light);
+    color: var(--primary);
+  }
+
+  /* Main metric block */
+  .metric {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .gauge {
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: conic-gradient(var(--severity-medium) 0deg 165deg, var(--bg) 165deg 360deg);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .gauge::after {
+    content: '';
+    position: absolute; inset: 8px;
+    background: #fff; border-radius: 50%;
+  }
+  .gauge-inner {
+    position: relative; z-index: 1;
+    text-align: center;
+  }
+  .gauge-pct {
+    font-size: 22px; font-weight: 800;
+    color: var(--severity-medium);
+    line-height: 1;
+  }
+  .gauge-lbl {
+    font-size: 10px; font-weight: 700;
+    color: var(--subtext);
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+
+  .metric-body { flex: 1; min-width: 0; gap: 8px; display: flex; flex-direction: column; }
+
+  .metric-line {
+    font-size: 12px; color: var(--subtext); line-height: 1.4;
+  }
+  .metric-line b { color: var(--heading); font-weight: 700; }
+
+  /* Stat chips */
+  .stat-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-top: 12px;
+  }
+  .stat-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 7px 10px;
+  }
+  .stat-chip .lbl {
+    font-size: 9px; font-weight: 800; color: var(--subtext);
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .stat-chip .val {
+    font-size: 13px; font-weight: 800; color: var(--heading);
+    margin-top: 2px;
+  }
+
+  /* Provider tag */
+  .provider-row {
+    display: flex; gap: 6px; margin: 10px 0 0;
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+    align-items: center; flex-wrap: wrap;
+  }
+  .provider-pill {
+    font-size: 10px; font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--blue-light);
+    color: var(--secondary);
+    border: 1px solid rgba(29,78,216,0.18);
+  }
+  .provider-pill.alt {
+    background: var(--violet-light); color: var(--primary);
+    border-color: var(--violet-border);
+  }
+  .provider-meta {
+    font-size: 10px; color: var(--grey-light);
+    margin-left: auto;
+  }
+
+  /* Footer (disclaimer + expand) */
+  .beta-footer {
+    background: #FFFBEB;
+    border-top: 1px solid rgba(245,158,11,0.30);
+    padding: 12px 16px;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .beta-footer .warn-icon {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: rgba(245,158,11,0.18);
+    color: #92400E;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+  .beta-footer-body { flex: 1; }
+  .beta-footer-title {
+    font-size: 12px; font-weight: 800; color: #92400E;
+  }
+  .beta-footer-text {
+    font-size: 11px; color: #78350F;
+    line-height: 1.45;
+    margin-top: 2px;
+  }
+  .beta-footer-text a {
+    color: #B45309; font-weight: 700; text-decoration: underline;
+  }
+
+  /* ── States ── */
+  .loading-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 18px 0 6px;
+  }
+  .spinner {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 3px solid var(--bg);
+    border-top-color: var(--primary);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .err {
+    display: flex; gap: 8px; padding: 12px 14px;
+    background: rgba(220,38,38,0.06);
+    border: 1px solid rgba(220,38,38,0.18);
+    border-radius: 12px;
+    font-size: 12px; color: var(--error);
+    margin: 12px 0 6px;
+    align-items: flex-start;
+  }
+  .retry-btn {
+    margin-left: auto;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px; font-weight: 800;
+    background: #fff;
+    border: 1px solid rgba(220,38,38,0.30);
+    color: var(--error);
+    cursor: pointer;
+  }
+
+  /* ── Right rail ── */
+  .controls {
+    width: 320px;
+    background: #fff;
+    border-radius: 18px;
+    padding: 18px 18px 22px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+    color: var(--text);
+  }
+  .controls h2 {
+    margin: 0 0 4px;
+    font-size: 16px; color: var(--heading);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .controls h2::before {
+    content: ''; width: 10px; height: 10px; border-radius: 999px;
+    background: var(--primary);
+  }
+  .controls p.lead {
+    margin: 0 0 14px; font-size: 12px; color: var(--subtext); line-height: 1.5;
+  }
+  .controls .group { margin-bottom: 14px; }
+  .controls .group-label {
+    font-size: 10px; font-weight: 800; color: var(--subtext);
+    letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .controls .state-list {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .controls .state-btn {
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text); border-radius: 10px; padding: 8px 10px;
+    text-align: left; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 160ms ease;
+  }
+  .controls .state-btn:hover { background: #fff; border-color: var(--primary); }
+  .controls .state-btn.active {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+  }
+  .controls .legend {
+    font-size: 11px; color: var(--subtext); line-height: 1.5;
+  }
+  .controls .legend code {
+    background: var(--bg); padding: 1px 5px; border-radius: 4px;
+    font-size: 11px; color: var(--primary);
+  }
+  .notes {
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    font-size: 11px; color: var(--subtext); line-height: 1.5;
+  }
+  .notes strong { color: var(--heading); }
+
+  .ic {
+    display: inline-block;
+    width: 18px; height: 18px;
+    stroke: currentColor; fill: none;
+    stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-lab"     viewBox="0 0 24 24"><path d="M9 3h6v3l4 12a3 3 0 0 1-3 4H8a3 3 0 0 1-3-4l4-12V3"/><line x1="9" y1="3" x2="15" y2="3"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 2 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12" y2="17.5"/></symbol>
+    <symbol id="i-info"    viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8.5"/></symbol>
+    <symbol id="i-clock"   viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-error"   viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.5 14a8 8 0 1 1-2-8L23 10"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <!-- ── PHONE ── -->
+  <div class="phone">
+    <div class="phone-screen">
+      <div class="notch"></div>
+      <div class="sheet-stack">
+        <div class="sheet-handle"></div>
+
+        <!-- Decorative existing risk card (for visual context) -->
+        <div class="ctx-card">
+          <div class="ctx-title">CURRENT RISK</div>
+          <div class="ctx-row">
+            <span class="ctx-dot"></span>
+            <span class="ctx-pct">42%</span>
+            <span class="ctx-label">Moderate risk</span>
+          </div>
+        </div>
+
+        <!-- BETA Occurrence card (the thing we are previewing) -->
+        <div class="beta-card" id="beta-card"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT RAIL ── -->
+  <div class="controls">
+    <h2>Beta · accident occurrence</h2>
+    <p class="lead">
+      Experimental forecast for the likelihood of an accident occurring near
+      this point inside a chosen horizon. Backed by
+      <code>POST&nbsp;/api/occurrence-risk</code> and
+      <code>POST&nbsp;/api/risk/occurrence</code>. Lives in its own dashed-border
+      card with a permanent <strong>BETA</strong> pill and a yellow disclaimer
+      footer — so it cannot be mistaken for the main SIARA risk score.
+    </p>
+
+    <div class="group">
+      <div class="group-label">State</div>
+      <div class="state-list" id="state-buttons"></div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">Provider toggle</div>
+      <div class="legend">
+        Two endpoints power this card. UI exposes the active one as a small
+        pill (<code>occurrence-risk</code> blue, <code>risk/occurrence</code> purple).
+        Tap to compare results from both models in the same card.
+      </div>
+    </div>
+
+    <div class="notes">
+      <strong>Interaction model:</strong><br/>
+      • Three horizon tabs: <code>30 min</code>, <code>1 h</code>, <code>2 h</code> — fires a fresh request per tab.<br/>
+      • Gauge colour follows the same severity scale as the main risk card.<br/>
+      • Provider pill toggles between the two endpoints; both responses cached for 60 s.<br/>
+      • Disclaimer is always visible. <em>Learn more</em> would open a modal explaining model limitations.<br/>
+      • Error state offers a single retry; failures do not bubble up to the main map.<br/>
+      • Stat chips show <em>confidence</em>, <em>sample size</em>, <em>last refreshed</em> when the backend provides them.
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State variants ────────────────────────────────────────────────────
+  const STATES = {
+    loading: {
+      label: 'Loading',
+      render: () => render({
+        loading: true,
+      }),
+    },
+    low: {
+      label: 'Low likelihood',
+      render: () => render({
+        level: 'low', pct: 9, label: 'Low likelihood',
+        line: '<b>1.2× baseline</b> for this segment in the next hour. Drive normally.',
+        provider: 'primary',
+        confidence: '78%',
+        samples: 142,
+        updated: '2 min ago',
+      }),
+    },
+    moderate: {
+      label: 'Moderate (default)',
+      render: () => render({
+        level: 'medium', pct: 46, label: 'Moderate likelihood',
+        line: 'About <b>2.6× higher</b> than baseline. Roadworks 800&nbsp;m ahead may be a factor.',
+        provider: 'primary',
+        confidence: '64%',
+        samples: 89,
+        updated: '3 min ago',
+      }),
+    },
+    high: {
+      label: 'High likelihood',
+      render: () => render({
+        level: 'high', pct: 71, label: 'High likelihood',
+        line: '<b>4.3× higher</b> than baseline. Recent reports cluster within 500&nbsp;m.',
+        provider: 'alt',
+        confidence: '58%',
+        samples: 47,
+        updated: '40 s ago',
+      }),
+    },
+    extreme: {
+      label: 'Extreme',
+      render: () => render({
+        level: 'critical', pct: 88, label: 'Very high likelihood',
+        line: '<b>7.1× baseline</b>. Multiple converging factors: weather, traffic, and recent incidents.',
+        provider: 'alt',
+        confidence: '52%',
+        samples: 33,
+        updated: 'just now',
+      }),
+    },
+    error: {
+      label: 'Error / retry',
+      render: () => `
+        ${head()}
+        <div class="beta-body">
+          ${horizonTabs('1h')}
+          <div class="err">
+            <svg class="ic"><use href="#i-error"/></svg>
+            <div>Couldn’t reach the occurrence model. Main risk score is still accurate.</div>
+            <button class="retry-btn">Retry</button>
+          </div>
+        </div>
+        ${footer()}
+      `,
+    },
+  };
+
+  // ── Render helpers ────────────────────────────────────────────────────
+  const COLORS = {
+    low:      { main: 'var(--severity-low)',      bg: 'var(--bg)' },
+    medium:   { main: 'var(--severity-medium)',   bg: 'var(--bg)' },
+    high:     { main: 'var(--severity-high)',     bg: 'var(--bg)' },
+    critical: { main: 'var(--severity-critical)', bg: 'var(--bg)' },
+  };
+
+  function head() {
+    return `
+      <div class="beta-head">
+        <div class="beta-icon">
+          <svg class="ic"><use href="#i-lab"/></svg>
+        </div>
+        <div class="beta-head-body">
+          <div class="beta-row1">
+            <span class="beta-title">Accident occurrence</span>
+            <span class="beta-pill">Beta</span>
+          </div>
+          <div class="beta-sub">Probability that an accident occurs near this point inside the selected horizon.</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function horizonTabs(active = '1h') {
+    const tabs = [['30m','30 min'], ['1h','1 hour'], ['2h','2 h']];
+    return `
+      <div class="horizon-row">
+        ${tabs.map(([k, label]) => `<button class="horizon-tab ${k === active ? 'active' : ''}">${label}</button>`).join('')}
+      </div>
+    `;
+  }
+
+  function footer() {
+    return `
+      <div class="beta-footer">
+        <div class="warn-icon"><svg class="ic" style="width:14px;height:14px"><use href="#i-warning"/></svg></div>
+        <div class="beta-footer-body">
+          <div class="beta-footer-title">Experimental forecast</div>
+          <div class="beta-footer-text">
+            Accident occurrence forecasting is still being validated and may be inaccurate. Do not use this number for safety-critical decisions. <a href="#">Learn more</a>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function render(opts) {
+    const card = document.getElementById('beta-card');
+
+    if (opts.loading) {
+      card.innerHTML = `
+        ${head()}
+        <div class="beta-body">
+          ${horizonTabs('1h')}
+          <div class="loading-row">
+            <div class="spinner"></div>
+            <div class="metric-line">Asking the experimental model…</div>
+          </div>
+        </div>
+        ${footer()}
+      `;
+      return;
+    }
+
+    const c = COLORS[opts.level];
+    const deg = Math.max(0, Math.min(360, Math.round((opts.pct / 100) * 360)));
+    const providerLabel = opts.provider === 'alt'
+      ? '<span class="provider-pill alt">/api/risk/occurrence</span>'
+      : '<span class="provider-pill">/api/occurrence-risk</span>';
+
+    card.innerHTML = `
+      ${head()}
+      <div class="beta-body">
+        ${horizonTabs('1h')}
+        <div class="metric">
+          <div class="gauge" style="background: conic-gradient(${c.main} 0deg ${deg}deg, var(--bg) ${deg}deg 360deg);">
+            <div class="gauge-inner">
+              <div class="gauge-pct" style="color: ${c.main}">${opts.pct}%</div>
+              <div class="gauge-lbl">${opts.label.split(' ')[0]}</div>
+            </div>
+          </div>
+          <div class="metric-body">
+            <div class="metric-line"><b style="color:${c.main}">${opts.label}</b></div>
+            <div class="metric-line">${opts.line}</div>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-chip">
+            <div class="lbl">Model confidence</div>
+            <div class="val">${opts.confidence}</div>
+          </div>
+          <div class="stat-chip">
+            <div class="lbl">Samples</div>
+            <div class="val">${opts.samples}</div>
+          </div>
+        </div>
+
+        <div class="provider-row">
+          ${providerLabel}
+          <span class="provider-meta">
+            <svg class="ic" style="width:11px;height:11px;vertical-align:-2px"><use href="#i-clock"/></svg>
+            ${opts.updated}
+          </span>
+        </div>
+      </div>
+      ${footer()}
+    `;
+  }
+
+  // ── Mount state controls ──────────────────────────────────────────────
+  const buttons = document.getElementById('state-buttons');
+  Object.entries(STATES).forEach(([key, state], i) => {
+    const btn = document.createElement('button');
+    btn.className = 'state-btn' + (key === 'moderate' ? ' active' : '');
+    btn.dataset.key = key;
+    btn.textContent = state.label;
+    btn.onclick = () => {
+      Array.from(buttons.children).forEach(b => b.classList.toggle('active', b.dataset.key === key));
+      if (state.render === STATES.error.render) {
+        document.getElementById('beta-card').innerHTML = STATES.error.render();
+      } else {
+        STATES[key].render();
+      }
+    };
+    buttons.appendChild(btn);
+  });
+
+  STATES.moderate.render();
+</script>
+
+</body>
+</html>

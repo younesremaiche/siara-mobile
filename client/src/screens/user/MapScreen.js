@@ -25,7 +25,9 @@ import RouteDetailsSection from '../../components/map/RouteDetailsSection';
 import ForecastTabsSection from '../../components/map/ForecastTabsSection';
 import DrivingQuiz from '../../components/ui/DrivingQuiz';
 import { Colors } from '../../theme/colors';
-import { API_BASE_URL } from '../../config/api';
+import { fetchCurrentWeather } from '../../services/weatherService';
+import { fetchRiskForecast24h } from '../../services/riskService';
+import { isAbortError } from '../../utils/requestCache';
 
 const { height } = Dimensions.get('window');
 
@@ -377,47 +379,55 @@ export default function MapScreen({ navigation }) {
   }, [requestLocation]);
 
   useEffect(() => {
-    if (!userPosition) return;
-    let cancelled = false;
+    if (!userPosition) return undefined;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setWeatherLoading(true);
       try {
-        const query = `lat=${encodeURIComponent(userPosition.lat)}&lng=${encodeURIComponent(userPosition.lng)}&timestamp=${encodeURIComponent(selectedTimestampIso)}`;
-        const resp = await fetch(`${API_BASE_URL}/api/weather/current?${query}`);
-        const data = await resp.json();
-        if (!cancelled) setWeatherData(data);
-      } catch {
-        if (!cancelled) setWeatherData(null);
+        const data = await fetchCurrentWeather({
+          lat: userPosition.lat,
+          lng: userPosition.lng,
+          timestamp: selectedTimestampIso,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setWeatherData(data);
+      } catch (error) {
+        if (isAbortError(error)) return;
+        if (!controller.signal.aborted) setWeatherData(null);
       } finally {
-        if (!cancelled) setWeatherLoading(false);
+        if (!controller.signal.aborted) setWeatherLoading(false);
       }
     }, 700);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [selectedTimestampIso, userPosition]);
 
   useEffect(() => {
-    if (!userPosition) return;
-    let cancelled = false;
+    if (!userPosition) return undefined;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setForecastLoading(true);
       try {
-        const query = `lat=${encodeURIComponent(userPosition.lat)}&lng=${encodeURIComponent(userPosition.lng)}&timestamp=${encodeURIComponent(selectedTimestampIso)}`;
-        const resp = await fetch(`${API_BASE_URL}/api/risk/forecast24h?${query}`);
-        const data = await resp.json();
+        const data = await fetchRiskForecast24h({
+          lat: userPosition.lat,
+          lng: userPosition.lng,
+          timestamp: selectedTimestampIso,
+          signal: controller.signal,
+        });
         const points = Array.isArray(data?.points) ? data.points : [];
         const nowPoint = data?.now_point && typeof data.now_point === 'object' ? data.now_point : null;
-        if (!cancelled) setForecastPoints(nowPoint ? [nowPoint, ...points.slice(1)] : points);
-      } catch {
-        if (!cancelled) setForecastPoints([]);
+        if (!controller.signal.aborted) setForecastPoints(nowPoint ? [nowPoint, ...points.slice(1)] : points);
+      } catch (error) {
+        if (isAbortError(error)) return;
+        if (!controller.signal.aborted) setForecastPoints([]);
       } finally {
-        if (!cancelled) setForecastLoading(false);
+        if (!controller.signal.aborted) setForecastLoading(false);
       }
     }, 700);
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [selectedTimestampIso, userPosition]);
