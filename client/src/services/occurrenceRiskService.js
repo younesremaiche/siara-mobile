@@ -24,6 +24,7 @@ const occurrenceCache = new TtlCache({ ttlMs: OCCURRENCE_TTL_MS, max: 32 });
 const metadataCache = new TtlCache({ ttlMs: METADATA_TTL_MS, max: 2 });
 
 export const OCCURRENCE_UNAVAILABLE_CODE = 'OCCURRENCE_UNAVAILABLE';
+export const OCCURRENCE_INPUT_REQUIRED_CODE = 'OCCURRENCE_INPUT_REQUIRED';
 
 // UI helper: short string suitable for the beta disclaimer.
 export const OCCURRENCE_BETA_DISCLAIMER =
@@ -41,6 +42,18 @@ function tagUnavailable(error) {
   throw error;
 }
 
+function buildInputRequiredError(message) {
+  const err = new Error(message);
+  err.code = OCCURRENCE_INPUT_REQUIRED_CODE;
+  err.local = true;
+  return err;
+}
+
+function positiveInteger(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 function buildKey(prefix, { lat, lng, timestamp, extra }) {
   return `${prefix}:${coordKey(lat, lng, 3) || 'na'}:${timestamp || 'now'}:${extra || ''}`;
 }
@@ -50,24 +63,37 @@ function buildKey(prefix, { lat, lng, timestamp, extra }) {
 // Caller passes a single point (with optional segment_id) and gets back the
 // rule-based occurrence likelihood for that segment.
 export async function fetchOccurrenceRiskSegment({
+  roadSegmentId,
+  road_segment_id,
   lat,
   lng,
   segment_id,
+  segmentId,
+  timeBucket,
+  time_bucket,
+  weather,
+  context,
+  personalize = true,
+  persist = true,
   timestamp,
   horizon_minutes,
   signal,
   force = false,
   ...rest
 } = {}) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    throw new Error('fetchOccurrenceRiskSegment: invalid coordinates');
+  const validRoadSegmentId = positiveInteger(
+    roadSegmentId ?? road_segment_id ?? segmentId ?? segment_id,
+  );
+  if (!validRoadSegmentId) {
+    throw buildInputRequiredError('Beta model needs a road segment and time-window features before prediction.');
   }
 
+  const bucket = timeBucket || time_bucket || timestamp || new Date().toISOString().slice(0, 13);
   const cacheKey = buildKey('occ-segment', {
-    lat,
-    lng,
-    timestamp,
-    extra: `${segment_id || ''}:${horizon_minutes || ''}`,
+    lat: validRoadSegmentId,
+    lng: 0,
+    timestamp: bucket,
+    extra: `${horizon_minutes || ''}`,
   });
   if (!force) {
     const cached = occurrenceCache.get(cacheKey);
@@ -75,10 +101,12 @@ export async function fetchOccurrenceRiskSegment({
   }
 
   const body = {
-    lat: Number(lat),
-    lng: Number(lng),
-    ...(segment_id ? { segment_id: String(segment_id) } : {}),
-    ...(timestamp ? { timestamp } : {}),
+    roadSegmentId: validRoadSegmentId,
+    timeBucket: bucket,
+    ...(weather ? { weather } : {}),
+    ...(context ? { context } : {}),
+    personalize: Boolean(personalize),
+    persist: Boolean(persist),
     ...(horizon_minutes != null ? { horizon_minutes } : {}),
     ...rest,
   };

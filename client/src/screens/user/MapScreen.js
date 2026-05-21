@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Modal,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapCanvas from '../../components/map/MapCanvas';
@@ -19,6 +21,8 @@ import GuidanceBottomSheet from '../../components/map/GuidanceBottomSheet';
 import GuidanceSearchSection from '../../components/map/GuidanceSearchSection';
 import GuidanceTimeControls from '../../components/map/GuidanceTimeControls';
 import CurrentRiskSection from '../../components/map/CurrentRiskSection';
+import DepartureTimeCard from '../../components/map/DepartureTimeCard';
+import BetaOccurrenceCard from '../../components/map/BetaOccurrenceCard';
 import ReportDetailsSheet from '../../components/map/ReportDetailsSheet';
 import RouteAlternativesList from '../../components/map/RouteAlternativesList';
 import RouteDetailsSection from '../../components/map/RouteDetailsSection';
@@ -26,7 +30,8 @@ import ForecastTabsSection from '../../components/map/ForecastTabsSection';
 import DrivingQuiz from '../../components/ui/DrivingQuiz';
 import { Colors } from '../../theme/colors';
 import { fetchCurrentWeather } from '../../services/weatherService';
-import { fetchRiskForecast24h } from '../../services/riskService';
+import { explainRisk, fetchRiskForecast24h } from '../../services/riskService';
+import { explainRouteRisk } from '../../services/routeRiskService';
 import { isAbortError } from '../../utils/requestCache';
 
 const { height } = Dimensions.get('window');
@@ -247,6 +252,200 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
   );
 }
 
+function pickExplanationText(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  return (
+    payload.explanation
+    || payload.summary
+    || payload.text
+    || payload.narrative
+    || payload.reason
+    || ''
+  );
+}
+
+function stringifyExplanationValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return value.text || value.summary || value.reason || value.label || JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function positiveIntegerOrNull(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function extractOccurrenceRoadSegmentId({ currentRisk, selectedRoute, currentSegmentIndex } = {}) {
+  const candidates = [
+    currentRisk?.roadSegmentId,
+    currentRisk?.road_segment_id,
+    currentRisk?.segmentId,
+    currentRisk?.segment_id,
+    currentRisk?.nearestSegment?.id,
+    currentRisk?.nearestSegment?.segment_id,
+    selectedRoute?.currentSegment?.segment_id,
+    selectedRoute?.currentSegment?.segmentId,
+  ];
+
+  if (Array.isArray(selectedRoute?.segments) && Number.isInteger(Number(currentSegmentIndex))) {
+    const segment = selectedRoute.segments[Number(currentSegmentIndex)];
+    candidates.push(segment?.segment_id, segment?.segmentId);
+  }
+
+  for (const candidate of candidates) {
+    const id = positiveIntegerOrNull(candidate);
+    if (id) return id;
+  }
+  return null;
+}
+
+function buildOccurrenceTimeBucket(timestampIso) {
+  const date = timestampIso ? new Date(timestampIso) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  safeDate.setMinutes(0, 0, 0);
+  return safeDate.toISOString();
+}
+
+function RiskExplanationModal({
+  visible,
+  state,
+  data,
+  error,
+  onClose,
+  onRetry,
+}) {
+  const explanationText = pickExplanationText(data);
+  const isFallback = data?.source === 'fallback' || data?.fallback === true;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={[styles.modalCard, styles.modalCardTall]}>
+          <View style={styles.handle} />
+          <View style={styles.modalHeader}>
+            <View style={styles.modalTitleWrap}>
+              <Text style={styles.modalTitle}>Why this risk?</Text>
+              <Text style={styles.modalSubtitle}>Generated only after tapping Why?</Text>
+            </View>
+            <TouchableOpacity style={styles.closeIconBtn} onPress={onClose}>
+              <Ionicons name="close" size={18} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          {state === 'loading' ? (
+            <View style={styles.explainStateBox}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.explainStateText}>Preparing explanation from available risk, weather, XAI, and raw prediction.</Text>
+            </View>
+          ) : state === 'error' ? (
+            <View style={[styles.explainStateBox, styles.explainStateError]}>
+              <Ionicons name="alert-circle" size={18} color={Colors.error} />
+              <Text style={[styles.explainStateText, styles.explainStateErrorText]}>
+                {error || 'Could not load the explanation. Current risk remains available.'}
+              </Text>
+              <TouchableOpacity style={styles.retryChip} onPress={onRetry}>
+                <Text style={styles.retryChipText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {isFallback ? (
+                <View style={styles.fallbackBanner}>
+                  <Ionicons name="warning-outline" size={16} color="#92400E" />
+                  <Text style={styles.fallbackBannerText}>Fallback explanation based on available prediction context.</Text>
+                </View>
+              ) : null}
+              <Text style={styles.explanationText}>
+                {explanationText || 'SIARA could not produce a detailed explanation, so this view is showing the available prediction context only.'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function RouteExplanationModal({
+  visible,
+  state,
+  data,
+  error,
+  onClose,
+  onRetry,
+}) {
+  const summary = data?.summary || data?.explanation || data?.text || '';
+  const reasons = Array.isArray(data?.reasons) ? data.reasons : [];
+  const comparison = data?.comparison || null;
+  const isFallback = data?.source === 'fallback';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={[styles.modalCard, styles.modalCardTall]}>
+          <View style={styles.handle} />
+          <View style={styles.modalHeader}>
+            <View style={styles.modalTitleWrap}>
+              <Text style={styles.modalTitle}>Why this route?</Text>
+              <Text style={styles.modalSubtitle}>Selected route compared with available alternatives.</Text>
+            </View>
+            <TouchableOpacity style={styles.closeIconBtn} onPress={onClose}>
+              <Ionicons name="close" size={18} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          {state === 'loading' ? (
+            <View style={styles.explainStateBox}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.explainStateText}>Explaining the selected route risk profile.</Text>
+            </View>
+          ) : state === 'error' ? (
+            <View style={[styles.explainStateBox, styles.explainStateError]}>
+              <Ionicons name="alert-circle" size={18} color={Colors.error} />
+              <Text style={[styles.explainStateText, styles.explainStateErrorText]}>
+                {error || 'Could not load this route explanation.'}
+              </Text>
+              <TouchableOpacity style={styles.retryChip} onPress={onRetry}>
+                <Text style={styles.retryChipText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.explanationScroll}>
+              {isFallback ? (
+                <View style={styles.fallbackBanner}>
+                  <Ionicons name="warning-outline" size={16} color="#92400E" />
+                  <Text style={styles.fallbackBannerText}>Fallback route explanation. The selected route remains risk-scored.</Text>
+                </View>
+              ) : null}
+              <Text style={styles.explanationText}>
+                {summary || 'This route was selected from the current route risk analysis.'}
+              </Text>
+              {comparison ? (
+                <View style={styles.comparisonBox}>
+                  <Text style={styles.comparisonTitle}>Comparison</Text>
+                  <Text style={styles.comparisonText}>{stringifyExplanationValue(comparison)}</Text>
+                </View>
+              ) : null}
+              {reasons.map((reason, index) => (
+                <View key={`${reason}-${index}`} style={styles.reasonRow}>
+                  <View style={styles.reasonDot}>
+                    <Ionicons name="checkmark" size={12} color={Colors.white} />
+                  </View>
+                  <Text style={styles.reasonText}>{stringifyExplanationValue(reason)}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 const xaiStyles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
@@ -343,6 +542,14 @@ export default function MapScreen({ navigation }) {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [selectedTimestampIso, setSelectedTimestampIso] = useState(() => new Date().toISOString());
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [riskExplanationVisible, setRiskExplanationVisible] = useState(false);
+  const [riskExplanationState, setRiskExplanationState] = useState('idle');
+  const [riskExplanationData, setRiskExplanationData] = useState(null);
+  const [riskExplanationError, setRiskExplanationError] = useState('');
+  const [routeExplanationVisible, setRouteExplanationVisible] = useState(false);
+  const [routeExplanationState, setRouteExplanationState] = useState('idle');
+  const [routeExplanationData, setRouteExplanationData] = useState(null);
+  const [routeExplanationError, setRouteExplanationError] = useState('');
 
   const mapRef = useRef(null);
   const previousGuidanceActiveRef = useRef(false);
@@ -450,6 +657,70 @@ export default function MapScreen({ navigation }) {
     setSelectedIncident(null);
   }, []);
 
+  const handleExplainRisk = useCallback(async () => {
+    const risk = mapSnapshot.currentRisk;
+    setRiskExplanationVisible(true);
+    setRiskExplanationData(null);
+    setRiskExplanationError('');
+
+    if (!risk) {
+      setRiskExplanationState('error');
+      setRiskExplanationError('Current risk is not available yet.');
+      return;
+    }
+
+    setRiskExplanationState('loading');
+    try {
+      const payload = await explainRisk({
+        risk,
+        weather: weatherData,
+        xai: risk.xai || risk.shap || (Array.isArray(risk.shap_features) ? { shap_features: risk.shap_features } : null),
+        rawPrediction: risk.rawPrediction || risk.raw_prediction || risk.raw || risk,
+        lat: userPosition?.lat,
+        lng: userPosition?.lng,
+        timestamp: selectedTimestampIso,
+      });
+      setRiskExplanationData(payload);
+      setRiskExplanationState('success');
+    } catch (error) {
+      setRiskExplanationState('error');
+      setRiskExplanationError(error?.message || 'Could not load the risk explanation.');
+    }
+  }, [mapSnapshot.currentRisk, selectedTimestampIso, userPosition?.lat, userPosition?.lng, weatherData]);
+
+  const handleExplainRoute = useCallback(async () => {
+    setRouteExplanationVisible(true);
+    setRouteExplanationData(null);
+    setRouteExplanationError('');
+
+    if (!selectedRoute) {
+      setRouteExplanationState('error');
+      setRouteExplanationError('Choose a route before requesting an explanation.');
+      return;
+    }
+    if (!destination) {
+      setRouteExplanationState('error');
+      setRouteExplanationError('Choose a destination before requesting a route explanation.');
+      return;
+    }
+
+    setRouteExplanationState('loading');
+    try {
+      const payload = await explainRouteRisk({
+        selectedRoute,
+        alternatives: mapSnapshot.guidedRoutes || [],
+        destination,
+        nearbyReports: mapSnapshot.nearbyReports || [],
+        timestamp: selectedTimestampIso,
+      });
+      setRouteExplanationData(payload);
+      setRouteExplanationState('success');
+    } catch (error) {
+      setRouteExplanationState('error');
+      setRouteExplanationError(error?.message || 'Could not load this route explanation.');
+    }
+  }, [destination, mapSnapshot.guidedRoutes, mapSnapshot.nearbyReports, selectedRoute, selectedTimestampIso]);
+
   const filteredMarkers = useMemo(() => (
     MOCK_MARKERS.filter((marker) => {
       if (severityFilter.length > 0 && !severityFilter.includes(marker.severity)) return false;
@@ -461,6 +732,29 @@ export default function MapScreen({ navigation }) {
   ), [searchText, selectedWilaya, severityFilter, typeFilter]);
 
   const hasActiveFilters = severityFilter.length > 0 || typeFilter.length > 0 || Boolean(selectedWilaya);
+  const occurrenceRoadSegmentId = useMemo(() => {
+    const currentSegmentIndex = selectedRoute?.currentSegmentIndex ?? selectedRoute?.current_segment_index;
+    return extractOccurrenceRoadSegmentId({
+      currentRisk: mapSnapshot.currentRisk,
+      selectedRoute,
+      currentSegmentIndex,
+    });
+  }, [mapSnapshot.currentRisk, selectedRoute]);
+  const occurrenceTimeBucket = useMemo(
+    () => buildOccurrenceTimeBucket(selectedTimestampIso),
+    [selectedTimestampIso],
+  );
+  const occurrenceContext = useMemo(() => ({
+    destination: destination
+      ? {
+        name: destination.name || destination.full_name || null,
+        lat: destination.lat,
+        lng: destination.lng,
+      }
+      : null,
+    routeType: selectedRoute?.route_type || null,
+    riskPercent: mapSnapshot.currentRisk?.danger_percent ?? selectedRoute?.danger_percent ?? null,
+  }), [destination, mapSnapshot.currentRisk, selectedRoute]);
   const weatherTemp = weatherData?.temperature_c != null ? `${Math.round(Number(weatherData.temperature_c))}\u00B0C` : '--';
   const weatherDesc = weatherLoading && !weatherData ? 'Loading...' : weatherData?.condition || 'Weather';
   const weatherWind = weatherData?.wind_kmh != null ? `${Number(weatherData.wind_kmh).toFixed(1)} km/h` : '--';
@@ -488,6 +782,62 @@ export default function MapScreen({ navigation }) {
     if (!guidanceActive && wasActive) handleSheetModeChange('map', 0, snapHeights[0]);
     previousGuidanceActiveRef.current = guidanceActive;
   }, [guidanceActive, handleSheetModeChange, snapHeights]);
+
+  // ── Departure-time card callbacks ──
+  // "Use this time" → swap the active route timestamp to a future window so
+  // the polyline and risk score recolour. SiaraMap exposes setCustomDate +
+  // setTimePreset on its imperative handle.
+  const handleUseDepartureTime = useCallback((isoString) => {
+    if (!isoString) return;
+    mapRef.current?.setCustomDate?.(isoString);
+    mapRef.current?.setTimePreset?.('custom');
+  }, []);
+
+  // "Notify me" → schedule a local notification 10 minutes before the chosen
+  // departure window. Permissions are requested lazily; if the user declines
+  // we surface that gently rather than silently failing.
+  const handleScheduleDepartureNotification = useCallback(async ({ timestamp, destinationName, riskPct }) => {
+    try {
+      const target = new Date(timestamp);
+      if (Number.isNaN(target.getTime())) return;
+
+      const fireAt = new Date(target.getTime() - 10 * 60_000);
+      const secondsFromNow = Math.max(15, Math.round((fireAt.getTime() - Date.now()) / 1000));
+
+      const settings = await Notifications.getPermissionsAsync();
+      let granted = settings.granted || settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+      if (!granted) {
+        const requested = await Notifications.requestPermissionsAsync();
+        granted = requested.granted;
+      }
+      if (!granted) {
+        Alert.alert(
+          'Notifications disabled',
+          'Enable notifications in your settings to get reminders before your safer departure window.',
+        );
+        return;
+      }
+
+      const hh = String(target.getHours()).padStart(2, '0');
+      const mm = String(target.getMinutes()).padStart(2, '0');
+      const riskLabel = Number.isFinite(Number(riskPct)) ? ` (${Math.round(Number(riskPct))}% risk)` : '';
+      const destLabel = destinationName ? ` to ${destinationName}` : '';
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Safer time to leave is in 10 min',
+          body: `Heading out${destLabel} at ${hh}:${mm}${riskLabel}.`,
+          data: { kind: 'departure-time', timestamp, destinationName },
+        },
+        trigger: { seconds: secondsFromNow },
+      });
+
+      Alert.alert('Reminder set', `We'll ping you 10 minutes before ${hh}:${mm}.`);
+    } catch (error) {
+      if (__DEV__) console.warn('[MapScreen] schedule departure notification failed', error?.message);
+      Alert.alert('Reminder failed', 'Could not schedule the reminder. Try again in a moment.');
+    }
+  }, []);
 
   const handleClearGuidance = useCallback(() => {
     mapRef.current?.clearGuidance?.();
@@ -616,15 +966,34 @@ export default function MapScreen({ navigation }) {
               onChangeCustomDate={(value) => mapRef.current?.setCustomDate?.(value)}
             />
 
+            <DepartureTimeCard
+              origin={userPosition ? { lat: userPosition.lat, lng: userPosition.lng } : null}
+              destination={destination}
+              baselineTimestamp={selectedTimestampIso}
+              onUseTime={handleUseDepartureTime}
+              onScheduleNotification={handleScheduleDepartureNotification}
+            />
+
             {!guidanceActive || mapDisplayMode === 'info' ? (
               <CurrentRiskSection
                 riskDisplay={mapSnapshot.riskDisplay}
                 currentRiskState={mapSnapshot.currentRiskState || 'idle'}
                 currentRiskError={mapSnapshot.currentRiskError || ''}
                 sentinelInfo={mapSnapshot.sentinelInfo}
-                onExplain={() => mapRef.current?.showRiskExplanation?.()}
+                onExplain={handleExplainRisk}
               />
             ) : null}
+
+            <BetaOccurrenceCard
+              lat={userPosition?.lat}
+              lng={userPosition?.lng}
+              roadSegmentId={occurrenceRoadSegmentId}
+              timeBucket={occurrenceTimeBucket}
+              timestamp={selectedTimestampIso}
+              weather={weatherData}
+              context={occurrenceContext}
+              hasTimeWindowFeatures={Boolean(occurrenceTimeBucket)}
+            />
 
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -671,6 +1040,8 @@ export default function MapScreen({ navigation }) {
               sentinelInfo={mapSnapshot.sentinelInfo}
               mode={mapDisplayMode === 'info' ? 'info' : 'guidance'}
               onSegmentPress={(segment) => mapRef.current?.openSegmentExplanation?.(segment)}
+              onExplainRoute={handleExplainRoute}
+              routeExplanationState={routeExplanationState}
             />
 
             {mapDisplayMode === 'info' ? (
@@ -792,6 +1163,24 @@ export default function MapScreen({ navigation }) {
         </TouchableOpacity>
       </Modal>
 
+      <RiskExplanationModal
+        visible={riskExplanationVisible}
+        state={riskExplanationState}
+        data={riskExplanationData}
+        error={riskExplanationError}
+        onClose={() => setRiskExplanationVisible(false)}
+        onRetry={handleExplainRisk}
+      />
+
+      <RouteExplanationModal
+        visible={routeExplanationVisible}
+        state={routeExplanationState}
+        data={routeExplanationData}
+        error={routeExplanationError}
+        onClose={() => setRouteExplanationVisible(false)}
+        onRetry={handleExplainRoute}
+      />
+
       <DrivingQuiz visible={showQuiz} onClose={() => setShowQuiz(false)} />
 
       <ReportDetailsSheet
@@ -885,9 +1274,80 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.36)', justifyContent: 'flex-end' },
   modalCard: { backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 24, gap: 12 },
   modalCardXai: { maxHeight: '72%' },
+  modalCardTall: { maxHeight: '74%' },
   handle: { alignSelf: 'center', width: 52, height: 6, borderRadius: 999, backgroundColor: '#CBD5E1', marginBottom: 8 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalTitleWrap: { flex: 1, paddingRight: 12 },
   modalTitle: { fontSize: 18, fontWeight: '800', color: Colors.heading },
+  modalSubtitle: { marginTop: 3, fontSize: 12, lineHeight: 17, color: Colors.subtext },
+  closeIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  explainStateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  explainStateError: {
+    backgroundColor: 'rgba(220,38,38,0.06)',
+    borderColor: 'rgba(220,38,38,0.18)',
+  },
+  explainStateText: { flex: 1, fontSize: 12, lineHeight: 18, color: Colors.subtext },
+  explainStateErrorText: { color: Colors.error },
+  retryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  retryChipText: { fontSize: 11, fontWeight: '800', color: Colors.primary },
+  fallbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 11,
+    borderRadius: 12,
+    backgroundColor: 'rgba(245,158,11,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.28)',
+  },
+  fallbackBannerText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 17 },
+  explanationText: { fontSize: 13, lineHeight: 20, color: Colors.text },
+  explanationScroll: { gap: 12, paddingBottom: 8 },
+  comparisonBox: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.violetLight,
+    borderWidth: 1,
+    borderColor: Colors.violetBorder,
+  },
+  comparisonTitle: { fontSize: 12, fontWeight: '800', color: Colors.heading, marginBottom: 4 },
+  comparisonText: { fontSize: 12, lineHeight: 18, color: Colors.text },
+  reasonRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  reasonDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  reasonText: { flex: 1, fontSize: 12, lineHeight: 18, color: Colors.text },
   link: { fontSize: 13, fontWeight: '700', color: Colors.primary },
   groupLabel: { fontSize: 13, fontWeight: '800', color: Colors.heading },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

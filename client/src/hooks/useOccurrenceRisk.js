@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchOccurrenceRiskSegment,
+  predictOccurrenceRiskBatch,
   predictOccurrenceRiskPoint,
+  OCCURRENCE_INPUT_REQUIRED_CODE,
   OCCURRENCE_UNAVAILABLE_CODE,
 } from '../services/occurrenceRiskService';
 import { isAbortError } from '../utils/requestCache';
@@ -96,7 +98,13 @@ function normaliseResponse(payload, level, pct) {
 export default function useOccurrenceRisk({
   lat,
   lng,
+  roadSegmentId,
+  segmentId,
+  timeBucket,
   timestamp,
+  rows,
+  weather,
+  context,
   enabled = true,
   initialHorizonKey = '1h',
   initialProvider = 'primary',
@@ -112,7 +120,22 @@ export default function useOccurrenceRisk({
   const provider = OCCURRENCE_PROVIDERS[providerKey] || OCCURRENCE_PROVIDERS.primary;
 
   const fetchNow = useCallback(async ({ force = false } = {}) => {
-    if (!enabled || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    if (!enabled) {
+      setData(null);
+      setState('idle');
+      setError('');
+      return null;
+    }
+    if (providerKey === 'primary') {
+      const id = Number(roadSegmentId ?? segmentId);
+      if (!Number.isInteger(id) || id <= 0) {
+        setData(null);
+        setState('idle');
+        setError('');
+        return null;
+      }
+    }
+    if (providerKey === 'alt' && (!Array.isArray(rows) || rows.length === 0)) {
       setData(null);
       setState('idle');
       setError('');
@@ -125,14 +148,36 @@ export default function useOccurrenceRisk({
     setError('');
 
     try {
-      const payload = await provider.fetcher({
-        lat,
-        lng,
-        timestamp,
-        horizon_minutes: horizon.minutes,
-        signal: controller.signal,
-        force,
-      });
+      const payload = providerKey === 'alt' && Array.isArray(rows) && rows.length > 0
+        ? await predictOccurrenceRiskBatch({
+          rows: rows.map((row) => ({
+            ...row,
+            timestamp: row?.timestamp || timestamp,
+            horizon_minutes: row?.horizon_minutes || horizon.minutes,
+          })),
+          signal: controller.signal,
+          force,
+        }).then((response) => {
+          const list =
+            (Array.isArray(response?.predictions) && response.predictions)
+            || (Array.isArray(response?.results) && response.results)
+            || (Array.isArray(response?.data) && response.data)
+            || [];
+          return list[0] ?? response;
+        })
+        : await provider.fetcher({
+          roadSegmentId,
+          segmentId,
+          timeBucket,
+          timestamp,
+          weather,
+          context,
+          personalize: true,
+          persist: true,
+          horizon_minutes: horizon.minutes,
+          signal: controller.signal,
+          force,
+        });
       if (tick !== requestTickRef.current) return null;
       const pct = clampPercent(payload?.occurrence_percent ?? payload?.percent ?? payload?.probability);
       const level = normaliseLevel(payload?.level ?? payload?.danger_level, pct);
@@ -148,11 +193,17 @@ export default function useOccurrenceRisk({
         setError('');
         return null;
       }
+      if (err?.code === OCCURRENCE_INPUT_REQUIRED_CODE) {
+        setData(null);
+        setState('idle');
+        setError('');
+        return null;
+      }
       setState('error');
       setError(err?.message || 'Occurrence model unavailable');
       return null;
     }
-  }, [enabled, horizon.minutes, lat, lng, provider, timestamp]);
+  }, [context, enabled, horizon.minutes, provider, providerKey, roadSegmentId, rows, segmentId, timeBucket, timestamp, weather]);
 
   useEffect(() => {
     fetchNow().catch(() => {});

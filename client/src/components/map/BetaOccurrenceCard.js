@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -73,13 +73,13 @@ function HeaderBar() {
       </View>
       <View style={styles.headerBody}>
         <View style={styles.headerTopRow}>
-          <Text style={styles.headerTitle}>Accident occurrence</Text>
+          <Text style={styles.headerTitle}>Occurrence risk beta</Text>
           <View style={styles.betaPill}>
             <Text style={styles.betaPillText}>BETA</Text>
           </View>
         </View>
         <Text style={styles.headerSub}>
-          Probability that an accident occurs near this point inside the selected horizon.
+          Experimental accident occurrence prediction
         </Text>
       </View>
     </View>
@@ -176,10 +176,21 @@ function formatConfidence(value) {
 export default function BetaOccurrenceCard({
   lat,
   lng,
+  roadSegmentId,
+  segmentId,
+  betaRows,
+  timeBucket,
+  weather,
+  context,
   timestamp,
+  hasTimeWindowFeatures = Boolean(timestamp),
   enabled = true,
   style,
 }) {
+  const [runRequested, setRunRequested] = useState(false);
+  const hasBetaRows = Array.isArray(betaRows) && betaRows.length > 0;
+  const parsedRoadSegmentId = Number(roadSegmentId ?? segmentId);
+  const hasValidRoadSegmentId = Number.isInteger(parsedRoadSegmentId) && parsedRoadSegmentId > 0;
   const {
     data,
     state,
@@ -189,13 +200,36 @@ export default function BetaOccurrenceCard({
     providerKey,
     setProviderKey,
     retry,
-  } = useOccurrenceRisk({ lat, lng, timestamp, enabled });
+  } = useOccurrenceRisk({
+    lat,
+    lng,
+    roadSegmentId: hasValidRoadSegmentId ? parsedRoadSegmentId : null,
+    segmentId: hasValidRoadSegmentId ? parsedRoadSegmentId : null,
+    rows: betaRows,
+    timeBucket,
+    timestamp,
+    weather,
+    context,
+    enabled: enabled
+      && runRequested
+      && (providerKey === 'alt' ? hasBetaRows : hasValidRoadSegmentId && hasTimeWindowFeatures),
+  });
 
   const level = data?.level || 'low';
   const color = LEVEL_COLORS[level] || Colors.subtext;
   const updatedLabel = useMemo(() => formatRelative(data?.updatedAt), [data?.updatedAt]);
+  const hasRequiredFeatures = providerKey === 'alt'
+    ? hasBetaRows
+    : hasValidRoadSegmentId && hasTimeWindowFeatures;
+  const missingMessage = providerKey === 'alt'
+    ? 'Beta model input row is incomplete.'
+    : 'Beta model needs a road segment and time-window features before prediction.';
 
   const toggleProvider = () => setProviderKey((prev) => (prev === 'primary' ? 'alt' : 'primary'));
+  const handleRun = () => {
+    if (!hasRequiredFeatures) return;
+    setRunRequested(true);
+  };
 
   return (
     <View style={[styles.card, style]}>
@@ -203,6 +237,32 @@ export default function BetaOccurrenceCard({
 
       <View style={styles.body}>
         <HorizonTabs horizonKey={horizonKey} onChange={setHorizonKey} />
+
+        <View style={styles.runRow}>
+          <TouchableOpacity
+            style={[styles.runBtn, (!hasRequiredFeatures || state === 'loading') && styles.runBtnDisabled]}
+            onPress={handleRun}
+            disabled={!hasRequiredFeatures || state === 'loading'}
+            activeOpacity={0.8}
+          >
+            {state === 'loading' ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Ionicons name="flask-outline" size={14} color={Colors.white} />
+            )}
+            <Text style={styles.runBtnText}>Run beta prediction</Text>
+          </TouchableOpacity>
+          <ProviderPill providerKey={providerKey} onToggle={toggleProvider} />
+        </View>
+
+        {!hasRequiredFeatures ? (
+          <View style={styles.missingBox}>
+            <Ionicons name="information-circle-outline" size={16} color="#92400E" />
+            <Text style={styles.missingText}>
+              {missingMessage}
+            </Text>
+          </View>
+        ) : null}
 
         {state === 'loading' && !data ? (
           <View style={styles.loadingRow}>
@@ -231,6 +291,7 @@ export default function BetaOccurrenceCard({
             <View style={styles.metricRow}>
               <Gauge pct={data.pct} color={color} />
               <View style={styles.metricBody}>
+                <Text style={styles.betaResultLabel}>Experimental beta result — not final model.</Text>
                 <Text style={[styles.metricLabel, { color }]}>{data.label}</Text>
                 <Text style={styles.metricNarrative} numberOfLines={4}>{data.narrative}</Text>
               </View>
@@ -242,7 +303,6 @@ export default function BetaOccurrenceCard({
             </View>
 
             <View style={styles.providerRow}>
-              <ProviderPill providerKey={providerKey} onToggle={toggleProvider} />
               {updatedLabel ? (
                 <View style={styles.providerMetaRow}>
                   <Ionicons name="time-outline" size={11} color={Colors.greyLight} />
@@ -251,9 +311,9 @@ export default function BetaOccurrenceCard({
               ) : null}
             </View>
           </>
-        ) : (
+        ) : runRequested ? (
           <Text style={styles.emptyText}>No occurrence forecast for this point.</Text>
-        )}
+        ) : null}
       </View>
 
       <DisclaimerFooter />
@@ -335,6 +395,36 @@ const styles = StyleSheet.create({
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
   loadingText: { fontSize: 12, color: Colors.subtext },
   emptyText: { fontSize: 12, color: Colors.subtext, paddingVertical: 8 },
+  runRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  runBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+  },
+  runBtnDisabled: {
+    opacity: 0.55,
+  },
+  runBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  missingBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.28)',
+  },
+  missingText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 17 },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -394,6 +484,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   metricBody: { flex: 1, gap: 6 },
+  betaResultLabel: { fontSize: 12, fontWeight: '800', color: Colors.heading, lineHeight: 17 },
   metricLabel: { fontSize: 14, fontWeight: '800' },
   metricNarrative: { fontSize: 12, lineHeight: 17, color: Colors.subtext },
 

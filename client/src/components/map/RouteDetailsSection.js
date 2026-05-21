@@ -46,11 +46,19 @@ export default function RouteDetailsSection({
   sentinelInfo,
   mode = 'guidance',
   onSegmentPress,
+  onExplainRoute,
+  routeExplanationState = 'idle',
 }) {
   if (!route) {
     return (
       <View style={styles.section}>
-        <Text style={styles.title}>Route details</Text>
+        <View style={styles.sectionTitleRow}>
+          <Text style={styles.title}>Route details</Text>
+          <TouchableOpacity style={[styles.explainBtn, styles.explainBtnDisabled]} disabled>
+            <Ionicons name="bulb-outline" size={14} color={Colors.greyLight} />
+            <Text style={[styles.explainBtnText, styles.explainBtnTextDisabled]}>Why this route?</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>Choose a destination and request guidance to see route risk details.</Text>
       </View>
     );
@@ -64,12 +72,29 @@ export default function RouteDetailsSection({
     <View style={styles.section}>
       <View style={styles.summaryCard}>
         <View style={styles.summaryHeader}>
-          <View>
+          <View style={styles.summaryTitleWrap}>
             <Text style={styles.title}>{route.route_label} profile</Text>
             <Text style={styles.subtitle}>{route.comparisonText}</Text>
           </View>
-          <View style={styles.riskBadge}>
-            <Text style={styles.riskBadgeText}>{formatPercent(route.danger_percent)}</Text>
+          <View style={styles.summaryActions}>
+            <View style={styles.riskBadge}>
+              <Text style={styles.riskBadgeText}>{formatPercent(route.danger_percent)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.explainBtn}
+              activeOpacity={0.8}
+              onPress={onExplainRoute}
+              disabled={!onExplainRoute || routeExplanationState === 'loading'}
+            >
+              <Ionicons
+                name={routeExplanationState === 'loading' ? 'hourglass-outline' : 'bulb-outline'}
+                size={14}
+                color={Colors.primary}
+              />
+              <Text style={styles.explainBtnText}>
+                {routeExplanationState === 'loading' ? 'Explaining...' : 'Why this route?'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -157,6 +182,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  summaryTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  summaryActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+    flexShrink: 0,
+  },
   title: {
     fontSize: 17,
     fontWeight: '800',
@@ -179,6 +219,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: Colors.primary,
+  },
+  explainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.violetLight,
+    borderWidth: 1,
+    borderColor: Colors.violetBorder,
+  },
+  explainBtnDisabled: {
+    backgroundColor: Colors.bg,
+    borderColor: Colors.border,
+  },
+  explainBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  explainBtnTextDisabled: {
+    color: Colors.greyLight,
   },
   profileWrap: {
     gap: 6,

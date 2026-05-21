@@ -12,7 +12,7 @@ const DEFAULT_POLL_MS = 12_000;
 const MIN_MOVE_M = 60;
 const AUTO_PASS_DISMISS_M = 50;
 const DEFAULT_MUTE_MS = 5 * 60_000;
-const DEFAULT_LOOK_AHEAD_M = 2000;
+const DEFAULT_LOOK_AHEAD_M = 5000;
 
 function severityFromAlert(alert) {
   const raw = String(alert?.severity || alert?.danger_level || '').toLowerCase();
@@ -43,6 +43,8 @@ function normaliseAlert(alert) {
     severity: severityFromAlert(alert),
     distanceM: Number.isFinite(Number(alert.distance_m))
       ? Number(alert.distance_m)
+      : Number.isFinite(Number(alert.distanceMeters))
+        ? Number(alert.distanceMeters)
       : Number.isFinite(Number(alert.distance))
         ? Number(alert.distance)
         : null,
@@ -55,6 +57,7 @@ function normaliseAlert(alert) {
 export default function useRouteAlerts({
   active,
   route,
+  destination,
   positionRef,
   pollMs = DEFAULT_POLL_MS,
   lookAheadM = DEFAULT_LOOK_AHEAD_M,
@@ -156,7 +159,8 @@ export default function useRouteAlerts({
         const body = await fetchNavigationRouteAlerts({
           route,
           route_id: routeId,
-          position: { lat: liveLoc.latitude, lng: liveLoc.longitude },
+          userLocation: { lat: liveLoc.latitude, lng: liveLoc.longitude },
+          destination,
           look_ahead_m: lookAheadM,
           exclude_ids: collectActiveMutedIds(),
           signal: controller.signal,
@@ -226,7 +230,7 @@ export default function useRouteAlerts({
         try { controllerHolder.current.abort(); } catch { /* ignore */ }
       }
     };
-  }, [active, collectActiveMutedIds, lookAheadM, pollMs, positionRef, route, routeId]);
+  }, [active, collectActiveMutedIds, destination, lookAheadM, pollMs, positionRef, route, routeId]);
 
   const visibleAlerts = useMemo(() => alerts, [alerts]);
 

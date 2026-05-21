@@ -1,0 +1,1213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIARA Mobile Risk Map Features Preview</title>
+  <style>
+    :root {
+      --primary: #7a3df0;
+      --secondary: #1d4ed8;
+      --accent: #0fa958;
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --heading: #232323;
+      --text: #4a4a4a;
+      --subtext: #6b7280;
+      --border: #e5e7eb;
+      --violet-soft: rgba(124, 58, 237, 0.08);
+      --violet-border: rgba(124, 58, 237, 0.22);
+      --blue-soft: rgba(59, 130, 246, 0.08);
+      --blue-border: rgba(59, 130, 246, 0.18);
+      --low: #22c55e;
+      --medium: #eab308;
+      --high: #f97316;
+      --critical: #ef4444;
+      --warning: #f59e0b;
+      --shadow: 0 22px 50px rgba(15, 23, 42, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 8% 10%, rgba(34, 197, 94, 0.10), transparent 28%),
+        radial-gradient(circle at 92% 12%, rgba(29, 78, 216, 0.10), transparent 26%),
+        linear-gradient(135deg, #eef2ff 0%, #f8fafc 46%, #ecfdf5 100%);
+      color: var(--text);
+    }
+
+    .page {
+      width: min(1340px, 100%);
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 24px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      color: var(--primary);
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.02;
+      color: var(--heading);
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      width: min(660px, 100%);
+      margin: 10px 0 0;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--subtext);
+    }
+
+    .status-pill {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 13px;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--heading);
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--low);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(330px, 390px)) minmax(280px, 1fr);
+      align-items: start;
+      gap: 24px;
+    }
+
+    .device {
+      position: relative;
+      width: 100%;
+      min-height: 1088px;
+      border-radius: 38px;
+      padding: 14px;
+      background: #111827;
+      box-shadow: var(--shadow);
+    }
+
+    .screen {
+      position: relative;
+      height: 1060px;
+      overflow: hidden;
+      border-radius: 28px;
+      background: var(--bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .device.risk-device {
+      min-height: 1468px;
+    }
+
+    .risk-device .screen {
+      height: 1440px;
+    }
+
+    .notch {
+      position: absolute;
+      z-index: 6;
+      top: 9px;
+      left: 50%;
+      width: 116px;
+      height: 25px;
+      transform: translateX(-50%);
+      border-radius: 0 0 16px 16px;
+      background: #111827;
+    }
+
+    .map {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(32deg, transparent 0 43%, rgba(122, 61, 240, 0.16) 44% 46%, transparent 47%),
+        linear-gradient(142deg, transparent 0 39%, rgba(29, 78, 216, 0.15) 40% 42%, transparent 43%),
+        linear-gradient(90deg, rgba(15, 169, 88, 0.12), transparent 38%),
+        #eaf1f5;
+    }
+
+    .map::before,
+    .map::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, 0.28) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.28) 1px, transparent 1px);
+      background-size: 52px 52px;
+      opacity: 0.42;
+    }
+
+    .route-line {
+      position: absolute;
+      left: 34px;
+      right: 48px;
+      top: 178px;
+      height: 280px;
+      border-left: 10px solid rgba(122, 61, 240, 0.28);
+      border-bottom: 10px solid rgba(122, 61, 240, 0.28);
+      border-radius: 0 0 0 70px;
+      transform: skewY(-18deg);
+    }
+
+    .pin {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--primary);
+      border: 4px solid #fff;
+      box-shadow: 0 5px 16px rgba(15, 23, 42, 0.22);
+    }
+
+    .pin.origin {
+      left: 70px;
+      top: 402px;
+      background: var(--accent);
+    }
+
+    .pin.destination {
+      right: 62px;
+      top: 158px;
+    }
+
+    .top-card {
+      position: absolute;
+      z-index: 4;
+      left: 16px;
+      right: 16px;
+      top: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+    }
+
+    .top-title {
+      min-width: 0;
+    }
+
+    .top-title strong {
+      display: block;
+      font-size: 13px;
+      color: var(--heading);
+    }
+
+    .top-title span {
+      display: block;
+      margin-top: 2px;
+      font-size: 11px;
+      color: var(--subtext);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: #fff;
+      color: var(--primary);
+      font-weight: 900;
+    }
+
+    .floating-risk {
+      position: absolute;
+      z-index: 4;
+      left: 16px;
+      right: 16px;
+      top: 112px;
+      box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .sheet {
+      position: absolute;
+      z-index: 5;
+      left: 0;
+      right: 0;
+      top: 280px;
+      bottom: 0;
+      border-radius: 27px 27px 0 0;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 -18px 38px rgba(15, 23, 42, 0.20);
+      padding: 10px 15px 18px;
+      overflow: hidden;
+    }
+
+    .handle {
+      width: 46px;
+      height: 5px;
+      margin: 0 auto 13px;
+      border-radius: 999px;
+      background: #cbd5e1;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: #fff;
+      padding: 14px;
+    }
+
+    .card + .card {
+      margin-top: 10px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .wrap-row {
+      flex-wrap: wrap;
+    }
+
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--high);
+      flex-shrink: 0;
+    }
+
+    .card h2,
+    .card h3,
+    .sheet h2,
+    .sheet h3 {
+      margin: 0;
+      color: var(--heading);
+      letter-spacing: 0;
+    }
+
+    .card h2 {
+      font-size: 15px;
+    }
+
+    .sheet h2 {
+      font-size: 17px;
+    }
+
+    .meta {
+      margin: 3px 0 0;
+      color: var(--subtext);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .risk-metric {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-top: 9px;
+    }
+
+    .risk-metric strong {
+      font-size: 30px;
+      line-height: 1;
+      color: var(--high);
+    }
+
+    .risk-metric span {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--subtext);
+    }
+
+    .button {
+      appearance: none;
+      border: 1px solid var(--violet-border);
+      border-radius: 999px;
+      background: var(--violet-soft);
+      color: var(--primary);
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .button.neutral {
+      border-color: var(--border);
+      background: #fff;
+      color: var(--text);
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .state {
+      min-height: 66px;
+      padding: 9px;
+      border-radius: 13px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .state strong {
+      display: block;
+      font-size: 11px;
+      color: var(--heading);
+      margin-bottom: 4px;
+    }
+
+    .state span {
+      display: block;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--subtext);
+    }
+
+    .state.good {
+      border-color: rgba(34, 197, 94, 0.30);
+      background: rgba(34, 197, 94, 0.06);
+    }
+
+    .state.warn {
+      border-color: rgba(245, 158, 11, 0.30);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .state.bad {
+      border-color: rgba(239, 68, 68, 0.26);
+      background: rgba(239, 68, 68, 0.06);
+    }
+
+    .slots {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .slot {
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: #f8fafc;
+      padding: 9px 7px;
+      text-align: center;
+    }
+
+    .slot.best {
+      border-color: rgba(34, 197, 94, 0.45);
+      background: rgba(34, 197, 94, 0.08);
+      box-shadow: 0 8px 16px rgba(34, 197, 94, 0.12);
+    }
+
+    .slot span {
+      display: block;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--subtext);
+    }
+
+    .slot strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 17px;
+      color: var(--heading);
+    }
+
+    .slot .bar {
+      height: 4px;
+      margin-top: 7px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+    }
+
+    .slot .bar i {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--high);
+    }
+
+    .slot.best .bar i {
+      background: var(--low);
+    }
+
+    .recommend {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid rgba(34, 197, 94, 0.22);
+      border-radius: 13px;
+      background: rgba(34, 197, 94, 0.06);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .check {
+      width: 21px;
+      height: 21px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background: var(--low);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid rgba(245, 158, 11, 0.28);
+      border-radius: 13px;
+      background: rgba(245, 158, 11, 0.08);
+      color: #92400e;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .notice.neutral {
+      border-color: var(--border);
+      background: #f8fafc;
+      color: var(--subtext);
+    }
+
+    .beta {
+      border-style: dashed;
+      border-width: 1.5px;
+      border-color: var(--violet-border);
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .beta-head {
+      display: flex;
+      gap: 11px;
+      padding: 13px;
+      background: var(--violet-soft);
+      border-bottom: 1px solid var(--violet-border);
+    }
+
+    .beta-body {
+      padding: 13px;
+    }
+
+    .circle-icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 14px;
+      background: #fff;
+      color: var(--primary);
+      font-weight: 900;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 7px;
+      border-radius: 7px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+    }
+
+    .beta-result {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .gauge {
+      width: 78px;
+      height: 78px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle at center, #fff 0 54%, transparent 55%),
+        conic-gradient(var(--medium) 0 42%, #e5e7eb 42% 100%);
+    }
+
+    .gauge strong {
+      color: var(--medium);
+      font-size: 20px;
+    }
+
+    .footer-warning {
+      display: flex;
+      gap: 9px;
+      padding: 11px 13px;
+      border-top: 1px solid rgba(245, 158, 11, 0.30);
+      background: #fffbeb;
+      color: #78350f;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .nav-header {
+      position: absolute;
+      z-index: 5;
+      top: 0;
+      left: 0;
+      right: 0;
+      min-height: 116px;
+      padding: 45px 14px 16px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      box-shadow: 0 14px 28px rgba(15, 23, 42, 0.22);
+    }
+
+    .nav-header .row {
+      align-items: center;
+    }
+
+    .back {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .nav-title {
+      min-width: 0;
+    }
+
+    .nav-title strong,
+    .nav-title span {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nav-title strong {
+      font-size: 15px;
+    }
+
+    .nav-title span {
+      margin-top: 2px;
+      font-size: 11px;
+      opacity: 0.82;
+    }
+
+    .route-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .alert-stack {
+      position: absolute;
+      z-index: 6;
+      left: 12px;
+      right: 12px;
+      top: 134px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .alert-card {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      gap: 11px;
+      overflow: hidden;
+      padding: 12px 12px 12px 15px;
+      border-radius: 17px;
+      background: #fff;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    }
+
+    .alert-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: var(--high);
+    }
+
+    .alert-icon {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 13px;
+      background: rgba(249, 115, 22, 0.12);
+      color: var(--high);
+      font-weight: 900;
+    }
+
+    .distance {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--violet-soft);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .alert-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+    }
+
+    .nav-panel {
+      position: absolute;
+      z-index: 5;
+      left: 12px;
+      right: 12px;
+      bottom: 17px;
+      padding: 14px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+    }
+
+    .big-next {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .turn {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 16px;
+      background: var(--violet-soft);
+      color: var(--primary);
+      font-size: 23px;
+      font-weight: 900;
+    }
+
+    .route-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .stat {
+      padding: 9px;
+      border-radius: 13px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .stat strong {
+      display: block;
+      color: var(--heading);
+      font-size: 15px;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 2px;
+      color: var(--subtext);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .route-sheet {
+      position: absolute;
+      z-index: 7;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 10px 15px 18px;
+      border-radius: 27px 27px 0 0;
+      background: #fff;
+      box-shadow: 0 -18px 38px rgba(15, 23, 42, 0.22);
+    }
+
+    .route-sheet .profile {
+      display: flex;
+      height: 12px;
+      margin: 12px 0 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5e7eb;
+    }
+
+    .profile i:nth-child(1) {
+      flex: 5;
+      background: var(--low);
+    }
+
+    .profile i:nth-child(2) {
+      flex: 3;
+      background: var(--medium);
+    }
+
+    .profile i:nth-child(3) {
+      flex: 2;
+      background: var(--high);
+    }
+
+    .profile i:nth-child(4) {
+      flex: 4;
+      background: var(--low);
+    }
+
+    .notes {
+      display: grid;
+      gap: 7px;
+      margin-top: 11px;
+    }
+
+    .note {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .side-panel {
+      display: grid;
+      gap: 14px;
+    }
+
+    .side-card {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    .side-card h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      color: var(--heading);
+    }
+
+    .checks {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checks li {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 8px;
+      align-items: start;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .checks b {
+      color: var(--heading);
+    }
+
+    .tiny-check {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.12);
+      color: var(--low);
+      font-size: 12px;
+      font-weight: 900;
+      margin-top: 1px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.06);
+      color: var(--heading);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1160px) {
+      .layout {
+        grid-template-columns: repeat(2, minmax(330px, 390px));
+      }
+
+      .side-panel {
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        padding: 18px;
+      }
+
+      .topbar {
+        display: block;
+      }
+
+      .status-pill {
+        margin-top: 16px;
+      }
+
+      .layout,
+      .side-panel {
+        grid-template-columns: 1fr;
+      }
+
+      .device {
+        max-width: 390px;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SIARA mobile approval preview</p>
+        <h1>Risk and route intelligence surfaces</h1>
+        <p class="subtitle">
+          Static HTML preview for the Phase 2 mobile UI before React Native changes.
+          The mockup keeps the new model features visible while gating API calls behind explicit user action and required inputs.
+        </p>
+      </div>
+      <div class="status-pill"><span class="status-dot"></span> Preview only - no live API calls</div>
+    </header>
+
+    <section class="layout" aria-label="Mobile risk map feature previews">
+      <article class="device risk-device" aria-label="Map risk preview">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="map"></div>
+          <div class="route-line"></div>
+          <span class="pin origin" aria-hidden="true"></span>
+          <span class="pin destination" aria-hidden="true"></span>
+
+          <div class="top-card">
+            <div class="top-title">
+              <strong>Hydra route area</strong>
+              <span>Destination selected - map risk view</span>
+            </div>
+            <div class="icon-btn">?</div>
+          </div>
+
+          <div class="card floating-risk">
+            <div class="row">
+              <div class="title-row">
+                <span class="dot"></span>
+                <h2>Current Risk</h2>
+              </div>
+              <button class="button">Why?</button>
+            </div>
+            <div class="risk-metric">
+              <strong>48%</strong>
+              <span>High</span>
+            </div>
+            <p class="meta">Local safety score for your current area and selected time.</p>
+          </div>
+
+          <section class="sheet" aria-label="Risk map bottom sheet">
+            <div class="handle"></div>
+
+            <div class="card">
+              <div class="row">
+                <div>
+                  <h2>Risk explanation</h2>
+                  <p class="meta">Opens only after tapping Why?</p>
+                </div>
+                <button class="button neutral">Close</button>
+              </div>
+              <div class="state-grid">
+                <div class="state">
+                  <strong>Loading</strong>
+                  <span>Preparing explanation from available risk, weather, XAI, and raw prediction.</span>
+                </div>
+                <div class="state good">
+                  <strong>Explanation</strong>
+                  <span>Rain, evening traffic, and nearby incident density are raising the score.</span>
+                </div>
+                <div class="state warn">
+                  <strong>Fallback</strong>
+                  <span>Limited model detail. Showing rule-based safety context.</span>
+                </div>
+                <div class="state bad">
+                  <strong>Error</strong>
+                  <span>Could not load the explanation. Current risk remains available.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="row">
+                <div>
+                  <h2>Best time to leave</h2>
+                  <p class="meta">Safer departure windows for Algiers Centre.</p>
+                </div>
+                <button class="button neutral">Refresh</button>
+              </div>
+              <div class="slots">
+                <div class="slot">
+                  <span>Now</span>
+                  <strong>48%</strong>
+                  <div class="bar"><i style="width: 48%"></i></div>
+                </div>
+                <div class="slot best">
+                  <span>+30 min</span>
+                  <strong>31%</strong>
+                  <div class="bar"><i style="width: 31%"></i></div>
+                </div>
+                <div class="slot">
+                  <span>+60 min</span>
+                  <strong>37%</strong>
+                  <div class="bar"><i style="width: 37%; background: var(--medium)"></i></div>
+                </div>
+                <div class="slot">
+                  <span>+120 min</span>
+                  <strong>42%</strong>
+                  <div class="bar"><i style="width: 42%; background: var(--medium)"></i></div>
+                </div>
+              </div>
+              <div class="recommend">
+                <span class="check">✓</span>
+                <span>Best option: leave in 30 minutes. Compare uses now, +30, +60, and +120 minute timestamps.</span>
+              </div>
+              <div class="row wrap-row" style="margin-top: 10px">
+                <div class="notice neutral" style="margin-top: 0; flex: 1 1 100%">
+                  <span>Choose a destination to compare safer departure times.</span>
+                </div>
+                <button class="button primary">Use this departure</button>
+              </div>
+            </div>
+
+            <div class="card beta">
+              <div class="beta-head">
+                <div class="circle-icon">B</div>
+                <div style="min-width: 0">
+                  <div class="row" style="justify-content: flex-start">
+                    <h2>Occurrence risk beta</h2>
+                    <span class="pill">BETA</span>
+                  </div>
+                  <p class="meta">Experimental accident occurrence prediction</p>
+                </div>
+              </div>
+              <div class="beta-body">
+                <div class="row wrap-row">
+                  <button class="button primary">Run beta prediction</button>
+                  <button class="button neutral">Metadata</button>
+                </div>
+                <div class="notice">
+                  <strong>!</strong>
+                  <span>Beta model needs road segment and time-window features before prediction.</span>
+                </div>
+                <div class="beta-result">
+                  <div class="gauge"><strong>42%</strong></div>
+                  <div>
+                    <h3 style="font-size: 14px">Experimental beta result - not final model.</h3>
+                    <p class="meta">Medium likelihood near this segment inside the selected horizon.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="footer-warning">
+                <strong>!</strong>
+                <span>Experimental forecast. Do not rely on this number for safety-critical decisions.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="device" aria-label="Active navigation preview">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="map"></div>
+          <div class="route-line" style="top: 172px; height: 370px; border-color: rgba(29, 78, 216, 0.28)"></div>
+          <span class="pin origin" style="top: 522px" aria-hidden="true"></span>
+          <span class="pin destination" style="top: 186px" aria-hidden="true"></span>
+
+          <header class="nav-header">
+            <div class="row">
+              <div class="back">&lt;</div>
+              <div class="nav-title">
+                <strong>Algiers Centre</strong>
+                <span>Active guidance - route alerts enabled</span>
+              </div>
+              <div class="route-badge">Safest</div>
+            </div>
+          </header>
+
+          <section class="alert-stack" aria-label="Active route alerts">
+            <div class="alert-card">
+              <div class="alert-icon">!</div>
+              <div style="min-width: 0; flex: 1">
+                <div class="row">
+                  <h2 style="font-size: 14px">Incident cluster ahead</h2>
+                  <span class="distance">in 450 m</span>
+                </div>
+                <p class="meta">Reports near the next intersection may slow traffic and raise route risk.</p>
+                <div class="alert-actions">
+                  <button class="button neutral">Mute 5 min</button>
+                  <button class="button">Got it</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="nav-panel" aria-label="Navigation summary">
+            <div class="big-next">
+              <div class="turn">↱</div>
+              <div>
+                <h2 style="font-size: 16px">Turn right in 300 m</h2>
+                <p class="meta">Rue Didouche Mourad</p>
+              </div>
+            </div>
+            <div class="route-stats">
+              <div class="stat"><strong>14 min</strong><span>ETA</span></div>
+              <div class="stat"><strong>5.8 km</strong><span>Distance</span></div>
+              <div class="stat"><strong>36%</strong><span>Risk</span></div>
+            </div>
+            <button class="button primary" style="width: 100%">Why this route?</button>
+          </section>
+
+          <section class="route-sheet" aria-label="Route explanation bottom sheet">
+            <div class="handle"></div>
+            <div class="row">
+              <div>
+                <h2>Why this route?</h2>
+                <p class="meta">Selected route exists, destination exists, alternatives default to [].</p>
+              </div>
+              <button class="button neutral">Close</button>
+            </div>
+            <div class="profile" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <div class="notes">
+              <div class="note"><span class="check">✓</span><span>This route avoids the highest-risk corridor while adding only two minutes.</span></div>
+              <div class="note"><span class="check">✓</span><span>Hazard segments are shorter and farther from recent incident reports than the fastest route.</span></div>
+              <div class="note"><span class="check">✓</span><span>Button is disabled until a selected route is available.</span></div>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <aside class="side-panel" aria-label="Implementation notes">
+        <section class="side-card">
+          <h2>Preview Coverage</h2>
+          <ul class="checks">
+            <li><span class="tiny-check">✓</span><span><b>Current risk card</b> with a user-triggered Why? action.</span></li>
+            <li><span class="tiny-check">✓</span><span><b>Risk explanation sheet</b> covering loading, explanation, fallback, and error states.</span></li>
+            <li><span class="tiny-check">✓</span><span><b>Best time to leave</b> with now, +30, +60, +120 minute choices.</span></li>
+            <li><span class="tiny-check">✓</span><span><b>Route explanation sheet</b> for the selected guided route.</span></li>
+            <li><span class="tiny-check">✓</span><span><b>Active route alert</b> in full navigation with dismiss and mute actions.</span></li>
+            <li><span class="tiny-check">✓</span><span><b>Occurrence risk beta</b> with explicit run button and missing-feature state.</span></li>
+          </ul>
+        </section>
+
+        <section class="side-card">
+          <h2>Call Gates</h2>
+          <ul class="checks">
+            <li><span class="tiny-check">✓</span><span><code>/api/predictions/explain-risk</code> only after tapping Why?.</span></li>
+            <li><span class="tiny-check">✓</span><span><code>/api/risk/route/departure-options</code> only when origin, destination, and timestamps are valid.</span></li>
+            <li><span class="tiny-check">✓</span><span><code>/api/risk/route/explain</code> only when selected route and destination exist.</span></li>
+            <li><span class="tiny-check">✓</span><span><code>/api/navigation/route-alerts</code> only during active navigation with a valid path and user location.</span></li>
+            <li><span class="tiny-check">✓</span><span>Occurrence endpoints run only from the beta card action, never on mount, GPS updates, or map movement.</span></li>
+          </ul>
+        </section>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

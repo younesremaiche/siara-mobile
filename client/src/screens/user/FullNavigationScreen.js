@@ -143,6 +143,7 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
   } = useRouteAlerts({
     active: Boolean(selectedRoute),
     route: selectedRoute,
+    destination,
     positionRef: liveLocRef,
   });
 

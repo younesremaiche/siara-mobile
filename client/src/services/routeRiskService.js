@@ -36,18 +36,27 @@ export async function requestRouteRisk(payload) {
 // POST /api/risk/route/explain — explain why this route was recommended.
 export async function explainRouteRisk({
   route,
+  selectedRoute,
   route_id,
   origin,
   destination,
+  alternatives = [],
+  heatmapClustersNearRoute = [],
+  nearbyReports = [],
   timestamp,
   signal,
   force = false,
 } = {}) {
+  const routeToExplain = selectedRoute || route;
+  if (!routeToExplain) {
+    throw new Error('explainRouteRisk: selectedRoute is required');
+  }
+
   const cacheKey = hashRoute({
-    origin: origin || route?.origin,
-    destination: destination || route?.destination,
+    origin: origin || routeToExplain?.origin,
+    destination: destination || routeToExplain?.destination,
     timestamp,
-    route_id: route_id || route?.route_id || route?.route_type,
+    route_id: route_id || routeToExplain?.route_id || routeToExplain?.route_type,
   });
 
   if (!force) {
@@ -56,10 +65,13 @@ export async function explainRouteRisk({
   }
 
   const body = {
-    ...(route ? { route } : {}),
-    ...(route_id ? { route_id } : {}),
+    selectedRoute: routeToExplain,
+    alternatives: Array.isArray(alternatives) ? alternatives : [],
     ...(origin ? { origin } : {}),
     ...(destination ? { destination } : {}),
+    ...(Array.isArray(heatmapClustersNearRoute) ? { heatmapClustersNearRoute } : {}),
+    ...(Array.isArray(nearbyReports) ? { nearbyReports } : {}),
+    ...(route_id ? { route_id } : {}),
     ...(timestamp ? { timestamp } : {}),
   };
 
@@ -76,17 +88,26 @@ export async function explainRouteRisk({
 export async function fetchDepartureOptions({
   origin,
   destination,
-  baseline_timestamp,
-  window_hours,
-  step_minutes,
+  timestamps,
   signal,
   force = false,
 } = {}) {
   if (!origin || !destination) {
     throw new Error('fetchDepartureOptions: origin and destination required');
   }
+  const validTimestamps = Array.isArray(timestamps)
+    ? timestamps
+      .map((timestamp) => {
+        const date = new Date(timestamp);
+        return Number.isNaN(date.getTime()) ? null : date.toISOString();
+      })
+      .filter(Boolean)
+    : [];
+  if (validTimestamps.length === 0) {
+    throw new Error('fetchDepartureOptions: timestamps[] required');
+  }
 
-  const cacheKey = `${hashRoute({ origin, destination, timestamp: baseline_timestamp })}:${window_hours || ''}:${step_minutes || ''}`;
+  const cacheKey = `${hashRoute({ origin, destination, timestamp: validTimestamps[0] })}:${validTimestamps.join('|')}`;
   if (!force) {
     const cached = departureCache.get(cacheKey);
     if (cached) return cached;
@@ -99,9 +120,7 @@ export async function fetchDepartureOptions({
       lat: Number(destination.lat),
       lng: Number(destination.lng),
     },
-    ...(baseline_timestamp ? { baseline_timestamp } : {}),
-    ...(window_hours != null ? { window_hours } : {}),
-    ...(step_minutes != null ? { step_minutes } : {}),
+    timestamps: validTimestamps,
   };
 
   const result = await request('/api/risk/route/departure-options', {
@@ -143,14 +162,18 @@ export async function fetchNavigationRouteAlerts({
   route,
   route_id,
   position,
+  userLocation,
+  destination,
   heading_deg,
   speed_kmh,
   look_ahead_m = 2000,
+  lookAheadKm,
   timestamp,
   exclude_ids,
   signal,
 } = {}) {
-  if (!position) {
+  const livePosition = userLocation || position;
+  if (!livePosition) {
     throw new Error('fetchNavigationRouteAlerts: position required');
   }
 
@@ -172,13 +195,16 @@ export async function fetchNavigationRouteAlerts({
 
   const body = {
     routeSnapshot,
-    position: {
-      lat: Number(position.lat ?? position.latitude),
-      lng: Number(position.lng ?? position.longitude),
+    userLocation: {
+      lat: Number(livePosition.lat ?? livePosition.latitude),
+      lng: Number(livePosition.lng ?? livePosition.longitude),
     },
+    ...(destination ? { destination } : {}),
     ...(Number.isFinite(Number(heading_deg)) ? { heading_deg: Number(heading_deg) } : {}),
     ...(Number.isFinite(Number(speed_kmh)) ? { speed_kmh: Number(speed_kmh) } : {}),
-    look_ahead_m: Number(look_ahead_m) || 2000,
+    lookAheadKm: Number.isFinite(Number(lookAheadKm))
+      ? Number(lookAheadKm)
+      : (Number(look_ahead_m) || 2000) / 1000,
     ...(timestamp ? { timestamp } : {}),
     ...(Array.isArray(exclude_ids) && exclude_ids.length ? { exclude_ids } : {}),
   };
