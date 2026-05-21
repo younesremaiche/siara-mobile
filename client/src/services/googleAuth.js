@@ -2,7 +2,7 @@ import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-si
 
 // The Web Client ID is used so the returned ID token can be verified
 // by the backend with google-auth-library (audience must match).
-const WEB_CLIENT_ID = '426680744492-pesf948u29q064s9t4anvqo513pidii8.apps.googleusercontent.com';
+const WEB_CLIENT_ID = '944652922057-2brrr9smor8hn2l1sct50slqqe1qiref.apps.googleusercontent.com';
 
 let configured = false;
 

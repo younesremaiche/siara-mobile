@@ -12,7 +12,28 @@
           "package_name": "com.siara.mobile"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "944652922057-3esvvcj85nr1e5nkv0alckkiof6g3eis.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.siara.mobile",
+            "certificate_hash": "e0dc3863900c907d1f518c8b91771df5144455bf"
+          }
+        },
+        {
+          "client_id": "944652922057-qah4q5s741vd1psm9gt08rudpfgukeeb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.siara.mobile",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "944652922057-2brrr9smor8hn2l1sct50slqqe1qiref.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAMklxIzkWGu0UK2uYoceYYzhTw8VynQJ0"
@@ -20,7 +41,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "944652922057-2brrr9smor8hn2l1sct50slqqe1qiref.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
