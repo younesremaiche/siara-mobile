@@ -7,12 +7,15 @@ import { clearStoredSession } from '../services/sessionStorage';
 
 const USER_MODE = 'user';
 const POLICE_MODE = 'police';
+const SUPERVISOR_MODE = 'supervisor';
 
 function resolveActiveMode(user, requestedMode = USER_MODE) {
+  if (requestedMode === SUPERVISOR_MODE && user?.isSupervisor === true) {
+    return SUPERVISOR_MODE;
+  }
   if (requestedMode === POLICE_MODE && user?.isPolice === true) {
     return POLICE_MODE;
   }
-
   return USER_MODE;
 }
 
@@ -56,6 +59,7 @@ function buildLoggedOutState() {
     isAuthenticated: false,
     isAdmin: false,
     isPolice: false,
+    isSupervisor: false,
     activeMode: USER_MODE,
     rememberMe: false,
     hasCheckedSession: false,
@@ -63,20 +67,18 @@ function buildLoggedOutState() {
   };
 }
 
-/**
- * Build authenticated state from user and token
- * Uses normalized user.isAdmin flag (set by authService.normalizeUser)
- */
 function buildAuthenticatedState(user, token, rememberMe = false, activeMode = USER_MODE) {
-  const isAdmin = user?.isAdmin === true; // Use normalized isAdmin flag from user
+  const isAdmin = user?.isAdmin === true;
   const isPolice = user?.isPolice === true;
-  
+  const isSupervisor = user?.isSupervisor === true;
+
   return {
     user,
     token,
     isAuthenticated: true,
     isAdmin,
     isPolice,
+    isSupervisor,
     activeMode: resolveActiveMode(user, activeMode),
     rememberMe,
     hasCheckedSession: true,
@@ -97,6 +99,7 @@ export const useAuthStore = create(
       isAuthenticated: false,
       isAdmin: false,
       isPolice: false,
+      isSupervisor: false,
       activeMode: USER_MODE,
       rememberMe: false,
       hasCheckedSession: false,
@@ -190,6 +193,7 @@ export const useAuthStore = create(
           isAuthenticated: false,
           isAdmin: false,
           isPolice: false,
+          isSupervisor: false,
           activeMode: USER_MODE,
           rememberMe: false,
           hasCheckedSession: true,
@@ -214,6 +218,7 @@ export const useAuthStore = create(
           user,
           isAdmin: user?.isAdmin === true,
           isPolice: user?.isPolice === true,
+          isSupervisor: user?.isSupervisor === true,
           activeMode: resolveActiveMode(user, state.activeMode),
         }));
       },
@@ -241,6 +246,12 @@ export const useAuthStore = create(
       switchToPoliceMode: () => {
         set((state) => ({
           activeMode: resolveActiveMode(state.user, POLICE_MODE),
+        }));
+      },
+
+      switchToSupervisorMode: () => {
+        set((state) => ({
+          activeMode: resolveActiveMode(state.user, SUPERVISOR_MODE),
         }));
       },
     }),

@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: authStore.isAuthenticated,
     isAdmin: authStore.isAdmin,
     isPolice: authStore.isPolice,
+    isSupervisor: authStore.isSupervisor,
     activeMode: authStore.activeMode,
     hasCheckedSession: authStore.hasCheckedSession,
     rememberMe: authStore.rememberMe,
@@ -83,6 +84,7 @@ export function AuthProvider({ children }) {
     setActiveMode: authStore.setActiveMode,
     switchToUserMode: authStore.switchToUserMode,
     switchToPoliceMode: authStore.switchToPoliceMode,
+    switchToSupervisorMode: authStore.switchToSupervisorMode,
   };
 
   return (

@@ -57,6 +57,12 @@ import PoliceOperationHistoryScreen from '../screens/police/PoliceOperationHisto
 import PoliceIncidentDetailScreen from '../screens/police/PoliceIncidentDetailScreen';
 import PoliceWorkZoneScreen from '../screens/police/PoliceWorkZoneScreen';
 
+import SupervisorDashboardScreen from '../screens/supervisor/SupervisorDashboardScreen';
+import SupervisorOfficersScreen from '../screens/supervisor/SupervisorOfficersScreen';
+import SupervisorIncidentsScreen from '../screens/supervisor/SupervisorIncidentsScreen';
+import SupervisorAnalyticsScreen from '../screens/supervisor/SupervisorAnalyticsScreen';
+import SupervisorMapScreen from '../screens/supervisor/SupervisorMapScreen';
+
 import { flushPendingNotificationNavigation, navigationRef } from './navigationService';
 import AdminDrawerShell from '../components/layout/AdminDrawerShell';
 import { getPoliceMe } from '../services/policeService';
@@ -221,6 +227,22 @@ function AdminStackScreens() {
   );
 }
 
+const SupervisorStack = createNativeStackNavigator();
+function SupervisorStackNavigator() {
+  return (
+    <SupervisorStack.Navigator
+      initialRouteName="SupervisorDashboard"
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#1C1200' }, statusBarColor: '#1C1200', statusBarStyle: 'light', statusBarTranslucent: false }}
+    >
+      <SupervisorStack.Screen name="SupervisorDashboard" component={SupervisorDashboardScreen} />
+      <SupervisorStack.Screen name="SupervisorOfficers"  component={SupervisorOfficersScreen}  />
+      <SupervisorStack.Screen name="SupervisorIncidents" component={SupervisorIncidentsScreen} />
+      <SupervisorStack.Screen name="SupervisorAnalytics" component={SupervisorAnalyticsScreen} />
+      <SupervisorStack.Screen name="SupervisorMap"       component={SupervisorMapScreen}       />
+    </SupervisorStack.Navigator>
+  );
+}
+
 function AdminDrawer() {
   return (
     <AdminDrawerShell>
@@ -234,6 +256,7 @@ export default function AppNavigator() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const isAdmin = useAuthStore((state) => state.isAdmin);
   const isPolice = useAuthStore((state) => state.isPolice);
+  const isSupervisor = useAuthStore((state) => state.isSupervisor);
   const activeMode = useAuthStore((state) => state.activeMode);
   const userId = useAuthStore((state) => state.user?.id);
   const [policeBootstrap, setPoliceBootstrap] = React.useState({
@@ -241,6 +264,7 @@ export default function AppNavigator() {
     requiresZoneSelection: false,
   });
   const shouldBootstrapPolice = isAuthenticated && isPolice && activeMode === 'police';
+  const isSupervisorMode = isAuthenticated && isSupervisor && activeMode === 'supervisor';
 
   // --- Mode transition overlay state ---
   const [renderedMode, setRenderedMode] = React.useState(activeMode);
@@ -258,9 +282,11 @@ export default function AppNavigator() {
     ? 'public'
     : isAdmin
       ? 'admin'
-      : isPolice
-        ? `police-access-${renderedMode}`
-        : 'user';
+      : isSupervisorMode
+        ? `supervisor-${renderedMode}`
+        : isPolice
+          ? `police-access-${renderedMode}`
+          : 'user';
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -305,12 +331,12 @@ export default function AppNavigator() {
 
   // Fire whenever activeMode changes — animate overlay in, swap navigator, then fade out
   React.useEffect(() => {
-    if (!isAuthenticated || !isPolice) return;
+    if (!isAuthenticated || (!isPolice && !isSupervisor)) return;
     if (activeMode === renderedMode) return;
     if (transitionActive.current) return;
     transitionActive.current = true;
 
-    const dir = activeMode === 'police' ? 'to-police' : 'to-user';
+    const dir = activeMode === 'supervisor' ? 'to-supervisor' : activeMode === 'police' ? 'to-police' : 'to-user';
     overlayOpacity.setValue(0);
     iconScale.setValue(0.4);
     contentOpacity.setValue(0);
@@ -380,6 +406,10 @@ export default function AppNavigator() {
                 <Stack.Screen name="Services" component={ServicesScreen} />
                 <Stack.Screen name="Settings" component={SettingsScreen} />
               </Stack.Group>
+            ) : isSupervisor && renderedMode === 'supervisor' ? (
+              <Stack.Group screenOptions={{ animationEnabled: false }}>
+                <Stack.Screen name="SupervisorStack" component={SupervisorStackNavigator} />
+              </Stack.Group>
             ) : isPolice && renderedMode === 'police' ? (
               <Stack.Group screenOptions={{ animationEnabled: false }}>
                 <Stack.Screen name="PoliceStack">
@@ -399,9 +429,13 @@ export default function AppNavigator() {
       {transitionDir !== null && (
         <Animated.View style={[transStyles.overlay, { opacity: overlayOpacity }]} pointerEvents="none">
           <LinearGradient
-            colors={transitionDir === 'to-police'
-              ? ['#0D1B2A', '#1A3251', '#1E4976']
-              : ['#4C1D95', '#7A3DF0', '#9333EA']}
+            colors={
+              transitionDir === 'to-supervisor'
+                ? ['#1C1200', '#3B2600', '#5C3D00']
+                : transitionDir === 'to-police'
+                  ? ['#0D1B2A', '#1A3251', '#1E4976']
+                  : ['#4C1D95', '#7A3DF0', '#9333EA']
+            }
             style={transStyles.gradient}
             start={{ x: 0.3, y: 0 }} end={{ x: 0.7, y: 1 }}
           >
@@ -411,7 +445,13 @@ export default function AppNavigator() {
             <Animated.View style={[transStyles.iconRing, { transform: [{ scale: iconScale }] }]}>
               <View style={transStyles.iconInner}>
                 <Ionicons
-                  name={transitionDir === 'to-police' ? 'shield-checkmark' : 'person-circle'}
+                  name={
+                    transitionDir === 'to-supervisor'
+                      ? 'eye'
+                      : transitionDir === 'to-police'
+                        ? 'shield-checkmark'
+                        : 'person-circle'
+                  }
                   size={52}
                   color="white"
                 />
@@ -423,12 +463,18 @@ export default function AppNavigator() {
               { opacity: contentOpacity, transform: [{ translateY: contentSlide }] },
             ]}>
               <Text style={transStyles.title}>
-                {transitionDir === 'to-police' ? 'Police Mode' : 'Citizen Mode'}
+                {transitionDir === 'to-supervisor'
+                  ? 'Supervisor Mode'
+                  : transitionDir === 'to-police'
+                    ? 'Police Mode'
+                    : 'Citizen Mode'}
               </Text>
               <Text style={transStyles.subtitle}>
-                {transitionDir === 'to-police'
-                  ? 'Activating officer dashboard'
-                  : 'Returning to SIARA experience'}
+                {transitionDir === 'to-supervisor'
+                  ? 'Activating command center'
+                  : transitionDir === 'to-police'
+                    ? 'Activating officer dashboard'
+                    : 'Returning to SIARA experience'}
               </Text>
             </Animated.View>
           </LinearGradient>

@@ -548,6 +548,7 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
 
+
   /* ---------- Header ---------- */
   header: {
     paddingTop: Platform.OS === 'ios' ? 60 : 46,

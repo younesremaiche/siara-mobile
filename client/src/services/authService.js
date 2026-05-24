@@ -14,14 +14,16 @@ export function normalizeUser(user) {
       : [];
   const normalizedRoles = roles.map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''));
   const isAdmin = normalizedRoles.includes('admin');
-  const isPolice = normalizedRoles.includes('police') || normalizedRoles.includes('policeofficer');
-  
+  const isSupervisor = normalizedRoles.includes('policesupervisor') || normalizedRoles.includes('supervisor');
+  const isPolice = normalizedRoles.includes('police') || normalizedRoles.includes('policeofficer') || isSupervisor;
+
   return {
     ...user,
     roles,
     isAdmin,
     isPolice,
-    role: user.role || (roles[0] || null), // Ensure role field exists
+    isSupervisor,
+    role: user.role || (roles[0] || null),
   };
 }
 

@@ -15,7 +15,9 @@ const ITEMS = [
 ];
 
 export default function PoliceMoreScreen({ navigation }) {
-  const switchToUserMode = useAuthStore(st => st.switchToUserMode);
+  const switchToUserMode      = useAuthStore(st => st.switchToUserMode);
+  const switchToSupervisorMode = useAuthStore(st => st.switchToSupervisorMode);
+  const isSupervisor          = useAuthStore(st => st.isSupervisor);
 
   return (
     <PoliceScreenFrame
@@ -43,6 +45,26 @@ export default function PoliceMoreScreen({ navigation }) {
           ))}
         </View>
       </PoliceSectionCard>
+
+      {/* Switch to Supervisor Mode — only for supervisors */}
+      {isSupervisor && (
+        <TouchableOpacity style={styles.switchCard} onPress={switchToSupervisorMode} activeOpacity={0.85}>
+          <LinearGradient
+            colors={['#1C1200', '#3B2600', '#5C3D00']}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={styles.switchGrad}
+          >
+            <View style={[styles.switchIconWrap, { backgroundColor: 'rgba(245,158,11,0.2)' }]}>
+              <Ionicons name="eye-outline" size={20} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchTitle}>Switch to Supervisor Mode</Text>
+              <Text style={styles.switchSub}>Access command center & officer monitoring</Text>
+            </View>
+            <Ionicons name="arrow-forward-circle" size={24} color="rgba(245,158,11,0.7)" />
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
 
       {/* Switch to User Mode */}
       <TouchableOpacity style={styles.switchCard} onPress={switchToUserMode} activeOpacity={0.85}>
