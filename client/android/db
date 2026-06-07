@@ -1,0 +1,101 @@
+-- SIARA migration — add all values midou db had that younes db was missing.
+-- Fully IDEMPOTENT: safe to run repeatedly on the live younes database.
+-- (The previous full-schema dump errored because Postgres has no
+--  "ADD CONSTRAINT IF NOT EXISTS"; this script guards every addition.)
+
+-- Clear any transaction left in an aborted state by a previous failed run.
+-- Harmless ("no transaction in progress" warning) if the session is clean.
+ROLLBACK;
+
+BEGIN;
+
+-- 1) app.accident_reports — review + latest-ML enrichment columns
+ALTER TABLE app.accident_reports
+    ADD COLUMN IF NOT EXISTS review_verdict        text,
+    ADD COLUMN IF NOT EXISTS reviewed_by           uuid,
+    ADD COLUMN IF NOT EXISTS reviewed_at           timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS review_notes          text,
+    ADD COLUMN IF NOT EXISTS latest_spam_score     numeric(5, 4),
+    ADD COLUMN IF NOT EXISTS latest_predicted_label text,
+    ADD COLUMN IF NOT EXISTS latest_ml_confidence  numeric(5, 4),
+    ADD COLUMN IF NOT EXISTS latest_model_version  text,
+    ADD COLUMN IF NOT EXISTS latest_classified_at  timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS ml_status             text DEFAULT 'pending'::text;
+
+-- 2) auth.users — reporter trust score
+ALTER TABLE auth.users
+    ADD COLUMN IF NOT EXISTS trust_score           numeric(5, 2) DEFAULT 50,
+    ADD COLUMN IF NOT EXISTS trust_last_updated_at timestamp with time zone;
+
+-- 3) app.mobile_push_devices — table (skipped if present) + FK + index
+CREATE TABLE IF NOT EXISTS app.mobile_push_devices
+(
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL,
+    token text NOT NULL,
+    platform character varying(20) NOT NULL DEFAULT 'android'::character varying,
+    provider character varying(20) NOT NULL DEFAULT 'expo'::character varying,
+    app_version text,
+    device_name text,
+    is_active boolean NOT NULL DEFAULT true,
+    last_used_at timestamp with time zone,
+    disabled_at timestamp with time zone,
+    meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT mobile_push_devices_pkey PRIMARY KEY (id)
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'mobile_push_devices_user_id_fkey'
+          AND conrelid = 'app.mobile_push_devices'::regclass
+    ) THEN
+        ALTER TABLE app.mobile_push_devices
+            ADD CONSTRAINT mobile_push_devices_user_id_fkey FOREIGN KEY (user_id)
+            REFERENCES auth.users (id) MATCH SIMPLE
+            ON UPDATE NO ACTION ON DELETE CASCADE;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_user_id
+    ON app.mobile_push_devices(user_id);
+
+-- 4) app.report_ml_predictions — table (skipped if present) + FK + index
+CREATE TABLE IF NOT EXISTS app.report_ml_predictions
+(
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    report_id uuid NOT NULL,
+    model_name text NOT NULL,
+    model_version text NOT NULL,
+    predicted_label text NOT NULL,
+    spam_score numeric(5, 4) NOT NULL,
+    real_score numeric(5, 4) NOT NULL,
+    confidence_score numeric(5, 4) NOT NULL,
+    threshold_used numeric(5, 4) NOT NULL,
+    inference_status text NOT NULL DEFAULT 'completed'::text,
+    raw_response jsonb,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT report_ml_predictions_pkey PRIMARY KEY (id)
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'report_ml_predictions_report_id_fkey'
+          AND conrelid = 'app.report_ml_predictions'::regclass
+    ) THEN
+        ALTER TABLE app.report_ml_predictions
+            ADD CONSTRAINT report_ml_predictions_report_id_fkey FOREIGN KEY (report_id)
+            REFERENCES app.accident_reports (id) MATCH SIMPLE
+            ON UPDATE NO ACTION ON DELETE CASCADE;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_report_ml_predictions_report_id
+    ON app.report_ml_predictions(report_id);
+
+COMMIT;

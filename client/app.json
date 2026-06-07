@@ -15,7 +15,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.siara.mobile",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "SIARA needs your location to show real-time road risk at your position."
+        "NSLocationWhenInUseUsageDescription": "SIARA needs your location to show real-time road risk at your position.",
+        "NSCameraUsageDescription": "SIARA needs camera access so you can take a photo of the incident when reporting.",
+        "NSPhotoLibraryUsageDescription": "SIARA needs photo library access so you can attach photos to your report."
       }
     },
     "android": {
@@ -37,7 +39,8 @@
         "POST_NOTIFICATIONS",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "CAMERA"
       ]
     },
     "plugins": [
@@ -53,6 +56,13 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "SIARA needs your location to show real-time road risk at your position."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "SIARA needs camera access so you can take a photo of the incident when reporting.",
+          "photosPermission": "SIARA needs photo library access so you can attach photos to your report."
         }
       ],
       "expo-font"

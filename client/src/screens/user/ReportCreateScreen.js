@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
+import DateTimeField from '../../components/DateTimeField';
 import { Colors } from '../../theme/colors';
 import {
   INCIDENT_TYPES,
@@ -154,6 +155,19 @@ export default function ReportCreateScreen({ navigation, route }) {
   const handlePickImage = async () => {
     if (images.length >= 5) { Alert.alert('Limit reached', 'You can upload up to 5 images.'); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+    if (!result.canceled && result.assets?.[0]) {
+      setImages((current) => [...current, result.assets[0]].slice(0, 5));
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    if (images.length >= 5) { Alert.alert('Limit reached', 'You can upload up to 5 images.'); return; }
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Camera permission needed', 'Please allow camera access to take a photo of the place.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
     if (!result.canceled && result.assets?.[0]) {
       setImages((current) => [...current, result.assets[0]].slice(0, 5));
     }
@@ -383,8 +397,8 @@ export default function ReportCreateScreen({ navigation, route }) {
         {/* ── Time ── */}
         <SectionBadge label="WHEN DID IT HAPPEN?" />
         <View style={styles.card}>
-          <Input label="Occurred at (optional)" value={occurredAt} onChangeText={setOccurredAt}
-            placeholder="e.g. 2026-03-28T14:30:00Z" autoCapitalize="none" error={fieldErrors.occurredAt} />
+          <DateTimeField label="Occurred at (optional)" value={occurredAt}
+            onChange={setOccurredAt} error={fieldErrors.occurredAt} />
           <View style={styles.helperCard}>
             <Ionicons name="time-outline" size={16} color={Colors.primary} />
             <Text style={styles.helperText}>{occurredSummary}</Text>
@@ -416,13 +430,19 @@ export default function ReportCreateScreen({ navigation, route }) {
               </View>
             ))}
             {images.length < 5 && (
-              <TouchableOpacity style={styles.addMediaCard} onPress={handlePickImage} activeOpacity={0.75}>
-                <Ionicons name="camera-outline" size={24} color={Colors.primary} />
-                <Text style={styles.addMediaText}>Add Photo</Text>
-                <Text style={styles.addMediaCount}>{images.length}/5</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={styles.addMediaCard} onPress={handleTakePhoto} activeOpacity={0.75}>
+                  <Ionicons name="camera" size={24} color={Colors.primary} />
+                  <Text style={styles.addMediaText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.addMediaCard} onPress={handlePickImage} activeOpacity={0.75}>
+                  <Ionicons name="images-outline" size={24} color={Colors.primary} />
+                  <Text style={styles.addMediaText}>Gallery</Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
+          <Text style={styles.mediaHint}>{images.length}/5 photos added</Text>
         </View>
 
         {/* Error banner */}

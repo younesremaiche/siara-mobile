@@ -22,17 +22,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthContext } from '../../contexts/AuthContext';
 import { Colors } from '../../theme/colors';
 import { loadDriverQuizState } from '../../services/driverQuizStorage';
+import DriverQuizModal from '../../components/quiz/DriverQuizModal';
 import useMyAlerts from '../../hooks/useMyAlerts';
 import { useMyReports } from '../../features/reports/hooks/useReportQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const { width } = Dimensions.get('window');
-
-const STATS = [
-  { value: '124', label: 'Reports', icon: 'flag', color: Colors.primary },
-  { value: '47', label: 'Alerts', icon: 'notifications', color: Colors.secondary },
-  { value: '92%', label: 'Trust Score', icon: 'shield-checkmark', color: Colors.accent },
-];
 
 const MENU_ITEMS = [
   { key: 'editProfile', icon: 'person-outline', label: 'Edit Profile', chevron: true, color: Colors.primary },
@@ -67,6 +62,16 @@ export default function ProfileScreen({ navigation }) {
   useFocusRefresh(reportsQuery.refetch, Boolean(user?.id));
 
   useFocusEffect(useCallback(() => { refreshAlerts(); }, [refreshAlerts]));
+
+  // Real profile stats (was hardcoded 124 / 47 / 92%).
+  const trustScoreRaw = Number(user?.trustScore ?? user?.trust_score);
+  const trustScoreValue = Number.isFinite(trustScoreRaw) ? `${Math.round(trustScoreRaw)}%` : '—';
+  const stats = [
+    { value: reportsLoading ? '—' : String(myReports.length), label: 'Reports', icon: 'flag', color: Colors.primary },
+    { value: alertsLoading ? '—' : String(myAlerts.length), label: 'Alerts', icon: 'notifications', color: Colors.secondary },
+    { value: trustScoreValue, label: 'Trust Score', icon: 'shield-checkmark', color: Colors.accent },
+  ];
+
   const [editVisible, setEditVisible] = useState(false);
   const [quizSummary, setQuizSummary] = useState({
     completed: false,
@@ -189,6 +194,17 @@ export default function ProfileScreen({ navigation }) {
     }, []),
   );
 
+  // Quiz opens as an overlay right here (no detour through the Predictions tab).
+  const [quizVisible, setQuizVisible] = useState(false);
+  const refreshQuizSummary = useCallback(async () => {
+    try {
+      const storedState = await loadDriverQuizState();
+      setQuizSummary({ completed: storedState.completed, result: storedState.result });
+    } catch (error) {
+      console.warn('[ProfileScreen] failed to refresh quiz summary', error?.message || error);
+    }
+  }, []);
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor={Colors.btnPrimary} />
@@ -271,7 +287,7 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Stats row */}
       <View style={styles.statsRow}>
-        {STATS.map((s) => (
+        {stats.map((s) => (
           <View key={s.label} style={styles.statCard}>
             <View style={[styles.statIconWrap, { backgroundColor: `${s.color}14` }]}>
               <Ionicons name={s.icon} size={18} color={s.color} />
@@ -300,7 +316,7 @@ export default function ProfileScreen({ navigation }) {
       <TouchableOpacity
         activeOpacity={0.85}
         style={styles.quizLaunchCard}
-        onPress={() => navigation.navigate('Predictions')}
+        onPress={() => setQuizVisible(true)}
       >
         <View style={styles.quizLaunchIconWrap}>
           <Ionicons name="clipboard-outline" size={22} color={Colors.primary} />
@@ -672,6 +688,13 @@ export default function ProfileScreen({ navigation }) {
 
       <View style={styles.bottomSpacer} />
     </ScrollView>
+
+    <DriverQuizModal
+      visible={quizVisible}
+      forceShow
+      onClose={() => setQuizVisible(false)}
+      onComplete={() => { refreshQuizSummary(); setQuizVisible(false); }}
+    />
     </>
   );
 }
