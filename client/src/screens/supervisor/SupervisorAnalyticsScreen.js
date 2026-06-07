@@ -1,13 +1,13 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import SupervisorScreenFrame, {
   S,
   SupervisorSectionCard,
 } from '../../components/supervisor/SupervisorScreenFrame';
-import { getSupervisorAnalytics } from '../../services/supervisorService';
+import { useSupervisorAnalytics } from '../../features/supervisor/hooks/useSupervisorQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 function formatMs(ms) {
   if (!ms || ms <= 0) return '—';
@@ -56,24 +56,16 @@ const SEVERITY_COLORS = {
 const PERIOD_OPTIONS = [7, 14, 30, 90];
 
 export default function SupervisorAnalyticsScreen({ navigation }) {
-  const [data,    setData]    = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error,   setError]   = React.useState('');
-  const [days,    setDays]    = React.useState(30);
+  const [days, setDays] = React.useState(30);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await getSupervisorAnalytics({ days }));
-    } catch (e) {
-      setError(e.message || 'Failed to load analytics.');
-    } finally {
-      setLoading(false);
-    }
-  }, [days]);
-
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  // Param-scoped cache: each period is cached separately, so switching back to a
+  // previously viewed window is instant instead of refetching every time.
+  const analyticsQuery = useSupervisorAnalytics({ days });
+  const data = analyticsQuery.data;
+  const loading = analyticsQuery.isLoading;
+  const error = analyticsQuery.error?.message || '';
+  const load = analyticsQuery.refetch;
+  useFocusRefresh(analyticsQuery.refetch);
 
   const metrics   = data?.responseMetrics || {};
   const byStatus  = data?.incidentsByStatus || {};

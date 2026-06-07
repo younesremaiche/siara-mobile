@@ -1,43 +1,29 @@
 import React from 'react';
 import { Text } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 
 import PoliceScreenFrame, { PoliceChip, PoliceListItem, PoliceSectionCard } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
-import { listPoliceIncidents } from '../../services/policeService';
+import { usePoliceIncidents } from '../../features/police/hooks/usePoliceQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const FILTERS = ['all', 'pending', 'under_review', 'verified', 'resolved'];
 
 export default function PoliceFieldReportsScreen() {
   const navigation = useNavigation();
   const [status, setStatus] = React.useState('all');
-  const [reports, setReports] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
+  const params = React.useMemo(() => ({
+    scope: 'field_reports',
+    page: 1,
+    pageSize: 40,
+    status: status === 'all' ? undefined : status,
+  }), [status]);
+  const reportsQuery = usePoliceIncidents(params);
+  useFocusRefresh(reportsQuery.refetch);
 
-  const loadReports = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const payload = await listPoliceIncidents({
-        scope: 'field_reports',
-        page: 1,
-        pageSize: 40,
-        status: status === 'all' ? undefined : status,
-      });
-      setReports(payload.items);
-    } catch (requestError) {
-      setError(requestError.message || 'Failed to load field reports.');
-    } finally {
-      setLoading(false);
-    }
-  }, [status]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      void loadReports();
-    }, [loadReports]),
-  );
+  const reports = reportsQuery.data?.items || [];
+  const loading = reportsQuery.isLoading;
+  const error = reportsQuery.error?.message || '';
 
   return (
     <PoliceScreenFrame
@@ -45,7 +31,7 @@ export default function PoliceFieldReportsScreen() {
       subtitle="Citizen and officer reports available for police review"
       loading={loading}
       error={error}
-      onRefresh={loadReports}
+      onRefresh={reportsQuery.refetch}
       stats={[
         { label: 'Reports', value: reports.length, tone: Colors.primary },
         { label: 'Pending', value: reports.filter((item) => item.status === 'pending').length, tone: Colors.secondary },

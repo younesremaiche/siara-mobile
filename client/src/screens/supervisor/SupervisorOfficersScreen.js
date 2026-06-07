@@ -1,13 +1,13 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import SupervisorScreenFrame, {
   S,
   SupervisorSectionCard,
 } from '../../components/supervisor/SupervisorScreenFrame';
-import { getSupervisorOfficers } from '../../services/supervisorService';
+import { useSupervisorOfficers } from '../../features/supervisor/hooks/useSupervisorQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 function relativeTime(val) {
   if (!val) return 'Unknown';
@@ -69,26 +69,20 @@ function OfficerCard({ officer }) {
 }
 
 export default function SupervisorOfficersScreen({ navigation }) {
-  const [officers, setOfficers]   = React.useState([]);
-  const [loading,  setLoading]    = React.useState(true);
-  const [error,    setError]      = React.useState('');
-  const [search,   setSearch]     = React.useState('');
-  const [filter,   setFilter]     = React.useState('all'); // all | on | off
+  const [search, setSearch] = React.useState('');
+  const [filter, setFilter] = React.useState('all'); // all | on | off
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await getSupervisorOfficers();
-      setOfficers(Array.isArray(res?.officers) ? res.officers : Array.isArray(res) ? res : []);
-    } catch (e) {
-      setError(e.message || 'Failed to load officers.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  // Shared cache: officer duty status stays consistent with the map/assign views
+  // and refreshes when an assignment invalidates supervisor.*.
+  const officersQuery = useSupervisorOfficers();
+  const officers = React.useMemo(() => {
+    const res = officersQuery.data;
+    return Array.isArray(res?.officers) ? res.officers : Array.isArray(res) ? res : [];
+  }, [officersQuery.data]);
+  const loading = officersQuery.isLoading;
+  const error = officersQuery.error?.message || '';
+  const load = officersQuery.refetch;
+  useFocusRefresh(officersQuery.refetch);
 
   const onDutyCount  = officers.filter(o => o.isOnDuty).length;
   const offDutyCount = officers.length - onDutyCount;

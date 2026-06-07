@@ -83,6 +83,8 @@ function buildAuthenticatedState(user, token, rememberMe = false, activeMode = U
     rememberMe,
     hasCheckedSession: true,
     isRestoringSession: false,
+    // A successful (re)authentication clears any lingering end-of-session notice.
+    sessionNotice: null,
   };
 }
 
@@ -104,6 +106,17 @@ export const useAuthStore = create(
       rememberMe: false,
       hasCheckedSession: false,
       isRestoringSession: false,
+      // Transient, user-facing reason the session ended (ban / forced re-login /
+      // expiry). Not persisted; consumed by the SessionNoticeBanner.
+      sessionNotice: null,
+
+      setSessionNotice: (notice) => {
+        set({ sessionNotice: notice || null });
+      },
+
+      clearSessionNotice: () => {
+        set({ sessionNotice: null });
+      },
 
       markSessionChecked: () => {
         set({
@@ -147,9 +160,18 @@ export const useAuthStore = create(
             });
             return user;
           } catch (error) {
-            console.warn('[authStore] Stored session invalid, clearing:', error.message);
-
-            await get().clearSession();
+            const status = error?.status;
+            if (status === 401 || status === 403) {
+              // The global unauthorized handler already cleared the session and
+              // set any user-facing notice; don't double-clear (which would wipe
+              // the notice). Just mark the session as checked.
+              console.warn('[authStore] Stored session rejected by server:', error.message);
+              set({ hasCheckedSession: true, isRestoringSession: false });
+            } else {
+              // Network / unexpected error — keep prior behavior and clear.
+              console.warn('[authStore] Stored session invalid, clearing:', error.message);
+              await get().clearSession();
+            }
             return null;
           }
         } catch (error) {
@@ -181,9 +203,31 @@ export const useAuthStore = create(
       },
 
       /**
-       * Set user as unauthenticated and clear session
+       * Re-validate the current session against the server (e.g. when the app
+       * returns to the foreground). On a 401/403 the global unauthorized handler
+       * tears the session down and posts a notice; other errors are ignored so a
+       * transient network blip doesn't log the user out.
        */
-      clearSession: async () => {
+      revalidateSession: async () => {
+        const state = get();
+        if (!state.isAuthenticated || !state.token) return null;
+        try {
+          const user = await fetchCurrentUser();
+          set({
+            ...buildAuthenticatedState(user, state.token, state.rememberMe, state.activeMode),
+          });
+          return user;
+        } catch (error) {
+          // 401/403 already handled by setUnauthorizedHandler; swallow the rest.
+          return null;
+        }
+      },
+
+      /**
+       * Set user as unauthenticated and clear session.
+       * Accepts an optional { notice } to surface why the session ended.
+       */
+      clearSession: async ({ notice = null } = {}) => {
         console.log('[authStore] Clearing session');
         setInMemoryAccessToken(null);
 
@@ -198,6 +242,7 @@ export const useAuthStore = create(
           rememberMe: false,
           hasCheckedSession: true,
           isRestoringSession: false,
+          sessionNotice: notice,
         });
 
         try {

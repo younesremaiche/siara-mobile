@@ -62,10 +62,11 @@ import SupervisorOfficersScreen from '../screens/supervisor/SupervisorOfficersSc
 import SupervisorIncidentsScreen from '../screens/supervisor/SupervisorIncidentsScreen';
 import SupervisorAnalyticsScreen from '../screens/supervisor/SupervisorAnalyticsScreen';
 import SupervisorMapScreen from '../screens/supervisor/SupervisorMapScreen';
+import SupervisorAlertsScreen from '../screens/supervisor/SupervisorAlertsScreen';
 
 import { flushPendingNotificationNavigation, navigationRef } from './navigationService';
 import AdminDrawerShell from '../components/layout/AdminDrawerShell';
-import { getPoliceMe } from '../services/policeService';
+import { usePoliceMe } from '../features/police/hooks/usePoliceQueries';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -237,6 +238,7 @@ function SupervisorStackNavigator() {
       <SupervisorStack.Screen name="SupervisorDashboard" component={SupervisorDashboardScreen} />
       <SupervisorStack.Screen name="SupervisorOfficers"  component={SupervisorOfficersScreen}  />
       <SupervisorStack.Screen name="SupervisorIncidents" component={SupervisorIncidentsScreen} />
+      <SupervisorStack.Screen name="SupervisorAlerts"   component={SupervisorAlertsScreen}   />
       <SupervisorStack.Screen name="SupervisorAnalytics" component={SupervisorAnalyticsScreen} />
       <SupervisorStack.Screen name="SupervisorMap"       component={SupervisorMapScreen}       />
     </SupervisorStack.Navigator>
@@ -258,13 +260,16 @@ export default function AppNavigator() {
   const isPolice = useAuthStore((state) => state.isPolice);
   const isSupervisor = useAuthStore((state) => state.isSupervisor);
   const activeMode = useAuthStore((state) => state.activeMode);
-  const userId = useAuthStore((state) => state.user?.id);
-  const [policeBootstrap, setPoliceBootstrap] = React.useState({
-    loading: false,
-    requiresZoneSelection: false,
-  });
   const shouldBootstrapPolice = isAuthenticated && isPolice && activeMode === 'police';
   const isSupervisorMode = isAuthenticated && isSupervisor && activeMode === 'supervisor';
+  const policeMeQuery = usePoliceMe({
+    enabled: shouldBootstrapPolice,
+    staleTime: 15 * 1000,
+  });
+  const policeBootstrap = {
+    loading: shouldBootstrapPolice && policeMeQuery.isLoading,
+    requiresZoneSelection: Boolean(policeMeQuery.data?.requiresZoneSelection),
+  };
 
   // --- Mode transition overlay state ---
   const [renderedMode, setRenderedMode] = React.useState(activeMode);
@@ -287,47 +292,6 @@ export default function AppNavigator() {
         : isPolice
           ? `police-access-${renderedMode}`
           : 'user';
-
-  React.useEffect(() => {
-    let isCancelled = false;
-
-    async function loadPoliceBootstrap() {
-      if (!shouldBootstrapPolice) {
-        setPoliceBootstrap({
-          loading: false,
-          requiresZoneSelection: false,
-        });
-        return;
-      }
-
-      setPoliceBootstrap((previous) => ({
-        ...previous,
-        loading: true,
-      }));
-
-      try {
-        const payload = await getPoliceMe();
-        if (!isCancelled) {
-          setPoliceBootstrap({
-            loading: false,
-            requiresZoneSelection: Boolean(payload.requiresZoneSelection),
-          });
-        }
-      } catch (_error) {
-        if (!isCancelled) {
-          setPoliceBootstrap({
-            loading: false,
-            requiresZoneSelection: false,
-          });
-        }
-      }
-    }
-
-    void loadPoliceBootstrap();
-    return () => {
-      isCancelled = true;
-    };
-  }, [shouldBootstrapPolice, userId]);
 
   // Fire whenever activeMode changes — animate overlay in, swap navigator, then fade out
   React.useEffect(() => {

@@ -4,24 +4,33 @@
  * Mirrors the web repo's auth routing patterns
  */
 
-/**
- * Check if user has admin role
- * Handles both user.role and user.roles array formats
- */
-export function isAdminUser(user) {
-  if (!user) return false;
+function normalizeRoles(user) {
+  if (!user || typeof user !== 'object') return [];
   const roles = Array.isArray(user.roles) ? user.roles : [user.role];
   return roles
+    .map((entry) => {
+      if (entry && typeof entry === 'object') {
+        return entry.name || entry.role || entry.slug || '';
+      }
+      return entry;
+    })
     .map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''))
-    .includes('admin');
+    .filter(Boolean);
+}
+
+/**
+ * Check if user has admin role.
+ */
+export function isAdminUser(user) {
+  return normalizeRoles(user).includes('admin');
 }
 
 export function isPoliceUser(user) {
-  if (!user) return false;
-  const roles = Array.isArray(user.roles) ? user.roles : [user.role];
-  return roles
-    .map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''))
-    .some((entry) => entry === 'police' || entry === 'policeofficer');
+  return normalizeRoles(user).some((entry) => entry === 'police' || entry === 'policeofficer');
+}
+
+export function isSupervisorUser(user) {
+  return normalizeRoles(user).some((entry) => entry === 'policesupervisor');
 }
 
 /**
@@ -44,10 +53,12 @@ export function getAuthenticatedRedirect(user, isEmailVerified = true) {
     };
   }
 
+  if (isSupervisorUser(user)) {
+    return { name: 'SupervisorStack' };
+  }
+
   if (isPoliceUser(user)) {
-    return {
-      name: 'UserTabs',
-    };
+    return { name: 'PoliceStack' };
   }
 
   // Otherwise send to user home
@@ -66,10 +77,11 @@ export function getLoginRedirect(user) {
       name: 'AdminPanel',
     };
   }
+  if (isSupervisorUser(user)) {
+    return { name: 'SupervisorStack' };
+  }
   if (isPoliceUser(user)) {
-    return {
-      name: 'UserTabs',
-    };
+    return { name: 'PoliceStack' };
   }
   return {
     name: 'UserTabs',
@@ -123,6 +135,7 @@ export const ADMIN_ONLY_ROUTES = [
   'AdminSystem',
   'AdminAnalytics',
   'AdminDashboard',
+  'AdminServiceControl',
 ];
 
 export const POLICE_ROUTES = [
@@ -140,12 +153,26 @@ export const POLICE_ROUTES = [
   'PoliceIncidentDetail',
 ];
 
+export const SUPERVISOR_ROUTES = [
+  'SupervisorStack',
+  'SupervisorDashboard',
+  'SupervisorOfficers',
+  'SupervisorIncidents',
+  'SupervisorAlerts',
+  'SupervisorAnalytics',
+  'SupervisorMap',
+];
+
 export function isAdminRoute(routeName) {
   return ADMIN_ONLY_ROUTES.includes(routeName);
 }
 
 export function isPoliceRoute(routeName) {
   return POLICE_ROUTES.includes(routeName);
+}
+
+export function isSupervisorRoute(routeName) {
+  return SUPERVISOR_ROUTES.includes(routeName);
 }
 
 /**
@@ -158,6 +185,7 @@ export const ROUTE_GROUPS = {
   USER: 'USER', // Home, Dashboard, etc (requires auth, non-admin)
   ADMIN: 'ADMIN', // Admin screens (requires admin role)
   POLICE: 'POLICE', // Police screens (requires police role)
+  SUPERVISOR: 'SUPERVISOR', // Supervisor screens (requires supervisor role)
 };
 
 /**
@@ -176,13 +204,16 @@ export function getRouteGroup(routeName, user = null) {
   if (isPoliceRoute(routeName)) {
     return ROUTE_GROUPS.POLICE;
   }
+  if (isSupervisorRoute(routeName)) {
+    return ROUTE_GROUPS.SUPERVISOR;
+  }
   return ROUTE_GROUPS.USER;
 }
 
 /**
  * Determine if user can access a route
  */
-export function canAccessRoute(routeName, isAuthenticated, isAdmin, isPolice = false) {
+export function canAccessRoute(routeName, isAuthenticated, isAdmin, isPolice = false, isSupervisor = false) {
   const group = getRouteGroup(routeName);
 
   switch (group) {
@@ -201,6 +232,9 @@ export function canAccessRoute(routeName, isAuthenticated, isAdmin, isPolice = f
     case ROUTE_GROUPS.POLICE:
       return isAuthenticated && isPolice;
 
+    case ROUTE_GROUPS.SUPERVISOR:
+      return isAuthenticated && (isSupervisor || isAdmin);
+
     case ROUTE_GROUPS.USER:
       // Authenticated non-admin users, including police accounts in user mode, can access
       return isAuthenticated && !isAdmin;
@@ -213,13 +247,18 @@ export function canAccessRoute(routeName, isAuthenticated, isAdmin, isPolice = f
 /**
  * Get redirect for accidental route access based on current auth state
  */
-export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user, isPolice = false) {
+export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, user, isPolice = false, isSupervisor = false) {
   const group = getRouteGroup(routeName);
 
   // If unauthenticated and trying to access protected route
   if (!isAuthenticated) {
     // Can't access user or admin routes, redirect to login
-    if (group === ROUTE_GROUPS.USER || group === ROUTE_GROUPS.ADMIN || group === ROUTE_GROUPS.POLICE) {
+    if (
+      group === ROUTE_GROUPS.USER
+      || group === ROUTE_GROUPS.ADMIN
+      || group === ROUTE_GROUPS.POLICE
+      || group === ROUTE_GROUPS.SUPERVISOR
+    ) {
       return { name: 'Login' };
     }
   }
@@ -241,6 +280,10 @@ export function getRedirectForDeniedRoute(routeName, isAuthenticated, isAdmin, u
 
   if (isAuthenticated && !isPolice && group === ROUTE_GROUPS.POLICE) {
     return isAdmin ? { name: 'AdminPanel' } : { name: 'UserTabs' };
+  }
+
+  if (isAuthenticated && !isSupervisor && !isAdmin && group === ROUTE_GROUPS.SUPERVISOR) {
+    return isPolice ? { name: 'PoliceStack' } : { name: 'UserTabs' };
   }
 
   // No redirect needed

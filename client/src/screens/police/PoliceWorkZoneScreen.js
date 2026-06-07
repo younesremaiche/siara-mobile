@@ -10,13 +10,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '../../theme/colors';
-import { getPoliceMe, getPoliceWorkZoneOptions, updatePoliceWorkZone } from '../../services/policeService';
+import {
+  usePoliceMe,
+  usePoliceWorkZoneOptions,
+  useUpdatePoliceWorkZoneMutation,
+} from '../../features/police/hooks/usePoliceQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const H1 = '#0D1B2A';
 const H2 = '#1A3251';
@@ -133,70 +137,68 @@ function SelectorBtn({ label, value, placeholder, onPress, disabled, accent }) {
 export default function PoliceWorkZoneScreen({ navigation }) {
   const insets = useSafeAreaInsets();
 
-  const [me, setMe]               = React.useState(null);
-  const [wilayas, setWilayas]     = React.useState([]);
-  const [communes, setCommunes]   = React.useState([]);
   const [wilayaId, setWilayaId]   = React.useState('');
   const [communeId, setCommuneId] = React.useState('');
-  const [loading, setLoading]     = React.useState(true);
-  const [saving, setSaving]       = React.useState(false);
-  const [communeLoading, setCommuneLoading] = React.useState(false);
-  const [error, setError]         = React.useState('');
+  const [localError, setLocalError] = React.useState('');
   const [success, setSuccess]     = React.useState(false);
   const [showWilaya, setShowWilaya]   = React.useState(false);
   const [showCommune, setShowCommune] = React.useState(false);
 
-  const loadOptions = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [mePayload, optionsPayload] = await Promise.all([
-        getPoliceMe(),
-        getPoliceWorkZoneOptions(null),
-      ]);
-      const resolvedWilayaId = String(optionsPayload.selectedWilayaId || mePayload.workZone?.wilaya?.id || '');
-      setMe(mePayload);
-      setWilayas(optionsPayload.wilayas);
-      setCommunes(optionsPayload.communes);
-      setWilayaId(resolvedWilayaId);
-      setCommuneId(String(optionsPayload.selectedCommuneId || mePayload.workZone?.commune?.id || ''));
-    } catch (e) {
-      setError(e.message || 'Failed to load options.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const meQuery = usePoliceMe();
+  // Param-scoped: passing the selected wilaya fetches that wilaya's communes;
+  // null returns the officer's currently-saved zone options.
+  const optionsQuery = usePoliceWorkZoneOptions(wilayaId || null);
+  const updateZone = useUpdatePoliceWorkZoneMutation();
 
-  useFocusEffect(React.useCallback(() => { void loadOptions(); }, [loadOptions]));
+  const me = meQuery.data;
+  const wilayas = optionsQuery.data?.wilayas ?? [];
+  const communes = optionsQuery.data?.communes ?? [];
+  const loading = optionsQuery.isLoading || meQuery.isLoading;
+  const saving = updateZone.isPending;
+  // While communes refetch for a freshly picked wilaya, show the picker loader.
+  const communeLoading = optionsQuery.isFetching && !optionsQuery.isLoading;
+  const error = localError || optionsQuery.error?.message || meQuery.error?.message || '';
 
-  const handleWilayaSelect = async (value) => {
+  // Depend on the stable refetch fns, NOT the query objects (new identity every
+  // render → would loop the focus effect infinitely).
+  const refresh = React.useCallback(() => {
+    meQuery.refetch();
+    optionsQuery.refetch();
+  }, [meQuery.refetch, optionsQuery.refetch]);
+  useFocusRefresh(refresh);
+
+  // Seed the selection once from the server's saved zone (or the officer profile).
+  const seededRef = React.useRef(false);
+  React.useEffect(() => {
+    if (seededRef.current) return;
+    const data = optionsQuery.data;
+    if (!data) return;
+    seededRef.current = true;
+    const resolvedWilayaId = String(data.selectedWilayaId || me?.workZone?.wilaya?.id || '');
+    const resolvedCommuneId = String(data.selectedCommuneId || me?.workZone?.commune?.id || '');
+    if (resolvedWilayaId) setWilayaId(resolvedWilayaId);
+    if (resolvedCommuneId) setCommuneId(resolvedCommuneId);
+  }, [optionsQuery.data, me]);
+
+  const handleWilayaSelect = (value) => {
     setWilayaId(value);
     setCommuneId('');
-    setCommuneLoading(true);
-    try {
-      const opts = await getPoliceWorkZoneOptions(value);
-      setCommunes(opts.communes);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setCommuneLoading(false);
-    }
+    // optionsQuery refetches communes for the new wilaya via its query key.
   };
 
   const handleSave = async () => {
     if (!wilayaId || !communeId) {
-      setError('Select both Wilaya and Commune before saving.');
+      setLocalError('Select both Wilaya and Commune before saving.');
       return;
     }
-    setSaving(true);
-    setError('');
+    setLocalError('');
     try {
-      await updatePoliceWorkZone({ wilayaId: Number(wilayaId), communeId: Number(communeId) });
-      const refreshed = await getPoliceMe();
-      setMe(refreshed);
+      // The mutation writes police.me and invalidates the police workflow, so the
+      // dashboard / zone pill / scope everywhere reflect the new zone immediately.
+      const refreshed = await updateZone.mutateAsync({ wilayaId: Number(wilayaId), communeId: Number(communeId) });
       setSuccess(true);
       setTimeout(() => {
-        if (!refreshed.requiresZoneSelection) {
+        if (!refreshed?.requiresZoneSelection) {
           navigation.reset({
             index: 0,
             routes: [{ name: 'PoliceTabs', state: { routes: [{ name: 'PoliceDashboard' }] } }],
@@ -204,9 +206,7 @@ export default function PoliceWorkZoneScreen({ navigation }) {
         }
       }, 900);
     } catch (e) {
-      setError(e.message || 'Failed to save work zone.');
-    } finally {
-      setSaving(false);
+      setLocalError(e.message || 'Failed to save work zone.');
     }
   };
 
@@ -258,7 +258,7 @@ export default function PoliceWorkZoneScreen({ navigation }) {
           <View style={s.errorBanner}>
             <Ionicons name="alert-circle-outline" size={15} color={Colors.error} />
             <Text style={s.errorText} numberOfLines={2}>{error}</Text>
-            <TouchableOpacity onPress={() => setError('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={() => setLocalError('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close" size={14} color={Colors.error} />
             </TouchableOpacity>
           </View>

@@ -1,6 +1,5 @@
 import React from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import PoliceScreenFrame, {
@@ -12,14 +11,10 @@ import PoliceScreenFrame, {
 } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
 import {
-  addPoliceFieldNote,
-  assignSelfToPoliceIncident,
-  getPoliceIncident,
-  rejectPoliceIncident,
-  requestPoliceBackup,
-  updatePoliceIncidentStatus,
-  verifyPoliceIncident,
-} from '../../services/policeService';
+  usePoliceIncident,
+  usePoliceIncidentActionMutation,
+} from '../../features/police/hooks/usePoliceQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 /* ── Which actions are available per status ──────────────────────── */
 function availableActions(incident) {
@@ -111,27 +106,19 @@ const act = StyleSheet.create({
 ══════════════════════════════════════════════════════════════════ */
 export default function PoliceIncidentDetailScreen({ route, navigation }) {
   const incidentId = route?.params?.incidentId;
+  const autoStart = route?.params?.autoStart;
 
-  const [detail,  setDetail]  = React.useState(null);
   const [note,    setNote]    = React.useState('');
-  const [loading, setLoading] = React.useState(true);
-  const [saving,  setSaving]  = React.useState(false);
-  const [error,   setError]   = React.useState('');
+  const [actionError, setActionError] = React.useState('');
+  const detailQuery = usePoliceIncident(incidentId);
+  const actionMutation = usePoliceIncidentActionMutation();
+  useFocusRefresh(detailQuery.refetch, Boolean(incidentId));
 
-  const loadDetail = React.useCallback(async () => {
-    if (!incidentId) return;
-    setLoading(true);
-    setError('');
-    try {
-      setDetail(await getPoliceIncident(incidentId));
-    } catch (e) {
-      setError(e.message || 'Failed to load incident.');
-    } finally {
-      setLoading(false);
-    }
-  }, [incidentId]);
-
-  useFocusEffect(React.useCallback(() => { void loadDetail(); }, [loadDetail]));
+  const detail = detailQuery.data;
+  const loading = detailQuery.isLoading;
+  const saving = actionMutation.isPending;
+  const error = actionError || detailQuery.error?.message || '';
+  const loadDetail = detailQuery.refetch;
 
   const incident = detail?.incident;
   const actions  = availableActions(incident);
@@ -155,35 +142,58 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
       return;
     }
 
-    setSaving(true);
-    setError('');
+    if (action === 'note' && !note.trim()) {
+      Alert.alert('Field note', 'Please enter a note before saving.');
+      return;
+    }
+
+    setActionError('');
     try {
-      let result;
+      let payload = {};
       switch (action) {
-        case 'verify':      result = await verifyPoliceIncident(incident.id);                                break;
-        case 'reject':      result = await rejectPoliceIncident(incident.id);                                break;
-        case 'resolve':     result = await updatePoliceIncidentStatus(incident.id, { status: 'resolved' }); break;
-        case 'backup':      result = await requestPoliceBackup(incident.id);                                 break;
-        case 'assign_self': result = await assignSelfToPoliceIncident(incident.id);                         break;
+        case 'verify':
+        case 'reject':
+        case 'backup':
+        case 'assign_self':
+          break;
+        case 'resolve':
+          payload = { status: 'resolved' };
+          break;
         case 'note':
-          if (!note.trim()) { Alert.alert('Field note', 'Please enter a note before saving.'); return; }
-          result = await addPoliceFieldNote(incident.id, { note: note.trim() });
+          payload = { note: note.trim() };
           setNote('');
           break;
         default: return;
       }
-      setDetail(result);
+      await actionMutation.mutateAsync({ incidentId: incident.id, action, payload });
 
       // Navigate back after terminal actions
       if (action === 'reject' || action === 'resolve') {
         setTimeout(() => navigation.goBack(), 1200);
       }
     } catch (e) {
-      setError(e.message || 'Action failed.');
-    } finally {
-      setSaving(false);
+      setActionError(e.message || 'Action failed.');
     }
-  }, [incident, note, navigation]);
+  }, [actionMutation, incident, note, navigation]);
+
+  // The list/dashboard/nearby "Start Review / Take Action / Respond" CTAs
+  // navigate here with autoStart:true. Honor that intent by prompting the
+  // officer to take the case (assign-self → under_review) once the incident
+  // has loaded, but only when that action is actually available.
+  const autoStartHandledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!autoStart || autoStartHandledRef.current || !incident) return;
+    autoStartHandledRef.current = true;
+    if (!availableActions(incident).includes('assign_self')) return;
+    Alert.alert(
+      'Start Review',
+      'Take this case and begin the review? You will be assigned and the incident moves to Under Review.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Take case', onPress: () => runAction('assign_self') },
+      ],
+    );
+  }, [autoStart, incident, runAction]);
 
   return (
     <PoliceScreenFrame
@@ -226,6 +236,22 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
           ))}
         </View>
       </PoliceSectionCard>
+
+      {/* Evidence photos — same media the citizen submitted */}
+      {(incident?.media || []).length > 0 && (
+        <PoliceSectionCard title="Photos" icon="images-outline">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.photoRow}>
+            {incident.media.map((item, idx) => (
+              <Image
+                key={item.id || idx}
+                source={{ uri: item.url }}
+                style={s.photoThumb}
+                resizeMode="cover"
+              />
+            ))}
+          </ScrollView>
+        </PoliceSectionCard>
+      )}
 
       {/* Action buttons — shown only when relevant */}
       {actions.length > 0 ? (
@@ -356,6 +382,9 @@ const s = StyleSheet.create({
   },
   metaCellLabel: { color: Colors.subtext, fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
   metaCellValue: { color: Colors.heading, fontSize: 13, fontWeight: '700', marginTop: 1 },
+
+  photoRow: { gap: 10, paddingTop: 2 },
+  photoThumb: { width: 150, height: 110, borderRadius: 12, backgroundColor: Colors.bg },
 
   actionsGrid: {
     gap: 10,

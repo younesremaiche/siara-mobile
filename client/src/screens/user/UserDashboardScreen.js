@@ -13,6 +13,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../theme/colors';
+import { useUserDashboard } from '../../features/reports/hooks/useDashboardQuery';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const { width } = Dimensions.get('window');
 
@@ -89,12 +91,25 @@ function getBarColor(value) {
 
 export default function UserDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
+  const dashboardQuery = useUserDashboard();
+  useFocusRefresh(dashboardQuery.refetch);
+
+  const dashboard = dashboardQuery.data || {};
+  const currentRisk = dashboard.currentRiskOverview || {};
+  const profile = dashboard.profile || {};
+  const activeAlerts = dashboard.activeAlerts || {};
+  const riskScore = Math.round(Number(currentRisk.score || 0));
+  const activeAlertCount = Number(profile.activeAlerts ?? activeAlerts.items?.length ?? 0);
+  const monitoredZones = Number(profile.monitoredZones || 0);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 300));
-    setRefreshing(false);
-  }, []);
+    try {
+      await dashboardQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dashboardQuery]);
 
   return (
     <ScrollView
@@ -128,18 +143,18 @@ export default function UserDashboardScreen() {
         {/* Quick Stats */}
         <View style={styles.quickStats}>
           <View style={styles.quickStatItem}>
-            <Text style={styles.quickStatValue}>64</Text>
+            <Text style={styles.quickStatValue}>{riskScore || '--'}</Text>
             <Text style={styles.quickStatLabel}>Risk Score</Text>
           </View>
           <View style={styles.quickStatDivider} />
           <View style={styles.quickStatItem}>
-            <Text style={styles.quickStatValue}>3</Text>
+            <Text style={styles.quickStatValue}>{activeAlertCount}</Text>
             <Text style={styles.quickStatLabel}>Active Alerts</Text>
           </View>
           <View style={styles.quickStatDivider} />
           <View style={styles.quickStatItem}>
-            <Text style={styles.quickStatValue}>12</Text>
-            <Text style={styles.quickStatLabel}>Routes Tracked</Text>
+            <Text style={styles.quickStatValue}>{monitoredZones}</Text>
+            <Text style={styles.quickStatLabel}>Zones Tracked</Text>
           </View>
         </View>
       </LinearGradient>
@@ -168,7 +183,7 @@ export default function UserDashboardScreen() {
                 <View style={[styles.donutFillQuarter, styles.donutQ4, { backgroundColor: Colors.border }]} />
               </View>
               <View style={styles.donutInner}>
-                <Text style={styles.donutValue}>64</Text>
+                <Text style={styles.donutValue}>{riskScore || '--'}</Text>
                 <Text style={styles.donutUnit}>/100</Text>
               </View>
             </View>
@@ -176,7 +191,7 @@ export default function UserDashboardScreen() {
             <View style={styles.donutInfo}>
               <View style={[styles.riskLevelBadge, { backgroundColor: Colors.severityMedium + '18' }]}>
                 <Ionicons name="alert-circle" size={14} color={Colors.severityMedium} />
-                <Text style={[styles.riskLevelText, { color: Colors.severityMedium }]}>Moderate Risk</Text>
+                <Text style={[styles.riskLevelText, { color: Colors.severityMedium }]}>{currentRisk.label || 'Unavailable'}</Text>
               </View>
               <Text style={styles.donutDesc}>
                 Your personal risk score is based on your routes, driving patterns, and current zone conditions.

@@ -9,35 +9,35 @@ import PoliceScreenFrame, {
   PoliceSectionCard,
 } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
-import { listPoliceIncidents, syncPoliceDeviceLocation } from '../../services/policeService';
+import {
+  usePoliceIncidents,
+  useSyncPoliceLocationMutation,
+} from '../../features/police/hooks/usePoliceQueries';
 
 export default function PoliceNearbyIncidentsScreen() {
   const navigation = useNavigation();
-  const [incidents, setIncidents] = React.useState([]);
-  const [locationRequired, setLocationRequired] = React.useState(false);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
-
-  const loadNearby = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      await syncPoliceDeviceLocation().catch(() => null);
-      const payload = await listPoliceIncidents({ scope: 'nearby', page: 1, pageSize: 40 });
-      setIncidents(payload.items || []);
-      setLocationRequired(Boolean(payload.locationRequired));
-    } catch (requestError) {
-      setError(requestError.message || 'Failed to load nearby incidents.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const params = React.useMemo(() => ({ scope: 'nearby', page: 1, pageSize: 40 }), []);
+  const {
+    data: nearbyPayload,
+    isLoading: loading,
+    error: nearbyError,
+    refetch: refetchNearby,
+  } = usePoliceIncidents(params);
+  const { mutate: syncPoliceLocation } = useSyncPoliceLocationMutation();
 
   useFocusEffect(
     React.useCallback(() => {
-      void loadNearby();
-    }, [loadNearby]),
+      syncPoliceLocation(undefined, {
+        onSettled: () => {
+          void refetchNearby();
+        },
+      });
+    }, [refetchNearby, syncPoliceLocation]),
   );
+
+  const incidents = nearbyPayload?.items || [];
+  const locationRequired = Boolean(nearbyPayload?.locationRequired);
+  const error = nearbyError?.message || '';
 
   const stats = [
     {
@@ -71,7 +71,7 @@ export default function PoliceNearbyIncidentsScreen() {
       stats={stats}
       loading={loading}
       error={error}
-      onRefresh={loadNearby}
+      onRefresh={refetchNearby}
     >
       {locationRequired ? (
         <View style={styles.locationCard}>
@@ -84,7 +84,7 @@ export default function PoliceNearbyIncidentsScreen() {
               Allow location access so the API can return incidents within 500 meters.
             </Text>
           </View>
-          <TouchableOpacity style={styles.locationCta} onPress={loadNearby} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.locationCta} onPress={refetchNearby} activeOpacity={0.85}>
             <Text style={styles.locationCtaText}>Retry</Text>
           </TouchableOpacity>
         </View>

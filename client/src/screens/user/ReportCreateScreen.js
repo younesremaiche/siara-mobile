@@ -19,10 +19,13 @@ import { Colors } from '../../theme/colors';
 import {
   INCIDENT_TYPES,
   REPORT_SEVERITIES,
-  createReport,
   formatDateTime,
-  uploadReportMedia,
 } from '../../services/reportsService';
+import {
+  useCreateReportMutation,
+  useUpdateReportMutation,
+  useUploadReportMediaMutation,
+} from '../../features/reports/hooks/useReportQueries';
 
 const INCIDENT_TYPE_META = {
   accident:  { icon: 'car-outline',                        label: 'Accident',  color: '#EF4444', bg: 'rgba(239,68,68,0.09)',    border: 'rgba(239,68,68,0.22)'    },
@@ -71,20 +74,33 @@ function SectionBadge({ label }) {
   );
 }
 
-export default function ReportCreateScreen({ navigation }) {
-  const [title, setTitle]               = useState('');
-  const [incidentType, setIncidentType] = useState('');
-  const [severity, setSeverity]         = useState('medium');
-  const [description, setDescription]   = useState('');
-  const [locationLabel, setLocationLabel] = useState('');
-  const [latitude, setLatitude]         = useState('');
-  const [longitude, setLongitude]       = useState('');
-  const [occurredAt, setOccurredAt]     = useState('');
+export default function ReportCreateScreen({ navigation, route }) {
+  const editReport = route?.params?.editReport || null;
+  const isEditing = Boolean(editReport?.id);
+  const initialLocation = editReport?.location || {};
+  const initialSeverity = editReport?.severity === 'critical'
+    ? 'high'
+    : editReport?.severity || 'medium';
+
+  const [title, setTitle]               = useState(editReport?.title || '');
+  const [incidentType, setIncidentType] = useState(editReport?.incidentType || '');
+  const [severity, setSeverity]         = useState(initialSeverity);
+  const [description, setDescription]   = useState(editReport?.description || '');
+  const [locationLabel, setLocationLabel] = useState(editReport?.locationLabel || editReport?.location?.label || '');
+  const [latitude, setLatitude]         = useState(initialLocation.lat == null ? '' : String(initialLocation.lat));
+  const [longitude, setLongitude]       = useState(initialLocation.lng == null ? '' : String(initialLocation.lng));
+  const [occurredAt, setOccurredAt]     = useState(editReport?.occurredAt || '');
   const [images, setImages]             = useState([]);
-  const [submitting, setSubmitting]     = useState(false);
   const [submitError, setSubmitError]   = useState('');
   const [fieldErrors, setFieldErrors]   = useState({});
   const [successReport, setSuccessReport] = useState(null);
+  const createReportMutation = useCreateReportMutation();
+  const updateReportMutation = useUpdateReportMutation();
+  const uploadMediaMutation = useUploadReportMediaMutation();
+  const submitting =
+    createReportMutation.isPending
+    || updateReportMutation.isPending
+    || uploadMediaMutation.isPending;
 
   const occurredSummary = useMemo(
     () => (occurredAt ? formatDateTime(occurredAt) : 'If left blank, SIARA will use the current time.'),
@@ -92,14 +108,23 @@ export default function ReportCreateScreen({ navigation }) {
   );
 
   const resetForm = () => {
-    setTitle(''); setIncidentType(''); setSeverity('medium');
-    setDescription(''); setLocationLabel('');
-    setLatitude(''); setLongitude(''); setOccurredAt('');
+    setTitle(editReport?.title || '');
+    setIncidentType(editReport?.incidentType || '');
+    setSeverity(initialSeverity);
+    setDescription(editReport?.description || '');
+    setLocationLabel(editReport?.locationLabel || editReport?.location?.label || '');
+    setLatitude(initialLocation.lat == null ? '' : String(initialLocation.lat));
+    setLongitude(initialLocation.lng == null ? '' : String(initialLocation.lng));
+    setOccurredAt(editReport?.occurredAt || '');
     setImages([]); setSubmitError(''); setFieldErrors({});
     setSuccessReport(null);
   };
 
-  const navigateToNews = () => {
+  const navigateAfterSuccess = () => {
+    if (isEditing && successReport?.id && navigation?.replace) {
+      navigation.replace('IncidentDetail', { reportId: successReport.id });
+      return;
+    }
     if (navigation?.navigate) navigation.navigate('UserTabs', { screen: 'News' });
     else navigation.goBack();
   };
@@ -139,22 +164,24 @@ export default function ReportCreateScreen({ navigation }) {
     setFieldErrors(nextErrors);
     setSubmitError('');
     if (Object.keys(nextErrors).length > 0) return;
-    setSubmitting(true);
     try {
-      const created = await createReport({
+      const payload = {
         incidentType,
         title: title.trim(),
         description: description.trim(),
         severity,
         occurredAt: occurredAt.trim() || undefined,
         location: { lat: Number(latitude), lng: Number(longitude), label: locationLabel.trim() },
-      });
-      const finalReport = images.length > 0 ? await uploadReportMedia(created.id, images) : created;
+      };
+      const saved = isEditing
+        ? await updateReportMutation.mutateAsync({ reportId: editReport.id, data: payload })
+        : await createReportMutation.mutateAsync(payload);
+      const finalReport = images.length > 0
+        ? await uploadMediaMutation.mutateAsync({ reportId: saved.id, files: images })
+        : saved;
       setSuccessReport(finalReport);
     } catch (error) {
-      setSubmitError(error.message || 'Failed to submit report.');
-    } finally {
-      setSubmitting(false);
+      setSubmitError(error.message || (isEditing ? 'Failed to update report.' : 'Failed to submit report.'));
     }
   };
 
@@ -174,8 +201,10 @@ export default function ReportCreateScreen({ navigation }) {
               <Ionicons name="checkmark" size={38} color={Colors.white} />
             </View>
           </View>
-          <Text style={styles.successHeroTitle}>Report Submitted!</Text>
-          <Text style={styles.successHeroSub}>Your report is now pending review by SIARA</Text>
+          <Text style={styles.successHeroTitle}>{isEditing ? 'Report Updated!' : 'Report Submitted!'}</Text>
+          <Text style={styles.successHeroSub}>
+            {isEditing ? 'Your changes have been saved' : 'Your report is now pending review by SIARA'}
+          </Text>
         </LinearGradient>
 
         <View style={styles.successBody}>
@@ -206,10 +235,10 @@ export default function ReportCreateScreen({ navigation }) {
               <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
               <Text style={styles.successBtnOutlineText}>New Report</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.successBtnSolid} onPress={navigateToNews} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.successBtnSolid} onPress={navigateAfterSuccess} activeOpacity={0.8}>
               <LinearGradient colors={[Colors.gradientFrom, Colors.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.successBtnGrad}>
-                <Ionicons name="newspaper-outline" size={18} color={Colors.white} />
-                <Text style={styles.successBtnSolidText}>Open News</Text>
+                <Ionicons name={isEditing ? 'document-text-outline' : 'newspaper-outline'} size={18} color={Colors.white} />
+                <Text style={styles.successBtnSolidText}>{isEditing ? 'Open Report' : 'Open News'}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -241,8 +270,10 @@ export default function ReportCreateScreen({ navigation }) {
         <View style={styles.heroIconWrap}>
           <Ionicons name="document-text-outline" size={26} color={Colors.white} />
         </View>
-        <Text style={styles.heroTitle}>Create Report</Text>
-        <Text style={styles.heroSubtitle}>Help the community by reporting incidents in real time</Text>
+        <Text style={styles.heroTitle}>{isEditing ? 'Edit Report' : 'Create Report'}</Text>
+        <Text style={styles.heroSubtitle}>
+          {isEditing ? 'Update the report details and save your changes' : 'Help the community by reporting incidents in real time'}
+        </Text>
       </LinearGradient>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -363,6 +394,17 @@ export default function ReportCreateScreen({ navigation }) {
         {/* ── Photos ── */}
         <SectionBadge label="PHOTOS" />
         <View style={styles.card}>
+          {isEditing && editReport?.media?.length > 0 ? (
+            <>
+              <Text style={styles.existingMediaLabel}>Current photos</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.existingMediaRow}>
+                {editReport.media.map((mediaItem, index) => (
+                  <Image key={mediaItem.id || `${mediaItem.url}-${index}`} source={{ uri: mediaItem.url }} style={styles.mediaThumb} />
+                ))}
+              </ScrollView>
+              <Text style={styles.mediaHint}>New photos you add below will be attached to this report.</Text>
+            </>
+          ) : null}
           <View style={styles.mediaGrid}>
             {images.map((asset, index) => (
               <View key={`${asset.uri}-${index}`} style={styles.mediaThumbWrap}>
@@ -398,8 +440,8 @@ export default function ReportCreateScreen({ navigation }) {
               <Text style={styles.submitText}>Submitting…</Text>
             ) : (
               <>
-                <Ionicons name="send-outline" size={18} color={Colors.white} />
-                <Text style={styles.submitText}>Submit Report</Text>
+                <Ionicons name={isEditing ? 'save-outline' : 'send-outline'} size={18} color={Colors.white} />
+                <Text style={styles.submitText}>{isEditing ? 'Save Changes' : 'Submit Report'}</Text>
               </>
             )}
           </LinearGradient>

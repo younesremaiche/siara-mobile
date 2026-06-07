@@ -13,33 +13,32 @@ import PoliceScreenFrame, {
   PoliceTimelineItem,
 } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
-import { getPoliceDashboard, syncPoliceDeviceLocation } from '../../services/policeService';
+import {
+  usePoliceDashboard,
+  useSyncPoliceLocationMutation,
+} from '../../features/police/hooks/usePoliceQueries';
 
 export default function PoliceDashboardScreen() {
   const navigation = useNavigation();
-  const [dashboard, setDashboard] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
-
-  const loadDashboard = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      await syncPoliceDeviceLocation().catch(() => null);
-      const payload = await getPoliceDashboard();
-      setDashboard(payload);
-    } catch (requestError) {
-      setError(requestError.message || 'Failed to load police dashboard.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: dashboard,
+    isLoading: loading,
+    error: dashboardError,
+    refetch: refetchDashboard,
+  } = usePoliceDashboard();
+  const { mutate: syncPoliceLocation } = useSyncPoliceLocationMutation();
 
   useFocusEffect(
     React.useCallback(() => {
-      void loadDashboard();
-    }, [loadDashboard]),
+      syncPoliceLocation(undefined, {
+        onSettled: () => {
+          void refetchDashboard();
+        },
+      });
+    }, [refetchDashboard, syncPoliceLocation]),
   );
+
+  const error = dashboardError?.message || '';
 
   const stats = [
     {
@@ -85,7 +84,7 @@ export default function PoliceDashboardScreen() {
       stats={stats}
       loading={loading}
       error={error}
-      onRefresh={loadDashboard}
+      onRefresh={refetchDashboard}
     >
       <PoliceOfficerCard
         name={dashboard?.officer?.name}

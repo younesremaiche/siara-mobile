@@ -26,6 +26,7 @@ import {
   updateNotificationPreferences,
 } from '../services/notificationsService';
 import { connectNotificationSocket, disconnectNotificationSocket } from '../services/notificationSocketService';
+import { invalidateForNotification } from '../services/query/workflowInvalidation';
 import { clearStoredPushRegistration } from '../services/mobilePushService';
 import { navigateFromNotification } from '../navigation/navigationService';
 import InAppNotificationBanner from '../components/notifications/InAppNotificationBanner';
@@ -117,6 +118,13 @@ export function NotificationsProvider({ children }) {
     return normalized;
   }, []);
 
+  // Bridge backend domain events (delivered as notifications) to the React Query
+  // cache so live verify/assign/resolve/new-incident events refresh every
+  // Query-backed list/detail/dashboard, not just the notification inbox.
+  const syncServerStateFromNotification = useCallback((payload) => {
+    invalidateForNotification(undefined, payload).catch(() => {});
+  }, []);
+
   const showBanner = useCallback((notification) => {
     if (!notification?.id) return;
     const now = Date.now();
@@ -161,6 +169,11 @@ export function NotificationsProvider({ children }) {
       setRefreshing(false);
     }
   }, [applyItems, isAuthenticated]);
+
+  // Stable wrapper exposed to screens. Must NOT be an inline arrow inside the
+  // context value: an unstable identity makes consumers' useFocusEffect deps
+  // change every render and triggers an infinite refresh loop.
+  const refreshNotifications = useCallback(() => refreshInbox({ silent: true }), [refreshInbox]);
 
   const markOneRead = useCallback(async (notificationId) => {
     const target = String(notificationId || '').trim();
@@ -327,6 +340,9 @@ export function NotificationsProvider({ children }) {
             showBanner(item);
           }
         }
+        if (!alreadyKnown) {
+          syncServerStateFromNotification(payload);
+        }
       },
       onUpdated: (payload) => {
         mergeItem(payload);
@@ -348,7 +364,7 @@ export function NotificationsProvider({ children }) {
       disconnectNotificationSocket(socketRef.current);
       socketRef.current = null;
     };
-  }, [accessToken, isAuthenticated, mergeItem, showBanner]);
+  }, [accessToken, isAuthenticated, mergeItem, showBanner, syncServerStateFromNotification]);
 
   useEffect(() => {
     const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
@@ -371,6 +387,7 @@ export function NotificationsProvider({ children }) {
       if (!item) return;
       mergeItem(item, { prepend: true });
       showBanner(item);
+      syncServerStateFromNotification(item);
     });
 
     const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -422,7 +439,7 @@ export function NotificationsProvider({ children }) {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [mergeItem, openNotification, showBanner]);
+  }, [mergeItem, openNotification, showBanner, syncServerStateFromNotification]);
 
   const contextValue = useMemo(() => ({
     items,
@@ -434,7 +451,7 @@ export function NotificationsProvider({ children }) {
     preferencesLoading,
     pushRegistrationError,
     pushDiagnostics,
-    refreshNotifications: () => refreshInbox({ silent: true }),
+    refreshNotifications,
     markNotificationRead: markOneRead,
     markAllRead,
     openNotification,
@@ -451,7 +468,7 @@ export function NotificationsProvider({ children }) {
     preferencesLoading,
     pushRegistrationError,
     pushDiagnostics,
-    refreshInbox,
+    refreshNotifications,
     refreshing,
     unreadCount,
     updatePreferences,

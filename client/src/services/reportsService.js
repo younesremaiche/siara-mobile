@@ -223,6 +223,16 @@ export async function createReport(data) {
   return normalizeReport(payload?.report);
 }
 
+export async function updateReport(reportId, data) {
+  const payload = await apiRequest(`/api/reports/${reportId}`, {
+    method: 'PUT',
+    withAuth: true,
+    body: JSON.stringify(buildCreatePayload(data)),
+  });
+
+  return normalizeReport(payload?.report);
+}
+
 export async function uploadReportMedia(reportId, files = []) {
   const formData = new FormData();
 

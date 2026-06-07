@@ -23,7 +23,8 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { Colors } from '../../theme/colors';
 import { loadDriverQuizState } from '../../services/driverQuizStorage';
 import useMyAlerts from '../../hooks/useMyAlerts';
-import { listReports } from '../../services/reportsService';
+import { useMyReports } from '../../features/reports/hooks/useReportQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const { width } = Dimensions.get('window');
 
@@ -57,29 +58,15 @@ export default function ProfileScreen({ navigation }) {
   // Activity tabs (Alerts / Reports)
   const [activityTab, setActivityTab] = useState('alerts');
   const { alerts: myAlerts, isLoading: alertsLoading, refresh: refreshAlerts } = useMyAlerts();
-  const [myReports, setMyReports] = useState([]);
-  const [reportsLoading, setReportsLoading] = useState(false);
 
-  useFocusEffect(useCallback(() => {
-    let cancelled = false;
-    (async () => {
-      setReportsLoading(true);
-      try {
-        const result = await listReports({ limit: 50, sort: 'recent' });
-        if (cancelled) return;
-        const myId = user?.id;
-        const items = Array.isArray(result?.reports) ? result.reports : [];
-        setMyReports(myId ? items.filter((r) => String(r.reportedBy?.id || '') === String(myId)) : items);
-      } catch (error) {
-        console.warn('[ProfileScreen] failed to load reports', error?.message || error);
-        if (!cancelled) setMyReports([]);
-      } finally {
-        if (!cancelled) setReportsLoading(false);
-      }
-    })();
-    refreshAlerts();
-    return () => { cancelled = true; };
-  }, [user?.id, refreshAlerts]));
+  // Reports via the shared cache (same source/limit as MyReportsScreen) so the
+  // count matches across screens and a new report invalidates this list too.
+  const reportsQuery = useMyReports(user?.id, { limit: 100, sort: 'recent' });
+  const myReports = Array.isArray(reportsQuery.data?.reports) ? reportsQuery.data.reports : [];
+  const reportsLoading = reportsQuery.isLoading;
+  useFocusRefresh(reportsQuery.refetch, Boolean(user?.id));
+
+  useFocusEffect(useCallback(() => { refreshAlerts(); }, [refreshAlerts]));
   const [editVisible, setEditVisible] = useState(false);
   const [quizSummary, setQuizSummary] = useState({
     completed: false,

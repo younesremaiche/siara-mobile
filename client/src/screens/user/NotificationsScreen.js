@@ -48,6 +48,18 @@ export default function NotificationsScreen({ navigation }) {
           </Text>
         </View>
         <TouchableOpacity
+          style={styles.refreshBtn}
+          onPress={() => refreshNotifications()}
+          disabled={refreshing}
+          activeOpacity={0.8}
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={Colors.primary} />
+          ) : (
+            <Ionicons name="refresh" size={18} color={Colors.heading} />
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.markReadBtn, unreadCount === 0 && styles.markReadBtnDisabled]}
           onPress={() => markAllRead()}
           disabled={unreadCount === 0}
@@ -159,6 +171,16 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     color: Colors.subtext,
+  },
+  refreshBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   markReadBtn: {
     width: 38,

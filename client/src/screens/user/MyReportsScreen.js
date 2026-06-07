@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -15,7 +14,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme/colors';
 import { AuthContext } from '../../contexts/AuthContext';
-import { listReports } from '../../services/reportsService';
+import { useMyReports } from '../../features/reports/hooks/useReportQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const FILTERS = [
   { id: 'all',          label: 'All',          icon: 'apps-outline' },
@@ -54,38 +54,24 @@ const STATS_META = [
 export default function MyReportsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user } = useContext(AuthContext);
-  const [reports, setReports]     = useState([]);
-  const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError]         = useState('');
   const [filter, setFilter]       = useState('all');
+  const queryParams = React.useMemo(() => ({ limit: 100, sort: 'recent' }), []);
+  const reportsQuery = useMyReports(user?.id, queryParams);
+  useFocusRefresh(reportsQuery.refetch, Boolean(user?.id));
 
-  const load = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
-    setError('');
-    try {
-      const result = await listReports({ limit: 100, sort: 'recent' });
-      const all  = Array.isArray(result?.reports) ? result.reports : [];
-      const myId = user?.id;
-      const mine = myId
-        ? all.filter((r) => String(r.reportedBy?.id || '') === String(myId))
-        : all;
-      setReports(mine);
-    } catch (e) {
-      setError(e?.message || 'Failed to load your reports.');
-      setReports([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.id]);
-
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const reports = Array.isArray(reportsQuery.data?.reports) ? reportsQuery.data.reports : [];
+  const loading = reportsQuery.isLoading;
+  const error = reportsQuery.error?.message || '';
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load({ silent: true });
-  }, [load]);
+    try {
+      await reportsQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reportsQuery]);
 
   const effectiveStatus = (r) => (r.displayStatus || r.status || 'pending').toLowerCase();
 
@@ -188,7 +174,7 @@ export default function MyReportsScreen({ navigation }) {
             </View>
             <Text style={s.emptyTitle}>Failed to load</Text>
             <Text style={s.emptyText}>{error}</Text>
-            <TouchableOpacity style={s.actionBtn} onPress={load} activeOpacity={0.8}>
+            <TouchableOpacity style={s.actionBtn} onPress={reportsQuery.refetch} activeOpacity={0.8}>
               <Text style={s.actionBtnText}>Try again</Text>
             </TouchableOpacity>
           </View>

@@ -1,42 +1,31 @@
 import React from 'react';
 import { Text } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 
 import PoliceScreenFrame, { PoliceChip, PoliceListItem, PoliceSectionCard } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
-import { listPoliceOperationHistory } from '../../services/policeService';
+import { usePoliceOperationHistory } from '../../features/police/hooks/usePoliceQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const FILTERS = ['all', 'verify_incident', 'reject_incident', 'assign_self', 'request_backup', 'update_status', 'field_note'];
 
 export default function PoliceOperationHistoryScreen() {
   const navigation = useNavigation();
   const [actionType, setActionType] = React.useState('all');
-  const [historyItems, setHistoryItems] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
 
-  const loadHistory = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const payload = await listPoliceOperationHistory({
-        page: 1,
-        pageSize: 40,
-        actionType: actionType === 'all' ? undefined : actionType,
-      });
-      setHistoryItems(payload.items);
-    } catch (requestError) {
-      setError(requestError.message || 'Failed to load operation history.');
-    } finally {
-      setLoading(false);
-    }
-  }, [actionType]);
+  const params = React.useMemo(() => ({
+    page: 1,
+    pageSize: 40,
+    actionType: actionType === 'all' ? undefined : actionType,
+  }), [actionType]);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      void loadHistory();
-    }, [loadHistory]),
-  );
+  // On the shared cache: an action taken in IncidentDetail invalidates police.*
+  // and this audit trail refreshes instead of lagging behind.
+  const historyQuery = usePoliceOperationHistory(params);
+  const historyItems = historyQuery.data?.items ?? [];
+  const loading = historyQuery.isLoading;
+  const error = historyQuery.error?.message || '';
+  useFocusRefresh(historyQuery.refetch);
 
   return (
     <PoliceScreenFrame
@@ -44,7 +33,7 @@ export default function PoliceOperationHistoryScreen() {
       subtitle="Audit trail of police actions"
       loading={loading}
       error={error}
-      onRefresh={loadHistory}
+      onRefresh={historyQuery.refetch}
       stats={[
         { label: 'Visible', value: historyItems.length, tone: Colors.primary },
       ]}

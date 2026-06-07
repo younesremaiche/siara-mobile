@@ -9,6 +9,7 @@ import { maybeCompleteAuthSession } from './src/services/googleAuth';
 import { logResolvedApiBaseUrl } from './src/config/api';
 import { initializeNotificationPresentationAsync } from './src/services/mobilePushService';
 import { tryResumeSiaraLiveRiskNotification } from './src/services/siaraRiskNotificationService';
+import { ServerStateProvider } from './src/services/query/queryClient';
 
 export default function App() {
   useEffect(() => {
@@ -31,12 +32,14 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AuthProvider>
-          <NotificationsProvider>
-            <StatusBar backgroundColor="#F6F7FB" barStyle="dark-content" translucent={false} />
-            <AppNavigator />
-          </NotificationsProvider>
-        </AuthProvider>
+        <ServerStateProvider>
+          <AuthProvider>
+            <NotificationsProvider>
+              <StatusBar backgroundColor="#F6F7FB" barStyle="dark-content" translucent={false} />
+              <AppNavigator />
+            </NotificationsProvider>
+          </AuthProvider>
+        </ServerStateProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

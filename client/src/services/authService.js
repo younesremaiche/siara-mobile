@@ -12,7 +12,12 @@ export function normalizeUser(user) {
     : user.role
       ? [user.role]
       : [];
-  const normalizedRoles = roles.map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''));
+  const normalizedRoles = roles.map((entry) => {
+    if (entry && typeof entry === 'object') {
+      return entry.name || entry.role || entry.slug || '';
+    }
+    return entry;
+  }).map((entry) => String(entry || '').trim().toLowerCase().replace(/[\s_-]+/g, ''));
   const isAdmin = normalizedRoles.includes('admin');
   const isSupervisor = normalizedRoles.includes('policesupervisor') || normalizedRoles.includes('supervisor');
   const isPolice = normalizedRoles.includes('police') || normalizedRoles.includes('policeofficer') || isSupervisor;

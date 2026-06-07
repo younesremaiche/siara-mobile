@@ -17,6 +17,7 @@
     "@react-navigation/drawer": "^6.7.2",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
+    "@tanstack/react-query": "^5.100.14",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.33",
     "expo-auth-session": "~7.0.10",

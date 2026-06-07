@@ -1,6 +1,5 @@
 import React from 'react';
 import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import SupervisorScreenFrame, {
@@ -9,7 +8,12 @@ import SupervisorScreenFrame, {
   SupervisorStatusPill,
   SupervisorSeverityTag,
 } from '../../components/supervisor/SupervisorScreenFrame';
-import { getSupervisorIncidents, getAssignableOfficers, assignOfficerToIncident } from '../../services/supervisorService';
+import {
+  useAssignableOfficers,
+  useAssignOfficerMutation,
+  useSupervisorIncidents,
+} from '../../features/supervisor/hooks/useSupervisorQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 function relativeTime(val) {
   if (!val) return '';
@@ -24,34 +28,25 @@ function relativeTime(val) {
 
 /* ── Officer assign modal ─────────────────────────────────────── */
 function AssignModal({ incident, onClose, onAssigned }) {
-  const [officers, setOfficers] = React.useState([]);
-  const [loading,  setLoading]  = React.useState(true);
-  const [saving,   setSaving]   = React.useState(false);
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const res = await getAssignableOfficers(incident.id);
-        setOfficers(Array.isArray(res?.officers) ? res.officers : Array.isArray(res) ? res : []);
-      } catch {
-        setOfficers([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [incident.id]);
+  const officersQuery = useAssignableOfficers(incident.id);
+  const assignMutation = useAssignOfficerMutation();
+  const officersPayload = officersQuery.data;
+  const officers = Array.isArray(officersPayload?.officers)
+    ? officersPayload.officers
+    : Array.isArray(officersPayload)
+      ? officersPayload
+      : [];
+  const loading = officersQuery.isLoading;
+  const saving = assignMutation.isPending;
 
   async function assign(officer) {
-    setSaving(true);
     try {
-      await assignOfficerToIncident(incident.id, officer.id);
+      await assignMutation.mutateAsync({ incidentId: incident.id, officerId: officer.id });
       Alert.alert('Assigned', `${officer.name} assigned to this incident.`);
       onAssigned();
       onClose();
     } catch (e) {
       Alert.alert('Error', e.message || 'Assignment failed.');
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -133,27 +128,16 @@ function IncidentRow({ incident, onAssign }) {
 }
 
 export default function SupervisorIncidentsScreen({ navigation }) {
-  const [incidents,      setIncidents]     = React.useState([]);
-  const [loading,        setLoading]       = React.useState(true);
-  const [error,          setError]         = React.useState('');
   const [search,         setSearch]        = React.useState('');
   const [statusFilter,   setStatusFilter]  = React.useState('active');
   const [assignTarget,   setAssignTarget]  = React.useState(null);
+  const params = React.useMemo(() => ({ limit: 60 }), []);
+  const incidentsQuery = useSupervisorIncidents(params);
+  useFocusRefresh(incidentsQuery.refetch);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await getSupervisorIncidents({ limit: 60 });
-      setIncidents(Array.isArray(res?.incidents) ? res.incidents : []);
-    } catch (e) {
-      setError(e.message || 'Failed to load incidents.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  const incidents = Array.isArray(incidentsQuery.data?.incidents) ? incidentsQuery.data.incidents : [];
+  const loading = incidentsQuery.isLoading;
+  const error = incidentsQuery.error?.message || '';
 
   const ACTIVE_STATUSES = ['pending', 'under_review', 'verified', 'dispatched'];
   const visible = incidents.filter(inc => {
@@ -172,10 +156,12 @@ export default function SupervisorIncidentsScreen({ navigation }) {
       subtitle="Assign officers to active cases"
       loading={loading}
       error={error}
-      onRefresh={load}
+      onRefresh={incidentsQuery.refetch}
       navigation={navigation}
       stats={[
-        { label: 'Total',   value: incidents.length, tone: S.accent },
+        // Total reflects the server's full count when paginated; Active/Shown
+        // describe the currently-loaded window.
+        { label: 'Total',   value: incidentsQuery.data?.pagination?.total ?? incidents.length, tone: S.accent },
         { label: 'Active',  value: incidents.filter(i => ACTIVE_STATUSES.includes((i.displayStatus || i.status || '').toLowerCase())).length, tone: '#F97316' },
         { label: 'Shown',   value: visible.length, tone: S.muted },
       ]}
@@ -221,7 +207,7 @@ export default function SupervisorIncidentsScreen({ navigation }) {
         <AssignModal
           incident={assignTarget}
           onClose={() => setAssignTarget(null)}
-          onAssigned={load}
+          onAssigned={incidentsQuery.refetch}
         />
       )}
     </SupervisorScreenFrame>

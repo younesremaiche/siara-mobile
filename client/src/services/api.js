@@ -5,6 +5,10 @@ import { getStoredAccessToken } from './sessionStorage';
 let unauthorizedHandler = null;
 let inMemoryAccessToken = null;
 
+// Default ceiling for a single request so a hung connection can't block a
+// screen forever. Callers can override with `timeout` (ms) or disable with 0.
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+
 export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
@@ -19,6 +23,8 @@ export async function request(path, options = {}) {
     withAuth = false,
     accessToken = null,
     headers: optionHeaders,
+    signal: callerSignal = null,
+    timeout = DEFAULT_REQUEST_TIMEOUT_MS,
     ...fetchOptions
   } = options;
 
@@ -55,10 +61,36 @@ export async function request(path, options = {}) {
     });
   }
 
-  const res = await fetch(url, {
-    headers,
-    ...fetchOptions,
-  });
+  // Bound the request with a timeout while still honoring a caller-supplied
+  // AbortSignal (services like riskService pass their own for cancellation).
+  let timedOut = false;
+  const timeoutController = new AbortController();
+  const timeoutId = timeout
+    ? setTimeout(() => { timedOut = true; timeoutController.abort(); }, timeout)
+    : null;
+  if (callerSignal) {
+    if (callerSignal.aborted) timeoutController.abort();
+    else callerSignal.addEventListener('abort', () => timeoutController.abort(), { once: true });
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      headers,
+      signal: timeoutController.signal,
+      ...fetchOptions,
+    });
+  } catch (fetchError) {
+    if (timedOut) {
+      const timeoutError = new Error(`Request timed out after ${timeout}ms: ${path}`);
+      timeoutError.status = 0;
+      timeoutError.code = 'REQUEST_TIMEOUT';
+      throw timeoutError;
+    }
+    throw fetchError;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 
   const contentType = res.headers.get('content-type');
   const isJson = contentType?.includes('application/json');
@@ -98,7 +130,10 @@ export async function request(path, options = {}) {
     if ((res.status === 401 || res.status === 403) && unauthorizedHandler) {
       // Only call handler for 401, not for 403 with EMAIL_VERIFICATION_REQUIRED
       if (res.status === 401 || body?.code !== 'EMAIL_VERIFICATION_REQUIRED') {
-        unauthorizedHandler();
+        // Pass status/code/body so the handler can distinguish an expired token
+        // (401) from a forced re-login or account block (403 session_version /
+        // ACCOUNT_BANNED / ACCOUNT_INACTIVE) and surface the right message.
+        unauthorizedHandler({ status: res.status, code: body?.code, response: body });
       }
     }
 
@@ -125,47 +160,8 @@ export async function predictDriverRisk(data, options = {}) {
   });
 }
 
-export async function getCurrentRisk(lat, lon) {
-  return request('/api/risk/current', {
-    method: 'POST',
-    body: JSON.stringify({ lat, lon }),
-  });
-}
-
-export async function getRiskOverlay(data) {
-  return request('/api/risk/overlay', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getRiskExplanation(data) {
-  return request('/api/risk/explain', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getNearbyZones(lat, lon, options = {}) {
-  return request('/api/risk/nearby-zones', {
-    method: 'POST',
-    body: JSON.stringify({ lat, lon, ...options }),
-  });
-}
-
-export async function getRouteGuide(data) {
-  return request('/api/risk/route', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-// ─── Weather endpoints ───────────────────────────────────
-
-export async function getCurrentWeather(lat, lng) {
-  return request(`/api/weather/current?lat=${lat}&lng=${lng}`);
-}
-
-export async function getRiskForecast24h(lat, lon) {
-  return request(`/api/risk/forecast24h?lat=${lat}&lon=${lon}`);
-}
+// NOTE: The former getCurrentRisk/getRiskOverlay/getRiskExplanation/
+// getNearbyZones/getRouteGuide/getCurrentWeather/getRiskForecast24h helpers were
+// removed — they were unused dead code, and getCurrentRisk sent a { lat, lon }
+// body the backend rejects. Use riskService.js / weatherService.js /
+// siaraRiskApi.js (the canonical, cached implementations) instead.

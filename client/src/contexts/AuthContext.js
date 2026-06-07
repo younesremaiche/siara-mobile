@@ -1,6 +1,9 @@
-import React, { createContext, useEffect } from 'react';
+import React, { createContext, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { useAuthStore } from '../stores/authStore';
 import { setUnauthorizedHandler } from '../services/api';
+import { clearServerState } from '../services/query/queryClient';
+import SessionNoticeBanner from '../components/SessionNoticeBanner';
 import {
   loginUser,
   registerUser,
@@ -9,6 +12,48 @@ import {
   resendVerificationCode,
   logoutUser,
 } from '../services/authService';
+
+// Minimum gap between foreground session re-checks, to avoid revalidating on
+// every brief app switch.
+const REVALIDATE_THROTTLE_MS = 30 * 1000;
+
+/**
+ * Translate a 401/403 API failure into a user-facing reason the session ended.
+ * 401 = expired/missing token; 403 = forced re-login (session_version bump) or a
+ * blocked account (ACCOUNT_BANNED / ACCOUNT_INACTIVE).
+ */
+function buildSessionNotice(info = {}) {
+  const { status, code, response } = info;
+  if (code === 'ACCOUNT_BANNED') {
+    const ban = response?.ban || null;
+    const reason = ban?.reason ? ` Reason: ${ban.reason}.` : '';
+    return {
+      type: 'banned',
+      title: 'Account blocked',
+      message: `Your account has been suspended.${reason} Contact support if you believe this is a mistake.`,
+      ban,
+    };
+  }
+  if (code === 'ACCOUNT_INACTIVE') {
+    return {
+      type: 'inactive',
+      title: 'Account inactive',
+      message: 'Your account is not active. Please contact support to restore access.',
+    };
+  }
+  if (status === 403) {
+    return {
+      type: 'session',
+      title: 'Session ended',
+      message: 'Your session is no longer valid. Please sign in again.',
+    };
+  }
+  return {
+    type: 'expired',
+    title: 'Session expired',
+    message: 'Your session has expired. Please sign in again.',
+  };
+}
 
 /**
  * AuthContext
@@ -20,14 +65,35 @@ export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const authStore = useAuthStore();
+  const lastRevalidatedRef = useRef(0);
 
-  // Handle 401/403 responses from API
+  // Handle 401/403 responses from API. Registered once; reads the latest store
+  // via getState() so it doesn't re-register on every state change.
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      console.log('[AuthContext] Received 401/403 - clearing session');
-      void authStore.clearSession();
+    setUnauthorizedHandler((info = {}) => {
+      const notice = buildSessionNotice(info);
+      console.log('[AuthContext] Unauthorized', info?.status, info?.code, '- clearing session');
+      clearServerState();
+      void useAuthStore.getState().clearSession({ notice });
     });
-  }, [authStore]);
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  // Re-validate the session whenever the app returns to the foreground, so a
+  // ban or forced re-login (session_version bump) is surfaced proactively
+  // instead of waiting for the next user-triggered request to 403.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (status) => {
+      if (status !== 'active') return;
+      const { isAuthenticated, revalidateSession } = useAuthStore.getState();
+      if (!isAuthenticated) return;
+      const now = Date.now();
+      if (now - lastRevalidatedRef.current < REVALIDATE_THROTTLE_MS) return;
+      lastRevalidatedRef.current = now;
+      void revalidateSession();
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Provide store as context value for backward compatibility
   const contextValue = {
@@ -75,6 +141,7 @@ export function AuthProvider({ children }) {
       } catch (error) {
         console.warn('[AuthContext] Logout API call failed:', error?.message);
       } finally {
+        clearServerState();
         await authStore.clearSession();
       }
     },
@@ -90,6 +157,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
+      <SessionNoticeBanner />
     </AuthContext.Provider>
   );
 }

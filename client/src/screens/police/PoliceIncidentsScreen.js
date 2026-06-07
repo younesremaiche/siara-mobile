@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 
 import PoliceScreenFrame, {
   PoliceChip,
@@ -9,7 +9,8 @@ import PoliceScreenFrame, {
   PoliceSectionCard,
 } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
-import { listPoliceIncidents } from '../../services/policeService';
+import { usePoliceIncidents } from '../../features/police/hooks/usePoliceQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -21,29 +22,14 @@ const FILTERS = [
 
 export default function PoliceIncidentsScreen() {
   const navigation = useNavigation();
-  const [incidents, setIncidents] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState('');
   const [filter, setFilter] = React.useState('all');
+  const params = React.useMemo(() => ({ scope: 'active', page: 1, pageSize: 40 }), []);
+  const incidentsQuery = usePoliceIncidents(params);
+  useFocusRefresh(incidentsQuery.refetch);
 
-  const loadIncidents = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const payload = await listPoliceIncidents({ scope: 'active', page: 1, pageSize: 40 });
-      setIncidents(payload.items || []);
-    } catch (requestError) {
-      setError(requestError.message || 'Failed to load active incidents.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      void loadIncidents();
-    }, [loadIncidents]),
-  );
+  const incidents = incidentsQuery.data?.items || [];
+  const loading = incidentsQuery.isLoading;
+  const error = incidentsQuery.error?.message || '';
 
   const filtered = incidents.filter((i) => {
     if (filter === 'all') return true;
@@ -83,7 +69,7 @@ export default function PoliceIncidentsScreen() {
       stats={stats}
       loading={loading}
       error={error}
-      onRefresh={loadIncidents}
+      onRefresh={incidentsQuery.refetch}
     >
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
         {FILTERS.map((f) => (

@@ -8,11 +8,11 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, Callout } from 'react-native-maps';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { S } from '../../components/supervisor/SupervisorScreenFrame';
-import { getSupervisorGlobalMap } from '../../services/supervisorService';
+import { useSupervisorGlobalMap } from '../../features/supervisor/hooks/useSupervisorQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 const SEVERITY_COLOR = { critical: '#EF4444', high: '#F97316', medium: '#EAB308', low: '#22C55E' };
 const STATUS_COLOR = {
@@ -32,25 +32,17 @@ function severityColor(inc) {
 const ALGERIA_REGION = { latitude: 28.0, longitude: 2.5, latitudeDelta: 14, longitudeDelta: 14 };
 
 export default function SupervisorMapScreen({ navigation }) {
-  const [data,    setData]    = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error,   setError]   = React.useState('');
-  const [layer,   setLayer]   = React.useState('both'); // 'incidents' | 'officers' | 'both'
+  const [layer, setLayer] = React.useState('both'); // 'incidents' | 'officers' | 'both'
   const mapRef = React.useRef(null);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await getSupervisorGlobalMap());
-    } catch (e) {
-      setError(e.message || 'Failed to load map data.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  // useSupervisorGlobalMap already polls every 30s and shares its cache, so an
+  // assignment elsewhere (which invalidates supervisor.*) refreshes this map too.
+  const mapQuery = useSupervisorGlobalMap();
+  const data = mapQuery.data;
+  const loading = mapQuery.isLoading;
+  const error = mapQuery.error?.message || '';
+  const load = mapQuery.refetch;
+  useFocusRefresh(mapQuery.refetch);
 
   const incidents = data?.incidents || [];
   const officers  = data?.officers  || [];

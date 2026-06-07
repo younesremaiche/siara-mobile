@@ -1,15 +1,10 @@
 import React from 'react';
 import {
-  Alert,
-  FlatList,
-  Modal,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -19,8 +14,9 @@ import SupervisorScreenFrame, {
   SupervisorListItem,
   SupervisorSeverityTag,
 } from '../../components/supervisor/SupervisorScreenFrame';
-import { getSupervisorDashboard, getSupervisorOfficers, createSupervisorAlert } from '../../services/supervisorService';
 import { useAuthStore } from '../../stores/authStore';
+import { useSupervisorDashboard } from '../../features/supervisor/hooks/useSupervisorQueries';
+import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 /* ── helpers ───────────────────────────────────────────────────── */
 function formatMs(ms) {
@@ -67,169 +63,25 @@ function activityIcon(type) {
   }
 }
 
-/* ── Alert creation modal ───────────────────────────────────────── */
-function CreateAlertModal({ onClose, onCreated }) {
-  const [officers, setOfficers] = React.useState([]);
-  const [selected, setSelected] = React.useState(new Set());
-  const [message,  setMessage]  = React.useState('');
-  const [loading,  setLoading]  = React.useState(true);
-  const [saving,   setSaving]   = React.useState(false);
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const res = await getSupervisorOfficers();
-        setOfficers(Array.isArray(res?.officers) ? res.officers : []);
-      } catch {
-        setOfficers([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  function toggleOfficer(id) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  async function send() {
-    if (!message.trim()) {
-      Alert.alert('Required', 'Please enter an alert message.');
-      return;
-    }
-    setSaving(true);
-    try {
-      await createSupervisorAlert({
-        message: message.trim(),
-        officerIds: selected.size > 0 ? [...selected] : undefined,
-      });
-      Alert.alert('Alert Sent', 'Operational alert has been dispatched.');
-      onCreated?.();
-      onClose();
-    } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to send alert.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <View style={m.overlay}>
-        <View style={m.sheet}>
-          <View style={m.handle} />
-          <Text style={m.title}>Create Operational Alert</Text>
-          <Text style={m.sub}>Broadcast a message to officers in your zone</Text>
-
-          <TextInput
-            value={message}
-            onChangeText={setMessage}
-            placeholder="Alert message…"
-            placeholderTextColor={S.muted}
-            multiline
-            numberOfLines={3}
-            style={m.input}
-            editable={!saving}
-          />
-
-          <Text style={m.sectionLabel}>
-            Target officers {selected.size > 0 ? `(${selected.size} selected)` : '(all officers if none selected)'}
-          </Text>
-
-          {loading ? (
-            <Text style={m.muted}>Loading officers…</Text>
-          ) : (
-            <FlatList
-              data={officers}
-              keyExtractor={o => o.id}
-              style={{ maxHeight: 200 }}
-              renderItem={({ item: o }) => {
-                const on = selected.has(o.id);
-                return (
-                  <TouchableOpacity
-                    style={[m.officerRow, on && m.officerRowActive]}
-                    onPress={() => toggleOfficer(o.id)}
-                    activeOpacity={0.78}
-                  >
-                    <View style={[m.check, on && m.checkActive]}>
-                      {on && <Ionicons name="checkmark" size={12} color="#1C1200" />}
-                    </View>
-                    <View style={m.officerAvatar}>
-                      <Text style={m.officerInitials}>
-                        {(o.name || 'O').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={m.officerName}>{o.name}</Text>
-                      <Text style={m.officerMeta}>
-                        {[o.badgeNumber ? `#${o.badgeNumber}` : null, o.communeName].filter(Boolean).join(' · ')}
-                      </Text>
-                    </View>
-                    <View style={[m.dutyBadge, { backgroundColor: o.isOnDuty ? 'rgba(34,197,94,0.14)' : 'rgba(100,116,139,0.14)' }]}>
-                      <Text style={[m.dutyText, { color: o.isOnDuty ? '#22C55E' : '#94A3B8' }]}>
-                        {o.isOnDuty ? 'ON' : 'OFF'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          )}
-
-          <TouchableOpacity
-            style={[m.sendBtn, saving && { opacity: 0.6 }]}
-            onPress={send}
-            disabled={saving}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="megaphone-outline" size={16} color="#1C1200" />
-            <Text style={m.sendText}>{saving ? 'Sending…' : 'Send Alert'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={m.cancelBtn} onPress={onClose} activeOpacity={0.85}>
-            <Text style={m.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 /* ── Quick action shortcuts ─────────────────────────────────────── */
 const QUICK_ACTIONS = [
   { label: 'Officers',  icon: 'people',            route: 'SupervisorOfficers'  },
   { label: 'Incidents', icon: 'warning',            route: 'SupervisorIncidents' },
+  { label: 'Alerts',    icon: 'megaphone-outline',  route: 'SupervisorAlerts'    },
   { label: 'Analytics', icon: 'bar-chart-outline',  route: 'SupervisorAnalytics' },
   { label: 'Map',       icon: 'map-outline',        route: 'SupervisorMap'       },
 ];
 
 /* ── Main screen ────────────────────────────────────────────────── */
 export default function SupervisorDashboardScreen({ navigation }) {
-  const [data,        setData]        = React.useState(null);
-  const [loading,     setLoading]     = React.useState(true);
-  const [error,       setError]       = React.useState('');
-  const [alertModal,  setAlertModal]  = React.useState(false);
-
   const switchToPoliceMode = useAuthStore(st => st.switchToPoliceMode);
   const isPolice           = useAuthStore(st => st.isPolice);
+  const dashboardQuery = useSupervisorDashboard();
+  useFocusRefresh(dashboardQuery.refetch);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await getSupervisorDashboard());
-    } catch (e) {
-      setError(e.message || 'Failed to load dashboard.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  const data = dashboardQuery.data;
+  const loading = dashboardQuery.isLoading;
+  const error = dashboardQuery.error?.message || '';
 
   const stats        = data?.stats        || {};
   const officerStatus = data?.officerStatus || {};
@@ -240,7 +92,7 @@ export default function SupervisorDashboardScreen({ navigation }) {
       subtitle="Supervisor overview"
       loading={loading}
       error={error}
-      onRefresh={load}
+      onRefresh={dashboardQuery.refetch}
       stats={[
         { label: 'Active',   value: stats.activeIncidents       ?? '—', tone: S.accent   },
         { label: 'Critical', value: stats.highSeverityIncidents ?? '—', tone: '#EF4444'  },
@@ -287,7 +139,7 @@ export default function SupervisorDashboardScreen({ navigation }) {
       </SupervisorSectionCard>
 
       {/* Create alert button */}
-      <TouchableOpacity style={s.alertBtn} onPress={() => setAlertModal(true)} activeOpacity={0.85}>
+      <TouchableOpacity style={s.alertBtn} onPress={() => navigation.navigate('SupervisorAlerts')} activeOpacity={0.85}>
         <View style={s.alertIcon}>
           <Ionicons name="megaphone-outline" size={20} color="#1C1200" />
         </View>
@@ -355,12 +207,6 @@ export default function SupervisorDashboardScreen({ navigation }) {
         </TouchableOpacity>
       )}
 
-      {alertModal && (
-        <CreateAlertModal
-          onClose={() => setAlertModal(false)}
-          onCreated={load}
-        />
-      )}
     </SupervisorScreenFrame>
   );
 }
@@ -424,62 +270,4 @@ const s = StyleSheet.create({
   },
   switchTitle: { color: '#fff', fontSize: 14, fontWeight: '800' },
   switchSub:   { color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 2 },
-});
-
-const m = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: '#1C1200', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 20, paddingBottom: 36,
-    borderTopWidth: 1, borderColor: 'rgba(245,158,11,0.25)',
-  },
-  handle: {
-    alignSelf: 'center', width: 40, height: 4,
-    backgroundColor: 'rgba(245,158,11,0.3)', borderRadius: 2, marginBottom: 16,
-  },
-  title:    { color: S.light, fontSize: 16, fontWeight: '900', marginBottom: 4 },
-  sub:      { color: S.muted, fontSize: 12, marginBottom: 14 },
-  muted:    { color: S.muted, fontSize: 13, textAlign: 'center', paddingVertical: 16 },
-
-  input: {
-    backgroundColor: '#241800', borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)',
-    color: S.light, fontSize: 13, padding: 12,
-    textAlignVertical: 'top', minHeight: 72, marginBottom: 14,
-  },
-
-  sectionLabel: { color: S.muted, fontSize: 11, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 },
-
-  officerRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 9,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(245,158,11,0.08)',
-    borderRadius: 4,
-  },
-  officerRowActive: { backgroundColor: 'rgba(245,158,11,0.06)' },
-  check: {
-    width: 20, height: 20, borderRadius: 6,
-    borderWidth: 1.5, borderColor: 'rgba(245,158,11,0.4)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  checkActive: { backgroundColor: S.accent, borderColor: S.accent },
-  officerAvatar: {
-    width: 34, height: 34, borderRadius: 10,
-    backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.22)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  officerInitials: { color: S.accent, fontSize: 11, fontWeight: '900' },
-  officerName:     { color: S.light, fontSize: 12, fontWeight: '700' },
-  officerMeta:     { color: S.muted, fontSize: 10, marginTop: 1 },
-  dutyBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
-  dutyText:  { fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
-
-  sendBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginTop: 16, backgroundColor: S.accent, borderRadius: 14,
-    paddingVertical: 13,
-  },
-  sendText:   { color: '#1C1200', fontWeight: '900', fontSize: 14 },
-  cancelBtn:  { marginTop: 10, alignItems: 'center', paddingVertical: 10 },
-  cancelText: { color: S.muted, fontWeight: '700', fontSize: 13 },
 });

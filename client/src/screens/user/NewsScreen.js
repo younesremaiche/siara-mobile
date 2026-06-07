@@ -19,6 +19,7 @@ import ReportCard from '../../components/ReportCard';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
 import useReportsFeed from '../../hooks/useReportsFeed';
+import { useInvalidationRefresh } from '../../services/query/useInvalidationRefresh';
 
 const FEED_TABS = [
   { id: 'latest',    label: 'Latest',    icon: 'flame-outline' },
@@ -54,6 +55,10 @@ export default function NewsScreen({ navigation }) {
   } = useReportsFeed();
 
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
+
+  // The feed fetches via services (not useQuery), so bridge it into the cache:
+  // when a report create/verify/assign invalidates reports.*, refresh the feed.
+  useInvalidationRefresh('reports', refresh);
 
   const followingSupported = feedMeta?.followingSupported !== false;
   const visibleTabs = useMemo(
