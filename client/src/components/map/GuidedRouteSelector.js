@@ -9,7 +9,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../theme/colors';
-import { formatPercent } from '../../utils/mapHelpers';
+import { formatPercent, getDangerColor } from '../../utils/mapHelpers';
+import { getOccurrenceColor } from '../../utils/routeGuidance';
+
+// Occurrence is the primary signal; fall back to severity colours for old
+// responses where only danger_level exists.
+function levelColor(level) {
+  return getOccurrenceColor(level) || getDangerColor(level);
+}
 
 function formatDistance(distanceKm) {
   const numeric = Number(distanceKm);
@@ -73,6 +80,9 @@ export default function GuidedRouteSelector({
         >
           {routes.map((route) => {
             const selected = route.route_type === selectedRouteType;
+            const occPercent = route.occurrence_percent ?? route.danger_percent;
+            const occLevel = route.occurrence_level || route.danger_level;
+            const occColor = levelColor(occLevel);
             return (
               <TouchableOpacity
                 key={route.route_type}
@@ -95,9 +105,16 @@ export default function GuidedRouteSelector({
                 </View>
 
                 <View style={styles.metricRow}>
-                  <View style={styles.metricBlock}>
-                    <Text style={styles.metricLabel}>Risk</Text>
-                    <Text style={styles.metricValue}>{formatPercent(route.danger_percent)}</Text>
+                  <View style={styles.metricBlockWide}>
+                    <Text style={styles.metricLabel}>Occurrence</Text>
+                    <View style={styles.occValueRow}>
+                      <Text style={[styles.metricValue, { color: occColor }]}>{formatPercent(occPercent)}</Text>
+                      {occLevel ? (
+                        <Text style={[styles.levelChip, { color: occColor, backgroundColor: `${occColor}22` }]}>
+                          {String(occLevel).toUpperCase()}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                   <View style={styles.metricBlock}>
                     <Text style={styles.metricLabel}>ETA</Text>
@@ -233,6 +250,9 @@ const styles = StyleSheet.create({
   metricBlock: {
     flex: 1,
   },
+  metricBlockWide: {
+    flex: 1.5,
+  },
   metricLabel: {
     fontSize: 10,
     color: Colors.subtext,
@@ -243,6 +263,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: Colors.heading,
+  },
+  occValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  levelChip: {
+    fontSize: 9,
+    fontWeight: '800',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 999,
+    overflow: 'hidden',
   },
   reasonText: {
     fontSize: 12,

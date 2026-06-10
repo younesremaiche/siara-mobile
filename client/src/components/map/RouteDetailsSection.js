@@ -59,7 +59,7 @@ export default function RouteDetailsSection({
             <Text style={[styles.explainBtnText, styles.explainBtnTextDisabled]}>Why this route?</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.subtitle}>Choose a destination and request guidance to see route risk details.</Text>
+        <Text style={styles.subtitle}>Choose a destination and request guidance to see route occurrence-risk details.</Text>
       </View>
     );
   }
@@ -78,7 +78,7 @@ export default function RouteDetailsSection({
           </View>
           <View style={styles.summaryActions}>
             <View style={styles.riskBadge}>
-              <Text style={styles.riskBadgeText}>{formatPercent(route.danger_percent)}</Text>
+              <Text style={styles.riskBadgeText}>{formatPercent(route.occurrence_percent ?? route.danger_percent)} occ.</Text>
             </View>
             <TouchableOpacity
               style={styles.explainBtn}
@@ -114,7 +114,7 @@ export default function RouteDetailsSection({
                 />
               ))}
             </View>
-            <Text style={styles.profileCaption}>Risk profile strip weighted by segment distance.</Text>
+            <Text style={styles.profileCaption}>Occurrence-risk profile, weighted by segment distance.</Text>
           </View>
         ) : null}
 
@@ -132,12 +132,15 @@ export default function RouteDetailsSection({
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Segment highlights</Text>
-        <Text style={styles.sectionSubtitle}>Tap a segment to inspect the riskiest portions.</Text>
+        <Text style={styles.sectionSubtitle}>Tap a segment to inspect occurrence and severity detail.</Text>
       </View>
 
       <View style={styles.segmentWrap}>
         {segments.map((segment, index) => {
-          const level = normalizeDangerLevel(segment.danger_level, segment.danger_percent);
+          // Occurrence is primary; fall back to the severity danger level/percent.
+          const occPct = segment.occurrence_percent ?? segment.danger_percent;
+          const occLvl = segment.occurrence_level
+            || normalizeDangerLevel(segment.danger_level, segment.danger_percent);
           return (
             <TouchableOpacity
               key={segment.id}
@@ -149,9 +152,9 @@ export default function RouteDetailsSection({
               <Text style={styles.segmentText}>
                 Segment {segment.segment?.sample_to != null ? segment.segment.sample_to : index + 1}
                 {' '}
-                {formatPercent(segment.danger_percent)}
+                {formatPercent(occPct)}
                 {' '}
-                {level}
+                {occLvl}
                 {' '}
                 {formatDistance(segment.distance_km)}
               </Text>

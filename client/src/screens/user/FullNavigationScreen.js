@@ -19,6 +19,7 @@ import {
   getSegmentPath,
   normalizeDangerLevel,
 } from '../../utils/mapHelpers';
+import { getOccurrenceColor } from '../../utils/routeGuidance';
 import RouteAlertOverlay from '../../components/map/RouteAlertOverlay';
 import useRouteAlerts from '../../hooks/useRouteAlerts';
 
@@ -37,8 +38,11 @@ function buildNavPolylines(route) {
     segs.forEach((seg) => {
       const p = getSegmentPath(seg);
       if (p.length < 2) return;
+      // Colour by occurrence level (primary) when present, else severity.
+      const occLvl = seg.occurrence_level || null;
       const lvl = normalizeDangerLevel(seg.danger_level, seg.danger_percent);
-      lines.push({ coords: p.map((c) => [c.latitude, c.longitude]), color: getDangerColor(lvl), weight: 7, opacity: 0.96 });
+      const color = occLvl ? (getOccurrenceColor(occLvl) || getDangerColor(lvl)) : getDangerColor(lvl);
+      lines.push({ coords: p.map((c) => [c.latitude, c.longitude]), color, weight: 7, opacity: 0.96 });
     });
   } else if (full.length >= 2) {
     lines.push({ coords: full.map((c) => [c.latitude, c.longitude]), color: Colors.primary, weight: 7, opacity: 0.9 });
@@ -88,12 +92,25 @@ function fmtArrival(v) {
   return { num: `${h}:${m}`, unit: d.getHours() >= 12 ? 'PM' : 'AM' };
 }
 
+// Severity-percent fallback (used only when no occurrence level is available).
 function riskInfo(pct) {
   const p = Number(pct);
   if (!Number.isFinite(p)) return { color: Colors.greyLight, label: 'Unknown' };
-  if (p >= 65) return { color: Colors.severityCritical, label: 'High Risk' };
-  if (p >= 35) return { color: Colors.severityMedium,   label: 'Moderate' };
-  return                { color: Colors.severityLow,    label: 'Low Risk' };
+  if (p >= 65) return { color: Colors.severityCritical, label: 'High Occurrence Risk' };
+  if (p >= 35) return { color: Colors.severityMedium,   label: 'Moderate Occurrence Risk' };
+  return                { color: Colors.severityLow,    label: 'Low Occurrence Risk' };
+}
+
+// Primary: map the occurrence risk level to a colour + label. The backend
+// thresholds the level for occurrence's smaller probability scale, so we key
+// off the label rather than the raw percent.
+function occurrenceRiskInfo(level) {
+  const l = String(level || '').toLowerCase();
+  if (l === 'critical') return { color: Colors.severityCritical, label: 'Critical Occurrence Risk' };
+  if (l === 'high')     return { color: Colors.severityCritical, label: 'High Occurrence Risk' };
+  if (l === 'moderate') return { color: Colors.severityMedium,   label: 'Moderate Occurrence Risk' };
+  if (l === 'low')      return { color: Colors.severityLow,      label: 'Low Occurrence Risk' };
+  return null;
 }
 
 const ROUTE_BADGE = {
@@ -216,8 +233,8 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
   const arrival    = fmtArrival(selectedRoute?.eta_min);
   const routeType  = selectedRoute?.route_type || 'balanced';
   const destName   = destination?.name || destination?.full_name || 'Destination';
-  const pct        = selectedRoute?.danger_percent;
-  const risk       = riskInfo(pct);
+  const pct        = selectedRoute?.occurrence_percent ?? selectedRoute?.danger_percent;
+  const risk       = occurrenceRiskInfo(selectedRoute?.occurrence_level) || riskInfo(pct);
   const badge      = ROUTE_BADGE[routeType] || ROUTE_BADGE.balanced;
 
   const headerY = headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-120, 0] });
@@ -362,7 +379,7 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
               <View style={s.riskLabelRow}>
                 <View style={[s.riskDot, { backgroundColor: risk.color }]} />
                 <Text style={[s.riskLbl, { color: risk.color }]}>{risk.label}</Text>
-                <Text style={s.riskPct}>{Math.round(pct)}% risk along route</Text>
+                <Text style={s.riskPct}>{Math.round(pct)}% occurrence risk along route</Text>
               </View>
             </View>
           )}

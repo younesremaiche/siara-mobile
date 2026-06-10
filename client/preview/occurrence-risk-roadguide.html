@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIARA — Occurrence Risk Road Guide (Preview)</title>
+  <style>
+    :root {
+      --primary: #7a3df0;
+      --secondary: #1d4ed8;
+      --accent: #0fa958;
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --heading: #232323;
+      --text: #4a4a4a;
+      --subtext: #6b7280;
+      --border: #e5e7eb;
+      --violet-soft: rgba(124, 58, 237, 0.08);
+      --violet-border: rgba(124, 58, 237, 0.22);
+      /* occurrence + severity level palette */
+      --low: #22c55e;
+      --moderate: #eab308;
+      --high: #f97316;
+      --critical: #ef4444;
+      --warning: #f59e0b;
+      --shadow: 0 22px 50px rgba(15, 23, 42, 0.18);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 8% 10%, rgba(34, 197, 94, 0.10), transparent 28%),
+        radial-gradient(circle at 92% 12%, rgba(29, 78, 216, 0.10), transparent 26%),
+        linear-gradient(135deg, #eef2ff 0%, #f8fafc 46%, #ecfdf5 100%);
+      color: var(--text);
+    }
+    .page { width: min(1280px, 100%); margin: 0 auto; padding: 28px; }
+    .eyebrow { margin: 0 0 7px; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; color: var(--primary); text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(26px, 3.4vw, 40px); line-height: 1.04; color: var(--heading); }
+    .subtitle { width: min(820px, 100%); margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: var(--subtext); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 26px; }
+    .legend .chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--heading); box-shadow: 0 8px 20px rgba(15,23,42,0.05); }
+    .dot { width: 9px; height: 9px; border-radius: 999px; }
+    .dot.low { background: var(--low); } .dot.moderate { background: var(--moderate); } .dot.high { background: var(--high); } .dot.critical { background: var(--critical); }
+    .tag-primary { color: var(--primary); }
+    .tag-secondary { color: var(--secondary); }
+
+    .layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 26px; align-items: start; }
+
+    .panel-label { margin: 0 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--subtext); }
+    .annot { margin: 8px 2px 0; font-size: 12px; line-height: 1.5; color: var(--subtext); }
+    .annot b { color: var(--heading); }
+
+    .device { position: relative; width: 100%; border-radius: 38px; padding: 14px; background: #111827; box-shadow: var(--shadow); }
+    .screen { position: relative; border-radius: 28px; background: var(--bg); overflow: hidden; padding: 16px 14px 22px; }
+
+    /* ── Route option cards ── */
+    .card { border-radius: 16px; padding: 14px; background: #F8FAFC; border: 1px solid var(--border); margin-bottom: 12px; }
+    .card.selected { background: #F3EEFF; border-color: var(--primary); }
+    .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+    .card-title { font-size: 14px; font-weight: 800; color: var(--heading); }
+    .card-reason { margin-top: 2px; font-size: 12px; color: var(--subtext); }
+    .pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+    .pill.rec { background: rgba(124,58,237,0.1); color: var(--primary); }
+    .metric-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .metric { flex: 1; }
+    .metric .label { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; color: var(--subtext); text-transform: uppercase; margin-bottom: 3px; }
+    .metric .value { font-size: 15px; font-weight: 800; color: var(--heading); }
+    .metric .value .lvl { font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+    .occ-accent { color: var(--primary); }
+    .card-compare { font-size: 12px; line-height: 1.45; color: var(--text); }
+
+    .lvl-low { color: var(--low); background: rgba(34,197,94,0.14); }
+    .lvl-moderate { color: #a16207; background: rgba(234,179,8,0.18); }
+    .lvl-high { color: #c2410c; background: rgba(249,115,22,0.16); }
+    .lvl-critical { color: var(--critical); background: rgba(239,68,68,0.14); }
+
+    /* ── Route summary + profile strip ── */
+    .summary { border-radius: 16px; padding: 14px; background: #F8FAFC; border: 1px solid var(--border); margin-bottom: 12px; }
+    .summary-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .summary-title { font-size: 16px; font-weight: 800; color: var(--heading); }
+    .summary-sub { margin-top: 4px; font-size: 12px; color: var(--subtext); }
+    .occ-badge { padding: 6px 11px; border-radius: 999px; background: rgba(124,58,237,0.1); font-size: 12px; font-weight: 800; color: var(--primary); white-space: nowrap; }
+    .strip { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--border); margin: 14px 0 6px; }
+    .strip > span { display: block; }
+    .caption { font-size: 11px; color: var(--subtext); }
+    .seg-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .seg-chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--border); font-size: 11px; font-weight: 700; color: var(--text); }
+    .seg-chip .sdot { width: 8px; height: 8px; border-radius: 999px; }
+
+    /* ── Segment detail sheet ── */
+    .sheet { border-radius: 18px; background: #fff; border: 1px solid var(--border); padding: 16px; box-shadow: 0 12px 26px rgba(15,23,42,0.08); }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .sheet-head .t { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; color: var(--heading); }
+    .sheet-head .hdot { width: 10px; height: 10px; border-radius: 999px; }
+    .x { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--bg); color: var(--subtext); font-weight: 800; }
+
+    .gauge { display: flex; gap: 14px; border-radius: 14px; padding: 14px; border: 1px solid; margin-bottom: 12px; }
+    .gauge.primary { background: rgba(124,58,237,0.05); border-color: rgba(124,58,237,0.22); }
+    .gauge-left { min-width: 96px; }
+    .gauge-kicker { font-size: 10px; font-weight: 900; letter-spacing: 0.08em; color: var(--primary); }
+    .gauge-pct { font-size: 30px; font-weight: 900; line-height: 1.05; }
+    .gauge-badge { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 999px; }
+    .gauge-right { flex: 1; align-self: center; }
+    .track { height: 9px; border-radius: 999px; background: var(--border); overflow: hidden; }
+    .fill { height: 100%; border-radius: 999px; }
+    .mini-stats { display: flex; gap: 18px; margin-top: 10px; }
+    .mini .ml { font-size: 10px; color: var(--subtext); font-weight: 700; text-transform: uppercase; }
+    .mini .mv { font-size: 13px; font-weight: 800; color: var(--heading); }
+
+    /* ── Dual occurrence gauge (model + personalized) ── */
+    .occ-dual { border-radius: 14px; padding: 14px; background: rgba(124,58,237,0.05); border: 1px solid rgba(124,58,237,0.22); margin-bottom: 12px; }
+    .occ-dual.flat { background: var(--bg); border-color: var(--border); }
+    .occ-dual-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .occ-kicker { font-size: 10px; font-weight: 900; letter-spacing: 0.08em; color: var(--primary); }
+    .occ-kicker.muted { color: var(--subtext); }
+    .occ-row { display: grid; grid-template-columns: 116px 1fr 84px; align-items: center; gap: 10px; margin-bottom: 11px; }
+    .occ-row:last-of-type { margin-bottom: 0; }
+    .occ-rlabel { font-size: 11px; font-weight: 800; color: var(--heading); }
+    .occ-rlabel span { display: block; font-size: 10px; font-weight: 600; color: var(--subtext); margin-top: 1px; }
+    .occ-rtrack { height: 9px; border-radius: 999px; background: var(--border); overflow: hidden; }
+    .occ-rfill { height: 100%; border-radius: 999px; }
+    .occ-rval { text-align: right; white-space: nowrap; }
+    .occ-rval .p { font-size: 17px; font-weight: 900; }
+    .occ-rval .lvl { display: inline-block; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 999px; margin-top: 2px; }
+    .occ-delta { display: flex; align-items: center; gap: 7px; margin-top: 12px; padding: 9px 11px; border-radius: 10px; background: rgba(255,255,255,0.7); border: 1px solid var(--border); font-size: 11px; line-height: 1.45; color: var(--text); }
+    .occ-delta b { color: var(--heading); }
+    .occ-delta .arrow { font-weight: 900; }
+
+    .section-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 900; letter-spacing: 0.06em; color: var(--secondary); background: rgba(29,78,216,0.08); border: 1px solid rgba(29,78,216,0.18); padding: 4px 9px; border-radius: 999px; }
+    .sev-block { border: 1px dashed var(--border); border-radius: 14px; padding: 13px; margin-bottom: 12px; }
+    .sev-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .sev-row { display: grid; grid-template-columns: 78px 1fr 44px; align-items: center; gap: 9px; margin-bottom: 7px; }
+    .sev-name { font-size: 11px; font-weight: 700; color: var(--text); }
+    .sev-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
+    .sev-fill { height: 100%; border-radius: 999px; }
+    .sev-val { font-size: 11px; font-weight: 800; color: var(--heading); text-align: right; }
+    .sev-foot { display: flex; gap: 10px; margin-top: 10px; }
+    .sev-foot .box { flex: 1; background: var(--bg); border-radius: 10px; padding: 9px 10px; }
+    .sev-foot .bl { font-size: 10px; color: var(--subtext); font-weight: 700; text-transform: uppercase; }
+    .sev-foot .bv { font-size: 14px; font-weight: 800; color: var(--heading); margin-top: 2px; }
+
+    .reasons-head { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 10px; }
+    .reasons-badge { font-size: 10px; font-weight: 900; letter-spacing: 0.06em; color: var(--heading); background: var(--bg); padding: 4px 9px; border-radius: 999px; }
+    .reasons-count { font-size: 11px; color: var(--subtext); }
+    .reason { display: flex; gap: 9px; margin-bottom: 9px; }
+    .reason .accent { width: 3px; border-radius: 999px; }
+    .reason .body { flex: 1; }
+    .reason .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .reason .nm { font-size: 12px; font-weight: 700; color: var(--heading); }
+    .reason .impact { font-size: 11px; font-weight: 800; color: var(--heading); }
+    .reason .rtrack { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 5px; }
+    .reason .rfill { height: 100%; }
+
+    .fallback { border-radius: 14px; padding: 13px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); font-size: 12px; line-height: 1.5; color: var(--text); }
+    .fallback b { color: var(--heading); }
+    .floating { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 14px; background: rgba(255,255,255,0.96); border: 1px solid var(--border); box-shadow: 0 12px 26px rgba(15,23,42,0.10); font-size: 12px; font-weight: 700; color: var(--heading); margin-bottom: 12px; }
+    .floating .fdot { width: 9px; height: 9px; border-radius: 999px; }
+    .muted { color: var(--subtext); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <p class="eyebrow">SIARA · Road Guide redesign</p>
+    <h1>Occurrence Risk as the primary Road Guide signal</h1>
+    <p class="subtitle">
+      The accident <b>occurrence model</b> now drives the route risk number, route ranking, and the "safest route"
+      recommendation. The multiclass <b>severity model</b> is demoted to secondary, per-segment detail.
+      Same endpoint (<code>/api/risk/route</code>); all values degrade gracefully when occurrence or severity data is missing.
+    </p>
+
+    <div class="legend">
+      <span class="chip tag-primary">● PRIMARY — Occurrence risk (accident likelihood)</span>
+      <span class="chip tag-secondary">● SECONDARY — Severity detail (how bad if it happens)</span>
+      <span class="chip"><span class="dot low"></span> Low</span>
+      <span class="chip"><span class="dot moderate"></span> Moderate</span>
+      <span class="chip"><span class="dot high"></span> High</span>
+      <span class="chip"><span class="dot critical"></span> Critical</span>
+    </div>
+
+    <div class="layout">
+
+      <!-- ════════ COLUMN 1: Route options + summary ════════ -->
+      <div>
+        <p class="panel-label">1 · Route options &amp; summary</p>
+        <div class="device"><div class="screen">
+
+          <div class="floating">
+            <span class="fdot" style="background:var(--moderate)"></span>
+            Safest route · <span class="occ-accent">6% occurrence risk</span> · 27 min
+          </div>
+
+          <!-- Route option cards: "Occurrence" replaces "Risk" as the primary metric -->
+          <div class="card">
+            <div class="card-head">
+              <div><div class="card-title">Fastest</div><div class="card-reason">Baseline fastest route</div></div>
+            </div>
+            <div class="metric-row">
+              <div class="metric">
+                <div class="label occ-accent">Occurrence</div>
+                <div class="value">21%<span class="lvl lvl-high">HIGH</span></div>
+              </div>
+              <div class="metric"><div class="label">ETA</div><div class="value">23 min</div></div>
+              <div class="metric"><div class="label">Distance</div><div class="value">18 km</div></div>
+            </div>
+            <div class="card-compare">Baseline fastest route</div>
+          </div>
+
+          <div class="card selected">
+            <div class="card-head">
+              <div><div class="card-title">Safest</div><div class="card-reason">Lowest predicted occurrence risk</div></div>
+              <span class="pill rec">✦ Recommended</span>
+            </div>
+            <div class="metric-row">
+              <div class="metric">
+                <div class="label occ-accent">Occurrence</div>
+                <div class="value occ-accent">6%<span class="lvl lvl-moderate">MODERATE</span></div>
+              </div>
+              <div class="metric"><div class="label">ETA</div><div class="value">27 min</div></div>
+              <div class="metric"><div class="label">Distance</div><div class="value">20 km</div></div>
+            </div>
+            <div class="card-compare">+4 min vs fastest | −15% occurrence risk vs fastest</div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div><div class="card-title">Balanced</div><div class="card-reason">Best tradeoff between speed and occurrence risk</div></div>
+            </div>
+            <div class="metric-row">
+              <div class="metric">
+                <div class="label occ-accent">Occurrence</div>
+                <div class="value">12%<span class="lvl lvl-moderate">MODERATE</span></div>
+              </div>
+              <div class="metric"><div class="label">ETA</div><div class="value">25 min</div></div>
+              <div class="metric"><div class="label">Distance</div><div class="value">19 km</div></div>
+            </div>
+            <div class="card-compare">+2 min vs fastest | −9% occurrence risk vs fastest</div>
+          </div>
+
+          <!-- Route summary + occurrence-coloured profile strip -->
+          <div class="summary">
+            <div class="summary-head">
+              <div>
+                <div class="summary-title">Safest profile</div>
+                <div class="summary-sub">+4 min vs fastest | −15% occurrence risk vs fastest</div>
+              </div>
+              <span class="occ-badge">6% occ.</span>
+            </div>
+            <div class="strip">
+              <span style="flex:18; background:var(--low)"></span>
+              <span style="flex:22; background:var(--moderate)"></span>
+              <span style="flex:14; background:var(--low)"></span>
+              <span style="flex:30; background:var(--moderate)"></span>
+              <span style="flex:16; background:var(--high)"></span>
+            </div>
+            <div class="caption">Occurrence-risk profile, weighted by segment distance.</div>
+            <div class="seg-chips">
+              <span class="seg-chip"><span class="sdot" style="background:var(--moderate)"></span>Seg 2 · 9% · moderate · 3.1 km</span>
+              <span class="seg-chip"><span class="sdot" style="background:var(--high)"></span>Seg 5 · 24% · high · 2.4 km</span>
+            </div>
+          </div>
+
+          <p class="caption" style="margin-top:6px">Tap a segment to inspect occurrence + severity detail →</p>
+        </div></div>
+        <p class="annot"><b>Changes:</b> "Risk" metric → <b>Occurrence</b> (value from <code>occurrence_summary.average_*_probability</code>, level chip from <code>average_*_risk_level</code>). Route ranking &amp; "safest" now sort by occurrence probability, not severity. All "risk" copy → "occurrence risk".</p>
+      </div>
+
+      <!-- ════════ COLUMN 2: Segment detail sheet ════════ -->
+      <div>
+        <p class="panel-label">2 · Segment detail — occurrence primary, severity secondary</p>
+        <div class="device"><div class="screen">
+          <div class="sheet">
+            <div class="sheet-head">
+              <div class="t"><span class="hdot" style="background:var(--high)"></span>Segment explanation</div>
+              <div class="x">✕</div>
+            </div>
+
+            <!-- PRIMARY: occurrence gauge — BOTH model + personalized -->
+            <div class="occ-dual">
+              <div class="occ-dual-head">
+                <span class="occ-kicker">OCCURRENCE RISK</span>
+                <span class="caption">accident likelihood · occurrence_beta_v2.1</span>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Model<span>road · time · weather</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:48%; background:var(--high)"></div></div>
+                <div class="occ-rval"><div class="p occ-accent">24%</div><span class="lvl lvl-high">HIGH</span></div>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Personalized<span>+ your driver quiz</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:58%; background:var(--high)"></div></div>
+                <div class="occ-rval"><div class="p" style="color:#c2410c">29%</div><span class="lvl lvl-high">HIGH</span></div>
+              </div>
+              <div class="occ-delta">
+                <span class="arrow" style="color:var(--critical)">▲</span>
+                <span><b>+5%</b> vs model — driver quiz score <b>68/100</b> indicates riskier driving (×1.18).</span>
+              </div>
+            </div>
+
+            <!-- SECONDARY: severity breakdown -->
+            <div class="sev-block">
+              <div class="sev-head">
+                <span class="section-tag">▾ SEVERITY DETAIL (SECONDARY)</span>
+                <span class="caption">if an accident occurs</span>
+              </div>
+              <div class="sev-row"><span class="sev-name">Severity 1</span><span class="sev-track"><span class="sev-fill" style="width:55%; background:var(--low)"></span></span><span class="sev-val">55%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 2</span><span class="sev-track"><span class="sev-fill" style="width:28%; background:var(--moderate)"></span></span><span class="sev-val">28%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 3</span><span class="sev-track"><span class="sev-fill" style="width:12%; background:var(--high)"></span></span><span class="sev-val">12%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 4</span><span class="sev-track"><span class="sev-fill" style="width:5%; background:var(--critical)"></span></span><span class="sev-val">5%</span></div>
+              <div class="sev-foot">
+                <div class="box"><div class="bl">Most likely</div><div class="bv">Severity 1</div></div>
+                <div class="box"><div class="bl">Expected</div><div class="bv">1.67</div></div>
+                <div class="box"><div class="bl">Severe (S3+S4)</div><div class="bv">17%</div></div>
+              </div>
+            </div>
+
+            <!-- SHAP reasons (unchanged) -->
+            <div class="reasons-head">
+              <span class="reasons-badge">TOP SHAP REASONS</span>
+              <span class="reasons-count">3 factors</span>
+            </div>
+            <div class="reason">
+              <span class="accent" style="background:#ef444440"></span>
+              <div class="body">
+                <div class="top"><span class="nm">junction_flag</span><span class="impact">0.41</span></div>
+                <div class="rtrack"><div class="rfill" style="width:100%; background:var(--critical)"></div></div>
+              </div>
+            </div>
+            <div class="reason">
+              <span class="accent" style="background:#ef444440"></span>
+              <div class="body">
+                <div class="top"><span class="nm">evening_rush_hour</span><span class="impact">0.27</span></div>
+                <div class="rtrack"><div class="rfill" style="width:66%; background:var(--critical)"></div></div>
+              </div>
+            </div>
+            <div class="reason">
+              <span class="accent" style="background:#22c55e40"></span>
+              <div class="body">
+                <div class="top"><span class="nm">dry_road_surface</span><span class="impact">0.14</span></div>
+                <div class="rtrack"><div class="rfill" style="width:34%; background:var(--low)"></div></div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <p class="annot"><b>Changes:</b> new <b>Occurrence risk</b> gauge on top (from <code>segment.occurrence.personalized ?? modelOnly</code>). New <b>Severity detail</b> block lists P(Sev 1–4), most-likely &amp; expected severity (from <code>severity_probabilities</code> / <code>most_likely_severity</code> / <code>expected_severity</code>). SHAP reasons unchanged.</p>
+      </div>
+
+      <!-- ════════ COLUMN 3: Fallbacks ════════ -->
+      <div>
+        <p class="panel-label">3 · Graceful fallbacks</p>
+        <div class="device"><div class="screen">
+
+          <div class="sheet" style="margin-bottom:14px">
+            <div class="sheet-head"><div class="t"><span class="hdot" style="background:var(--moderate)"></span>Occurrence missing</div><div class="x">✕</div></div>
+            <div class="occ-dual flat">
+              <div class="occ-dual-head"><span class="occ-kicker muted">OCCURRENCE RISK</span><span class="caption">model unavailable</span></div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Model<span>road · time · weather</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:0%"></div></div>
+                <div class="occ-rval"><div class="p muted">—</div><span class="lvl" style="background:var(--border); color:var(--subtext)">N/A</span></div>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Personalized<span>+ your driver quiz</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:0%"></div></div>
+                <div class="occ-rval"><div class="p muted">—</div><span class="lvl" style="background:var(--border); color:var(--subtext)">N/A</span></div>
+              </div>
+              <p class="caption" style="margin:11px 0 0">Occurrence model unavailable for this segment — the app stays usable and still shows severity below.</p>
+            </div>
+            <div class="sev-block" style="margin-bottom:0">
+              <div class="sev-head"><span class="section-tag">▾ SEVERITY DETAIL (SECONDARY)</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 1</span><span class="sev-track"><span class="sev-fill" style="width:60%; background:var(--low)"></span></span><span class="sev-val">60%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 2</span><span class="sev-track"><span class="sev-fill" style="width:30%; background:var(--moderate)"></span></span><span class="sev-val">30%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 3</span><span class="sev-track"><span class="sev-fill" style="width:8%; background:var(--high)"></span></span><span class="sev-val">8%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 4</span><span class="sev-track"><span class="sev-fill" style="width:2%; background:var(--critical)"></span></span><span class="sev-val">2%</span></div>
+            </div>
+          </div>
+
+          <div class="sheet">
+            <div class="sheet-head"><div class="t"><span class="hdot" style="background:var(--moderate)"></span>Severity missing · no driver quiz</div><div class="x">✕</div></div>
+            <div class="occ-dual">
+              <div class="occ-dual-head"><span class="occ-kicker">OCCURRENCE RISK</span><span class="caption">occurrence_beta_v2.1</span></div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Model<span>road · time · weather</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:36%; background:var(--moderate)"></div></div>
+                <div class="occ-rval"><div class="p occ-accent">18%</div><span class="lvl lvl-moderate">MODERATE</span></div>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Personalized<span>no quiz taken</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:36%; background:var(--moderate)"></div></div>
+                <div class="occ-rval"><div class="p muted">= model</div></div>
+              </div>
+              <div class="occ-delta">
+                <span class="arrow muted">—</span>
+                <span>No driver quiz profile, so personalized risk matches the model. Severity breakdown unavailable — secondary block hidden, no crash.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="fallback" style="margin-top:14px">
+            <b>Fallback rules</b><br>
+            • No <code>occurrence</code> on a route → that route falls back to its severity score only for ranking, and shows "N/A" occurrence.<br>
+            • No <code>occurrence</code> on a segment → gauge shows "—"/N/A, severity still renders.<br>
+            • No <code>severity_probabilities</code> → severity block hidden entirely.<br>
+            • Backend offline / old response → screens behave exactly as today.
+          </div>
+        </div></div>
+        <p class="annot"><b>Requirement:</b> "if occurrence or severity is missing, the app should not crash." Every binding is null-guarded and the missing block is hidden or shows a neutral placeholder.</p>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

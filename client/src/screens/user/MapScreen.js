@@ -33,6 +33,7 @@ import { fetchCurrentWeather } from '../../services/weatherService';
 import { explainRisk, fetchRiskForecast24h } from '../../services/riskService';
 import { explainRouteRisk } from '../../services/routeRiskService';
 import { isAbortError } from '../../utils/requestCache';
+import { getOccurrenceColor } from '../../utils/routeGuidance';
 
 const { height } = Dimensions.get('window');
 
@@ -135,6 +136,21 @@ function xaiDangerColor(level) {
   return '#22c55e';
 }
 
+// Occurrence-level colour (low/moderate/high/critical); falls back to the
+// severity palette for any unexpected label.
+function xaiOccurrenceColor(level) {
+  return getOccurrenceColor(level) || xaiDangerColor(level);
+}
+
+// Per-severity-class bar colours (Sev 1 mild → Sev 4 fatal).
+const SEVERITY_BAR_COLORS = { 1: '#22c55e', 2: '#f59e0b', 3: '#f97316', 4: '#ef4444' };
+
+function clampPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+}
+
 function SegmentXaiPanel({ explanation, onClose, loading }) {
   if (loading) {
     return (
@@ -146,9 +162,10 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
     );
   }
 
+  // ── Severity (SECONDARY) — multiclass model ──
   const dangerPct = explanation?.danger_percent ?? explanation?.dangerPercent ?? null;
   const rawLevel = explanation?.danger_level || explanation?.dangerLevel || '';
-  const level = (() => {
+  const severityLevel = (() => {
     const t = rawLevel.toLowerCase();
     if (['extreme', 'high', 'moderate', 'low'].includes(t)) return t;
     const p = parseFloat(dangerPct);
@@ -158,11 +175,63 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
     if (p < 75) return 'high';
     return 'extreme';
   })();
-  const dangerColor = xaiDangerColor(level);
+  const severityColorVal = xaiDangerColor(severityLevel);
+
+  // ── Occurrence (PRIMARY) — accident-likelihood model, model + personalized ──
+  const occ = explanation?.occurrence || null;
+  const modelProb = Number(occ?.modelOnly?.calibrated_probability);
+  const personalizedProb = Number(occ?.personalized?.calibrated_probability);
+  const driverApplied = occ?.personalized?.driver_behavior_applied === true;
+  const modelPct = Number.isFinite(modelProb) ? modelProb * 100 : null;
+  const personalizedPct = Number.isFinite(personalizedProb) ? personalizedProb * 100 : null;
+  const modelLevel = occ?.modelOnly?.risk_level || null;
+  const personalizedLevel = occ?.personalized?.risk_level || null;
+  const hasOccurrence = modelPct != null || personalizedPct != null;
+  const headlineLevel = (driverApplied ? personalizedLevel : modelLevel) || severityLevel;
+  const headerColor = hasOccurrence ? xaiOccurrenceColor(headlineLevel) : severityColorVal;
+  const deltaPct = (modelPct != null && personalizedPct != null) ? personalizedPct - modelPct : null;
+  const driverScore = occ?.personalized?.driver_risk_score ?? occ?.driver_meta?.latest_risk_score ?? null;
+
+  // ── Severity class probabilities (Sev 1..4) ──
+  const sevProbs = explanation?.severity_probabilities || null;
+  const sevRows = sevProbs
+    ? [1, 2, 3, 4]
+      .map((k) => ({ k, value: Number(sevProbs[`severity_${k}`]) }))
+      .filter((r) => Number.isFinite(r.value))
+    : [];
+  const mostLikely = explanation?.most_likely_severity ?? null;
+  const expectedSev = explanation?.expected_severity ?? null;
+  const hasSeverity = sevRows.length > 0 || mostLikely != null || expectedSev != null || dangerPct != null;
+
   const confidence = explanation?.confidence ?? null;
   const quality = explanation?.quality ?? null;
   const reasons = extractXaiReasons(explanation);
   const maxImpact = reasons.length > 0 ? Math.max(...reasons.map((r) => r.impact)) : 1;
+
+  const renderOccRow = (label, sub, pct, lvl, { muted = false } = {}) => {
+    const color = lvl ? xaiOccurrenceColor(lvl) : Colors.subtext;
+    return (
+      <View style={xaiStyles.occRow}>
+        <View style={xaiStyles.occRowLabel}>
+          <Text style={xaiStyles.occRowName}>{label}</Text>
+          <Text style={xaiStyles.occRowSub}>{sub}</Text>
+        </View>
+        <View style={xaiStyles.occRowTrack}>
+          <View style={[xaiStyles.occRowFill, { width: `${Math.max(clampPercent(pct), 2)}%`, backgroundColor: color }]} />
+        </View>
+        <View style={xaiStyles.occRowRight}>
+          <Text style={[xaiStyles.occRowPct, { color: muted ? Colors.subtext : color }]}>
+            {pct == null ? '—' : `${Math.round(pct)}%`}
+          </Text>
+          {lvl ? (
+            <Text style={[xaiStyles.occLevelChip, { color, backgroundColor: `${color}22` }]}>
+              {String(lvl).toUpperCase()}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
 
   return (
     <View style={xaiStyles.scrollContent}>
@@ -170,7 +239,7 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
       {/* ── Header ── */}
       <View style={xaiStyles.headerRow}>
         <View style={xaiStyles.headerLeft}>
-          <View style={[xaiStyles.headerDot, { backgroundColor: dangerColor }]} />
+          <View style={[xaiStyles.headerDot, { backgroundColor: headerColor }]} />
           <Text style={xaiStyles.title}>Segment Explanation</Text>
         </View>
         <TouchableOpacity onPress={onClose} style={xaiStyles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -178,37 +247,96 @@ function SegmentXaiPanel({ explanation, onClose, loading }) {
         </TouchableOpacity>
       </View>
 
-      {/* ── Danger gauge card ── */}
-      {dangerPct != null && (
-        <View style={[xaiStyles.gaugeCard, { borderColor: `${dangerColor}30` }]}>
-          <View style={xaiStyles.gaugeLeft}>
-            <Text style={xaiStyles.gaugeLabel}>DANGER</Text>
-            <Text style={[xaiStyles.gaugePct, { color: dangerColor }]}>{Math.round(dangerPct)}%</Text>
-            <View style={[xaiStyles.levelBadge, { backgroundColor: `${dangerColor}15`, borderColor: `${dangerColor}35` }]}>
-              <Text style={[xaiStyles.levelBadgeText, { color: dangerColor }]}>{level.toUpperCase()}</Text>
-            </View>
+      {/* ── PRIMARY: Occurrence risk (model + personalized) ── */}
+      {hasOccurrence ? (
+        <View style={[xaiStyles.occCard, { borderColor: `${headerColor}30` }]}>
+          <View style={xaiStyles.occHeadRow}>
+            <Text style={xaiStyles.occKicker}>OCCURRENCE RISK</Text>
+            <Text style={xaiStyles.occHint}>accident likelihood</Text>
           </View>
-          <View style={xaiStyles.gaugeRight}>
-            <View style={xaiStyles.progressTrack}>
-              <View style={[xaiStyles.progressFill, { width: `${Math.min(dangerPct, 100)}%`, backgroundColor: dangerColor }]} />
+          {modelPct != null ? renderOccRow('Model', 'road · time · weather', modelPct, modelLevel) : null}
+          {personalizedPct != null
+            ? renderOccRow(
+              'Personalized',
+              driverApplied ? '+ your driver quiz' : 'no quiz taken',
+              personalizedPct,
+              personalizedLevel,
+              { muted: !driverApplied },
+            )
+            : null}
+          {driverApplied && deltaPct != null ? (
+            <View style={xaiStyles.occDelta}>
+              <Ionicons
+                name={deltaPct >= 0 ? 'trending-up' : 'trending-down'}
+                size={13}
+                color={deltaPct >= 0 ? '#dc2626' : '#16a34a'}
+              />
+              <Text style={xaiStyles.occDeltaText}>
+                {`${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}% vs model`}
+                {driverScore != null ? ` — driver quiz ${Math.round(Number(driverScore))}/100` : ''}
+              </Text>
             </View>
-            <View style={xaiStyles.miniStatsRow}>
-              {confidence != null && (
-                <View style={xaiStyles.miniStat}>
-                  <Text style={xaiStyles.miniStatLabel}>Confidence</Text>
-                  <Text style={xaiStyles.miniStatValue}>{Number(confidence).toFixed(0)}%</Text>
-                </View>
-              )}
-              {quality != null && (
-                <View style={xaiStyles.miniStat}>
-                  <Text style={xaiStyles.miniStatLabel}>Quality</Text>
-                  <Text style={[xaiStyles.miniStatValue, { textTransform: 'capitalize' }]}>{quality}</Text>
-                </View>
-              )}
-            </View>
-          </View>
+          ) : (!driverApplied && personalizedPct != null ? (
+            <Text style={xaiStyles.occNote}>No driver quiz profile, so personalized risk matches the model.</Text>
+          ) : null)}
+        </View>
+      ) : (
+        <View style={xaiStyles.occUnavailable}>
+          <Ionicons name="information-circle-outline" size={15} color={Colors.subtext} />
+          <Text style={xaiStyles.occUnavailableText}>Occurrence risk is unavailable for this segment.</Text>
         </View>
       )}
+
+      {/* ── SECONDARY: Severity detail (multiclass) ── */}
+      {hasSeverity ? (
+        <View style={xaiStyles.sevCard}>
+          <View style={xaiStyles.sevHeadRow}>
+            <View style={xaiStyles.sevTag}>
+              <Text style={xaiStyles.sevTagText}>SEVERITY DETAIL</Text>
+            </View>
+            <Text style={xaiStyles.occHint}>if an accident occurs</Text>
+          </View>
+          {sevRows.map((r) => (
+            <View key={r.k} style={xaiStyles.sevRow}>
+              <Text style={xaiStyles.sevName}>Severity {r.k}</Text>
+              <View style={xaiStyles.sevTrack}>
+                <View style={[xaiStyles.sevFill, { width: `${clampPercent(r.value)}%`, backgroundColor: SEVERITY_BAR_COLORS[r.k] }]} />
+              </View>
+              <Text style={xaiStyles.sevVal}>{Math.round(r.value)}%</Text>
+            </View>
+          ))}
+          <View style={xaiStyles.sevFootRow}>
+            {mostLikely != null ? (
+              <View style={xaiStyles.sevBox}>
+                <Text style={xaiStyles.sevBoxLabel}>Most likely</Text>
+                <Text style={xaiStyles.sevBoxValue}>Severity {mostLikely}</Text>
+              </View>
+            ) : null}
+            {expectedSev != null ? (
+              <View style={xaiStyles.sevBox}>
+                <Text style={xaiStyles.sevBoxLabel}>Expected</Text>
+                <Text style={xaiStyles.sevBoxValue}>{Number(expectedSev).toFixed(2)}</Text>
+              </View>
+            ) : null}
+            {dangerPct != null ? (
+              <View style={xaiStyles.sevBox}>
+                <Text style={xaiStyles.sevBoxLabel}>Severe (S3+S4)</Text>
+                <Text style={xaiStyles.sevBoxValue}>{Math.round(dangerPct)}%</Text>
+              </View>
+            ) : null}
+          </View>
+          {(confidence != null || quality != null) ? (
+            <View style={xaiStyles.sevMiniRow}>
+              {confidence != null ? (
+                <Text style={xaiStyles.sevMini}>Confidence {Number(confidence).toFixed(0)}%</Text>
+              ) : null}
+              {quality != null ? (
+                <Text style={[xaiStyles.sevMini, { textTransform: 'capitalize' }]}>Quality {quality}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* ── SHAP reasons ── */}
       {reasons.length > 0 && (
@@ -510,6 +638,60 @@ const xaiStyles = StyleSheet.create({
   reasonValue: { fontSize: 13, fontWeight: '800', color: Colors.heading, minWidth: 36, textAlign: 'right' },
   impactBarTrack: { height: 4, borderRadius: 2, backgroundColor: Colors.bg, overflow: 'hidden' },
   impactBarFill: { height: '100%', borderRadius: 2 },
+
+  /* Occurrence card (PRIMARY) — model + personalized */
+  occCard: {
+    backgroundColor: 'rgba(124,58,237,0.05)', borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: 'rgba(124,58,237,0.22)', marginBottom: 14, gap: 11,
+  },
+  occHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  occKicker: { fontSize: 10, fontWeight: '900', letterSpacing: 0.8, color: Colors.primary },
+  occHint: { fontSize: 11, color: Colors.subtext },
+  occRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  occRowLabel: { width: 112 },
+  occRowName: { fontSize: 12, fontWeight: '800', color: Colors.heading },
+  occRowSub: { fontSize: 10, color: Colors.subtext, marginTop: 1 },
+  occRowTrack: { flex: 1, height: 9, borderRadius: 999, backgroundColor: Colors.bg, overflow: 'hidden' },
+  occRowFill: { height: '100%', borderRadius: 999 },
+  occRowRight: { width: 78, alignItems: 'flex-end' },
+  occRowPct: { fontSize: 16, fontWeight: '900' },
+  occLevelChip: {
+    fontSize: 8, fontWeight: '800', marginTop: 2,
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999, overflow: 'hidden',
+  },
+  occDelta: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 11, paddingVertical: 9, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: Colors.borderLight,
+  },
+  occDeltaText: { flex: 1, fontSize: 11, lineHeight: 15, color: Colors.text },
+  occNote: { fontSize: 11, lineHeight: 15, color: Colors.subtext },
+  occUnavailable: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.bg, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: Colors.border, marginBottom: 14,
+  },
+  occUnavailableText: { flex: 1, fontSize: 12, color: Colors.subtext },
+
+  /* Severity detail card (SECONDARY) */
+  sevCard: {
+    backgroundColor: Colors.white, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 16, gap: 7,
+  },
+  sevHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  sevTag: { backgroundColor: 'rgba(29,78,216,0.08)', borderWidth: 1, borderColor: 'rgba(29,78,216,0.18)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  sevTagText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, color: '#1d4ed8' },
+  sevRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  sevName: { width: 72, fontSize: 11, fontWeight: '700', color: Colors.text },
+  sevTrack: { flex: 1, height: 8, borderRadius: 999, backgroundColor: Colors.bg, overflow: 'hidden' },
+  sevFill: { height: '100%', borderRadius: 999 },
+  sevVal: { width: 42, fontSize: 11, fontWeight: '800', color: Colors.heading, textAlign: 'right' },
+  sevFootRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  sevBox: { flex: 1, backgroundColor: Colors.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9 },
+  sevBoxLabel: { fontSize: 10, fontWeight: '700', color: Colors.subtext, textTransform: 'uppercase' },
+  sevBoxValue: { fontSize: 14, fontWeight: '800', color: Colors.heading, marginTop: 2 },
+  sevMiniRow: { flexDirection: 'row', gap: 16, marginTop: 8 },
+  sevMini: { fontSize: 11, fontWeight: '600', color: Colors.subtext },
 });
 
 export default function MapScreen({ navigation }) {

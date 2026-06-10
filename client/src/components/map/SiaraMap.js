@@ -580,10 +580,13 @@ const SiaraMap = React.forwardRef(function SiaraMap({
           const path = getSegmentPath(segment);
           if (path.length < 2) return;
           const level = normalizeDangerLevel(segment.danger_level, segment.danger_percent);
+          // Normalised guided segments carry an occurrence-based colour; fall
+          // back to the severity colour when occurrence is unavailable.
+          const segmentColor = segment.color || getDangerColor(level);
           lines.push({
             key: `${route.route_type}-seg-${index}`,
             coordinates: path,
-            color: getDangerColor(level),
+            color: segmentColor,
             strokeWidth: selected ? 6 : 4,
             opacity: selected ? 0.96 : 0.36,
             dashArray: selected ? null : '10 8',
@@ -1148,6 +1151,15 @@ const SiaraMap = React.forwardRef(function SiaraMap({
           ? Number(explanation.danger_percent)
           : segment.danger_percent,
         danger_level: explanation?.danger_level || segment.danger_level,
+        // Carry occurrence (primary) + severity breakdown (secondary) from the
+        // tapped route segment so the detail panel can show both. Null-safe.
+        occurrence: segment?.occurrence ?? explanation?.occurrence ?? null,
+        severity_probabilities:
+          segment?.severity_probabilities ?? explanation?.severity_probabilities ?? null,
+        most_likely_severity:
+          segment?.most_likely_severity ?? explanation?.most_likely_severity ?? null,
+        expected_severity:
+          segment?.expected_severity ?? explanation?.expected_severity ?? null,
       };
       setShapExplanation(enriched);
       setShapVisible(true);

@@ -25,10 +25,13 @@ export default function RouteHazardsPanel({
 
   const notes = Array.isArray(route.hazard_notes) ? route.hazard_notes.slice(0, 3) : [];
   const profile = Array.isArray(route.risk_profile) ? route.risk_profile : [];
+  // Highlight high occurrence-risk segments (primary). Fall back to the
+  // severity danger level for responses without occurrence data.
   const highRiskSegments = profile
     .filter((item) => {
-      const level = normalizeDangerLevel(item?.danger_level, item?.danger_percent);
-      return level === 'high' || level === 'extreme' || Number(item?.danger_percent) >= 70;
+      const level = item?.occurrence_level
+        || normalizeDangerLevel(item?.danger_level, item?.danger_percent);
+      return level === 'high' || level === 'critical' || level === 'extreme';
     })
     .slice(0, 4);
 
@@ -39,7 +42,7 @@ export default function RouteHazardsPanel({
           <Ionicons name="analytics-outline" size={16} color={Colors.primary} />
           <Text style={styles.headerTitle}>{route.route_label} profile</Text>
         </View>
-        <Text style={styles.headerSubtitle}>{formatPercent(route.danger_percent)} overall risk</Text>
+        <Text style={styles.headerSubtitle}>{formatPercent(route.occurrence_percent ?? route.danger_percent)} overall occurrence risk</Text>
       </View>
 
       {profile.length > 0 ? (
@@ -60,7 +63,7 @@ export default function RouteHazardsPanel({
               />
             ))}
           </View>
-          <Text style={styles.profileCaption}>Risk profile weighted by segment distance</Text>
+          <Text style={styles.profileCaption}>Occurrence-risk profile weighted by segment distance</Text>
         </View>
       ) : null}
 
@@ -74,7 +77,7 @@ export default function RouteHazardsPanel({
           ))}
         </View>
       ) : (
-        <Text style={styles.emptyText}>No standout risk clusters were detected on the selected route.</Text>
+        <Text style={styles.emptyText}>No standout occurrence-risk clusters were detected on the selected route.</Text>
       )}
 
       {highRiskSegments.length > 0 ? (
@@ -89,7 +92,7 @@ export default function RouteHazardsPanel({
               <Text style={styles.segmentText}>
                 Segment {segment.segment?.sample_to != null ? segment.segment.sample_to : index + 1}
                 {' - '}
-                {formatPercent(segment.danger_percent)}
+                {formatPercent(segment.occurrence_percent ?? segment.danger_percent)}
                 {' - '}
                 {formatDistance(segment.distance_km)}
               </Text>

@@ -12,9 +12,87 @@ const ROUTE_LABELS = {
 
 const ROUTE_REASONS = {
   fastest: 'Baseline fastest route',
-  safest: 'Lowest predicted risk',
-  balanced: 'Best tradeoff between speed and safety',
+  safest: 'Lowest predicted occurrence risk',
+  balanced: 'Best tradeoff between speed and occurrence risk',
 };
+
+// ── Occurrence-risk helpers ────────────────────────────────────────────────
+// The accident-occurrence model is the PRIMARY Road Guide signal. The backend
+// exposes per-route `occurrence_summary` (model + personalized averages) and
+// per-segment `occurrence.{modelOnly,personalized}`. We surface the
+// PERSONALIZED value when a driver-quiz profile was applied, otherwise the
+// MODEL-only value. The multiclass severity model is secondary detail only.
+
+const OCCURRENCE_COLORS = {
+  low: '#22c55e',
+  moderate: '#f59e0b',
+  high: '#f97316',
+  critical: '#ef4444',
+};
+
+export function getOccurrenceColor(level) {
+  const key = String(level || '').trim().toLowerCase();
+  return OCCURRENCE_COLORS[key] || null;
+}
+
+function probabilityToPercent(probability) {
+  const numeric = Number(probability);
+  if (!Number.isFinite(numeric)) return null;
+  // calibrated_probability is a 0..1 value; clamp then scale to 0..100.
+  return Math.max(0, Math.min(100, numeric * 100));
+}
+
+// Route-level occurrence headline: personalized when a driver profile was
+// applied, else model-only. Returns null when occurrence is unavailable so the
+// caller can fall back to severity / show "N/A".
+export function pickRouteOccurrence(route) {
+  const summary = route?.occurrence_summary;
+  if (!summary || typeof summary !== 'object') return null;
+  const applied = summary.driver_behavior_applied === true;
+  const probability = applied
+    ? (summary.average_personalized_probability ?? summary.average_modelOnly_probability)
+    : (summary.average_modelOnly_probability ?? summary.average_personalized_probability);
+  const level = applied
+    ? (summary.average_personalized_risk_level ?? summary.average_modelOnly_risk_level)
+    : (summary.average_modelOnly_risk_level ?? summary.average_personalized_risk_level);
+  const percent = probabilityToPercent(probability);
+  if (percent == null) return null;
+  return {
+    probability: Number(probability),
+    percent: roundMetric(percent, 2),
+    level: level || null,
+    source: applied ? 'personalized' : 'model',
+  };
+}
+
+// Segment-level occurrence: personalized when driver behaviour was applied,
+// else model-only. Returns null when the segment carries no occurrence block.
+export function pickSegmentOccurrence(segment) {
+  const occ = segment?.occurrence;
+  if (!occ || typeof occ !== 'object') return null;
+  const personalized = occ.personalized || null;
+  const model = occ.modelOnly || null;
+  const applied = personalized?.driver_behavior_applied === true;
+  const chosen = applied ? personalized : (model || personalized);
+  const probability = chosen?.calibrated_probability;
+  const percent = probabilityToPercent(probability);
+  if (percent == null) return null;
+  return {
+    probability: Number(probability),
+    percent: roundMetric(percent, 2),
+    level: chosen?.risk_level || null,
+    source: applied ? 'personalized' : 'model',
+  };
+}
+
+// Ranking metric for "safest": occurrence rank score (lower = safer). Uses the
+// route's personalized-or-model occurrence average; falls back to the severity
+// weighted danger score when occurrence is unavailable so routes still sort.
+function occurrenceRankScore(route) {
+  const occ = toNumber(route?.occurrence_rank_score);
+  if (occ != null) return occ;
+  return toNumber(route?.weighted_danger_score);
+}
 
 function toNumber(value) {
   const numeric = Number(value);
@@ -71,12 +149,12 @@ function compareEta(a, b) {
   const etaA = normalizeMetric(a?.eta_min ?? a?.duration_min, 0, null);
   const etaB = normalizeMetric(b?.eta_min ?? b?.duration_min, 0, null);
   if (etaA !== etaB) return etaA - etaB;
-  return normalizeMetric(a?.weighted_danger_score, 0, null) - normalizeMetric(b?.weighted_danger_score, 0, null);
+  return normalizeMetric(occurrenceRankScore(a), 0, null) - normalizeMetric(occurrenceRankScore(b), 0, null);
 }
 
 function compareRisk(a, b) {
-  const riskA = normalizeMetric(a?.weighted_danger_score, 0, null);
-  const riskB = normalizeMetric(b?.weighted_danger_score, 0, null);
+  const riskA = normalizeMetric(occurrenceRankScore(a), 0, null);
+  const riskB = normalizeMetric(occurrenceRankScore(b), 0, null);
   if (riskA !== riskB) return riskA - riskB;
   return normalizeMetric(a?.eta_min ?? a?.duration_min, 0, null) - normalizeMetric(b?.eta_min ?? b?.duration_min, 0, null);
 }
@@ -105,8 +183,8 @@ function formatEtaDelta(deltaMinutes) {
 function formatRiskDelta(deltaPercent) {
   const delta = toNumber(deltaPercent);
   if (delta == null) return null;
-  if (Math.abs(delta) < 1) return 'Same predicted risk';
-  return `${delta > 0 ? '+' : '-'}${Math.round(Math.abs(delta))}% risk vs fastest`;
+  if (Math.abs(delta) < 1) return 'Same predicted occurrence risk';
+  return `${delta > 0 ? '+' : '-'}${Math.round(Math.abs(delta))}% occurrence risk vs fastest`;
 }
 
 function buildComparisonText(routeType, etaDelta, riskDelta) {
@@ -117,9 +195,9 @@ function buildComparisonText(routeType, etaDelta, riskDelta) {
 }
 
 function describeRiskConcentration(bucketKey) {
-  if (bucketKey === 'start') return 'Risk is concentrated in the beginning';
-  if (bucketKey === 'middle') return 'Risk is concentrated in the middle';
-  return 'Risk is concentrated in the end';
+  if (bucketKey === 'start') return 'Occurrence risk is concentrated in the beginning';
+  if (bucketKey === 'middle') return 'Occurrence risk is concentrated in the middle';
+  return 'Occurrence risk is concentrated in the end';
 }
 
 function buildMeasuredSegments(route) {
@@ -137,6 +215,7 @@ function buildMeasuredSegments(route) {
       2,
     ) || 0;
     const dangerLevel = normalizeDangerLevel(segment?.danger_level, dangerPercent);
+    const occ = pickSegmentOccurrence(segment);
     const startKm = cursorKm;
     const endKm = cursorKm + distanceKm;
     cursorKm = endKm;
@@ -151,7 +230,16 @@ function buildMeasuredSegments(route) {
       end_km: roundMetric(endKm, 2) || 0,
       danger_percent: dangerPercent,
       danger_level: dangerLevel,
-      color: getDangerColor(dangerLevel),
+      // Primary occurrence-risk fields (null when occurrence is unavailable).
+      occurrence_percent: occ?.percent ?? null,
+      occurrence_level: occ?.level ?? null,
+      occurrence_probability: occ?.probability ?? null,
+      occurrence_source: occ?.source ?? null,
+      // Colour the risk strip by occurrence (primary) when available, else by
+      // the severity danger level so the profile still renders.
+      color: occ?.level
+        ? (getOccurrenceColor(occ.level) || getDangerColor(dangerLevel))
+        : getDangerColor(dangerLevel),
     };
   });
 }
@@ -223,6 +311,12 @@ export function normalizeGuidanceRoute(route, routeIndex = 0) {
   const dangerPercent = baseDangerPercent ?? weightedDangerScore;
   const dangerLevel = normalizeDangerLevel(route?.summary?.danger_level ?? route?.danger_level, dangerPercent);
 
+  // Occurrence is the primary signal: headline value (personalized-or-model)
+  // and the rank score used to pick the safest route. Null-safe — degrades to
+  // the severity weighted danger score when occurrence is unavailable.
+  const occ = pickRouteOccurrence(route);
+  const occurrenceRank = occ?.percent != null ? roundMetric(occ.percent, 4) : null;
+
   return {
     ...route,
     route_id: String(route?.route_id || `route_${routeIndex + 1}`),
@@ -235,6 +329,12 @@ export function normalizeGuidanceRoute(route, routeIndex = 0) {
     danger_percent: roundMetric(dangerPercent, 2) || 0,
     danger_level: dangerLevel,
     weighted_danger_score: weightedDangerScore,
+    occurrence_summary: route?.occurrence_summary || null,
+    occurrence_percent: occ?.percent ?? null,
+    occurrence_level: occ?.level ?? null,
+    occurrence_probability: occ?.probability ?? null,
+    occurrence_source: occ?.source ?? null,
+    occurrence_rank_score: occurrenceRank,
     route_warning: String(route?.route_warning || '').trim() || null,
     routing_source: route?.routing_source || null,
     destination: route?.destination || null,
@@ -254,7 +354,7 @@ export function classifyRouteAlternatives(routes) {
     .map((route) => toNumber(route?.eta_min))
     .filter((value) => value != null);
   const riskValues = normalizedRoutes
-    .map((route) => toNumber(route?.weighted_danger_score))
+    .map((route) => occurrenceRankScore(route))
     .filter((value) => value != null);
 
   const minEta = etaValues.length ? Math.min(...etaValues) : 0;
@@ -264,7 +364,7 @@ export function classifyRouteAlternatives(routes) {
 
   const scoredRoutes = normalizedRoutes.map((route) => {
     const etaNorm = normalizeMetric(route.eta_min, minEta, maxEta);
-    const riskNorm = normalizeMetric(route.weighted_danger_score, minRisk, maxRisk);
+    const riskNorm = normalizeMetric(occurrenceRankScore(route), minRisk, maxRisk);
     return {
       ...route,
       eta_norm: etaNorm,
@@ -308,6 +408,9 @@ export function buildRouteRiskProfile(route) {
     distance_km: segment.distance_km,
     danger_percent: segment.danger_percent,
     danger_level: segment.danger_level,
+    occurrence_percent: segment.occurrence_percent ?? null,
+    occurrence_level: segment.occurrence_level ?? null,
+    occurrence_source: segment.occurrence_source ?? null,
     color: segment.color,
     start_km: segment.start_km,
     end_km: segment.end_km,
@@ -329,14 +432,20 @@ export function buildAheadRouteHazards(route) {
     notes.push(note);
   };
 
-  const firstHighRisk = profile.find(
-    (item) =>
-      item.danger_level === 'high' ||
-      item.danger_level === 'extreme' ||
-      (item.danger_percent || 0) >= 70,
+  // Prefer the occurrence level/percent (primary) and fall back to severity.
+  // Threshold checks key off the level labels (already calibrated server-side
+  // for occurrence's smaller probability scale); concentration weighting uses
+  // the percent as a within-route ratio, so the absolute scale cancels out.
+  const effLevel = (item) => item.occurrence_level || item.danger_level;
+  const effPercent = (item) => (
+    item.occurrence_percent != null ? item.occurrence_percent : (item.danger_percent || 0)
   );
+  const isHigh = (item) => ['high', 'critical', 'extreme'].includes(effLevel(item));
+  const isModeratePlus = (item) => ['moderate', 'high', 'critical', 'extreme'].includes(effLevel(item));
+
+  const firstHighRisk = profile.find(isHigh);
   if (firstHighRisk && firstHighRisk.start_km <= Math.max(1, totalDistance * 0.15)) {
-    addNote('High-risk segment starts almost immediately');
+    addNote('High occurrence-risk segment starts almost immediately');
   }
 
   const bucketTotals = { start: 0, middle: 0, end: 0 };
@@ -347,7 +456,7 @@ export function buildAheadRouteHazards(route) {
       : midpoint < (2 * totalDistance) / 3
         ? 'middle'
         : 'end';
-    bucketTotals[bucket] += Math.max(item.distance_km, 0.05) * (item.danger_percent || 0);
+    bucketTotals[bucket] += Math.max(item.distance_km, 0.05) * effPercent(item);
   });
 
   const totalWeightedRisk = Object.values(bucketTotals).reduce((sum, value) => sum + value, 0);
@@ -360,24 +469,19 @@ export function buildAheadRouteHazards(route) {
 
   const tailRisk = profile
     .filter((item) => item.start_km >= totalDistance * 0.65)
-    .reduce((sum, item) => sum + Math.max(item.distance_km, 0.05) * item.danger_percent, 0);
+    .reduce((sum, item) => sum + Math.max(item.distance_km, 0.05) * effPercent(item), 0);
   const headRisk = profile
     .filter((item) => item.end_km <= Math.max(2, totalDistance * 0.35))
-    .reduce((sum, item) => sum + Math.max(item.distance_km, 0.05) * item.danger_percent, 0);
+    .reduce((sum, item) => sum + Math.max(item.distance_km, 0.05) * effPercent(item), 0);
   if (tailRisk > headRisk * 1.15 && tailRisk > 0) {
-    addNote('Risk increases near destination');
+    addNote('Occurrence risk increases near destination');
   }
 
   const nearTermCluster = profile.filter(
-    (item) =>
-      item.start_km < 5 &&
-      (item.danger_level === 'moderate' ||
-        item.danger_level === 'high' ||
-        item.danger_level === 'extreme' ||
-        (item.danger_percent || 0) >= 45),
+    (item) => item.start_km < 5 && isModeratePlus(item),
   );
   if (nearTermCluster.length >= 2) {
-    addNote('Moderate-risk cluster in next 5 km');
+    addNote('Moderate occurrence-risk cluster in next 5 km');
   }
 
   return notes;
@@ -397,7 +501,7 @@ export function buildRouteComparisonRows(routes, classification = classifyRouteA
         1,
       ) || 0;
       const riskDelta = roundMetric(
-        (toNumber(route.weighted_danger_score) ?? 0) - (toNumber(fastestRoute?.weighted_danger_score) ?? 0),
+        (occurrenceRankScore(route) ?? 0) - (occurrenceRankScore(fastestRoute) ?? 0),
         1,
       ) || 0;
 

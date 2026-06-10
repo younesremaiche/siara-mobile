@@ -85,7 +85,7 @@ export default function FloatingMapControls({
                   {selectedDestination?.name || 'Destination'}
                 </Text>
                 <Text style={styles.compactMeta}>
-                  {formatPercent(selectedRoute.danger_percent)} risk | {selectedRoute.comparisonText}
+                  {formatPercent(selectedRoute.occurrence_percent ?? selectedRoute.danger_percent)} occurrence risk | {selectedRoute.comparisonText}
                 </Text>
               </View>
               <View style={styles.compactActions}>
