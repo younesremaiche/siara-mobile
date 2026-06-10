@@ -22,7 +22,7 @@ import GuidanceSearchSection from '../../components/map/GuidanceSearchSection';
 import GuidanceTimeControls from '../../components/map/GuidanceTimeControls';
 import CurrentRiskSection from '../../components/map/CurrentRiskSection';
 import DepartureTimeCard from '../../components/map/DepartureTimeCard';
-import BetaOccurrenceCard from '../../components/map/BetaOccurrenceCard';
+import useOccurrenceRisk from '../../hooks/useOccurrenceRisk';
 import ReportDetailsSheet from '../../components/map/ReportDetailsSheet';
 import RouteAlternativesList from '../../components/map/RouteAlternativesList';
 import RouteDetailsSection from '../../components/map/RouteDetailsSection';
@@ -937,6 +937,43 @@ export default function MapScreen({ navigation }) {
     routeType: selectedRoute?.route_type || null,
     riskPercent: mapSnapshot.currentRisk?.danger_percent ?? selectedRoute?.danger_percent ?? null,
   }), [destination, mapSnapshot.currentRisk, selectedRoute]);
+
+  // Auto-fetch the current location's OCCURRENCE risk (trained model, primary
+  // signal) as soon as the current-risk lookup yields a road segment id — no
+  // tap required. /api/occurrence-risk/segment runs the trained occurrence
+  // model first and only falls back to rule-fusion if that errors.
+  const currentOccurrence = useOccurrenceRisk({
+    roadSegmentId: occurrenceRoadSegmentId,
+    segmentId: occurrenceRoadSegmentId,
+    timeBucket: occurrenceTimeBucket,
+    timestamp: selectedTimestampIso,
+    weather: weatherData,
+    context: occurrenceContext,
+    enabled: Boolean(occurrenceRoadSegmentId),
+    requestKey: occurrenceRoadSegmentId
+      ? `current:${occurrenceRoadSegmentId}:${occurrenceTimeBucket || selectedTimestampIso}`
+      : null,
+  });
+
+  // Severity (secondary) for the current location, taken straight from the
+  // /api/risk/current response (multiclass model). Null-safe.
+  const currentSeverity = useMemo(() => {
+    const cr = mapSnapshot.currentRisk;
+    if (!cr || typeof cr !== 'object') return null;
+    const dz = cr.dangerZoneRisk || {};
+    const sev = {
+      severity_probabilities: cr.severity_probabilities || dz.severityProbabilities || null,
+      most_likely_severity: cr.most_likely_severity ?? dz.mostLikelySeverity ?? null,
+      expected_severity: cr.expected_severity ?? dz.expectedSeverity ?? null,
+      danger_percent: cr.danger_percent ?? dz.severeProbability ?? null,
+      danger_level: cr.danger_level ?? dz.riskLevel ?? null,
+    };
+    const hasAny = sev.severity_probabilities
+      || sev.most_likely_severity != null
+      || sev.expected_severity != null
+      || sev.danger_percent != null;
+    return hasAny ? sev : null;
+  }, [mapSnapshot.currentRisk]);
   const weatherTemp = weatherData?.temperature_c != null ? `${Math.round(Number(weatherData.temperature_c))}\u00B0C` : '--';
   const weatherDesc = weatherLoading && !weatherData ? 'Loading...' : weatherData?.condition || 'Weather';
   const weatherWind = weatherData?.wind_kmh != null ? `${Number(weatherData.wind_kmh).toFixed(1)} km/h` : '--';
@@ -1026,25 +1063,34 @@ export default function MapScreen({ navigation }) {
     handleSheetModeChange('map', 0, snapHeights[0]);
   }, [handleSheetModeChange, snapHeights]);
 
-  const compactRiskColor = mapSnapshot.riskDisplay?.color || Colors.grey;
-  const compactRiskPercent = mapSnapshot.riskDisplay?.pct != null
-    ? `${Math.round(Number(mapSnapshot.riskDisplay.pct))}%`
-    : '--';
-  const compactRiskLabel = mapSnapshot.riskDisplay?.level
-    ? `${mapSnapshot.riskDisplay.level.charAt(0).toUpperCase()}${mapSnapshot.riskDisplay.level.slice(1)} risk`
-    : mapSnapshot.currentRiskState === 'loading'
-      ? 'Updating risk'
-      : 'Current risk';
+  // Collapsed summary leads with OCCURRENCE risk (primary); falls back to the
+  // severity summary only when occurrence is unavailable.
+  const compactOccPct = currentOccurrence.data?.pct ?? null;
+  const compactOccLevel = currentOccurrence.data?.level ?? null;
+  const compactRiskColor = compactOccLevel
+    ? getOccurrenceColor(compactOccLevel === 'medium' ? 'moderate' : compactOccLevel)
+      || mapSnapshot.riskDisplay?.color || Colors.grey
+    : (mapSnapshot.riskDisplay?.color || Colors.grey);
+  const compactRiskPercent = compactOccPct != null
+    ? `${Math.round(Number(compactOccPct))}%`
+    : (mapSnapshot.riskDisplay?.pct != null ? `${Math.round(Number(mapSnapshot.riskDisplay.pct))}%` : '--');
+  const compactRiskLabel = compactOccLevel
+    ? `${compactOccLevel.charAt(0).toUpperCase()}${compactOccLevel.slice(1)} occurrence risk`
+    : mapSnapshot.riskDisplay?.level
+      ? `${mapSnapshot.riskDisplay.level.charAt(0).toUpperCase()}${mapSnapshot.riskDisplay.level.slice(1)} risk`
+      : (mapSnapshot.currentRiskState === 'loading' || currentOccurrence.state === 'loading')
+        ? 'Updating risk'
+        : 'Current risk';
 
   const compactSheetContent = useMemo(() => {
     return (
       <View style={styles.compactSummaryWrap}>
-        <Text style={styles.compactSummaryTitle}>Current risk</Text>
+        <Text style={styles.compactSummaryTitle}>Current occurrence risk</Text>
         <View style={styles.compactSummaryRow}>
           <View style={[styles.compactSummaryDot, { backgroundColor: compactRiskColor }]} />
           <Text style={[styles.compactSummaryPercent, { color: compactRiskColor }]}>{compactRiskPercent}</Text>
           <Text style={styles.compactSummaryLabel} numberOfLines={1}>{compactRiskLabel}</Text>
-          {mapSnapshot.currentRiskState === 'loading' ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
+          {(mapSnapshot.currentRiskState === 'loading' || currentOccurrence.state === 'loading') ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
           {mapSnapshot.currentRiskState === 'error' ? <Ionicons name="alert-circle" size={16} color={Colors.error} /> : null}
         </View>
         <Text style={styles.compactSummaryHint}>Drag up for route, forecast, and context.</Text>
@@ -1053,7 +1099,7 @@ export default function MapScreen({ navigation }) {
         ) : null}
       </View>
     );
-  }, [compactRiskColor, compactRiskLabel, compactRiskPercent, mapSnapshot.currentRiskError, mapSnapshot.currentRiskState]);
+  }, [compactRiskColor, compactRiskLabel, compactRiskPercent, currentOccurrence.state, mapSnapshot.currentRiskError, mapSnapshot.currentRiskState]);
 
   return (
     <View style={styles.container}>
@@ -1159,23 +1205,15 @@ export default function MapScreen({ navigation }) {
             {!guidanceActive || mapDisplayMode === 'info' ? (
               <CurrentRiskSection
                 riskDisplay={mapSnapshot.riskDisplay}
+                occurrence={currentOccurrence.data}
+                occurrenceState={currentOccurrence.state}
+                severity={currentSeverity}
                 currentRiskState={mapSnapshot.currentRiskState || 'idle'}
                 currentRiskError={mapSnapshot.currentRiskError || ''}
                 sentinelInfo={mapSnapshot.sentinelInfo}
                 onExplain={handleExplainRisk}
               />
             ) : null}
-
-            <BetaOccurrenceCard
-              lat={userPosition?.lat}
-              lng={userPosition?.lng}
-              roadSegmentId={occurrenceRoadSegmentId}
-              timeBucket={occurrenceTimeBucket}
-              timestamp={selectedTimestampIso}
-              weather={weatherData}
-              context={occurrenceContext}
-              hasTimeWindowFeatures={Boolean(occurrenceTimeBucket)}
-            />
 
             <View style={styles.actionRow}>
               <TouchableOpacity

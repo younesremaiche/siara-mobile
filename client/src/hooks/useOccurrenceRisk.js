@@ -8,13 +8,16 @@ import {
 } from '../services/occurrenceRiskService';
 import { isAbortError } from '../utils/requestCache';
 
-// Drives the experimental "accident occurrence" card.
-// DORMANT — Phase 2 UI is not built yet, so this hook should not be mounted
-// anywhere that auto-fires (MapScreen, SiaraMap, background tasks). It only
-// runs when the dedicated beta surface explicitly renders it.
+// Drives the accident-occurrence display (now the PRIMARY current-location
+// signal). It is mounted in MapScreen and auto-fires once a road segment id is
+// available from the current-risk lookup, so the user sees occurrence risk for
+// their location without tapping a segment. Gate it with `enabled` +
+// `requestKey` to avoid redundant requests.
 //
 // Two SIARA endpoints are exposed because the team is A/B-comparing the
-// rule-based segment scorer with the trained beta model.
+// trained-first segment scorer (`/api/occurrence-risk/segment`, which runs the
+// trained occurrence model and only falls back to rule-fusion on error) with
+// the batch trained endpoint (`/api/risk/occurrence/predict`).
 
 export const OCCURRENCE_HORIZONS = [
   { key: '30m', minutes: 30, label: '30 min' },

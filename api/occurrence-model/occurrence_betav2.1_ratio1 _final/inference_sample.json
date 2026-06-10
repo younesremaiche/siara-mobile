@@ -1,0 +1,223 @@
+{
+  "feature_list": [
+    "month",
+    "weekday",
+    "hour",
+    "hour_of_week",
+    "is_weekend",
+    "is_night",
+    "road_class",
+    "segment_length_m",
+    "oneway",
+    "bridge",
+    "tunnel",
+    "weather_temp",
+    "weather_dwpt",
+    "weather_rhum",
+    "weather_prcp",
+    "weather_wdir",
+    "weather_wspd",
+    "weather_pres",
+    "past_segment_positive_count",
+    "past_segment_positive_count_7d",
+    "past_segment_positive_count_30d",
+    "past_road_class_positive_count",
+    "past_segment_hourofweek_count"
+  ],
+  "example_request_rows": [
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 4,
+      "hour_of_week": 28,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "service",
+      "segment_length_m": 82.04123473299175,
+      "oneway": "B",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": NaN,
+      "weather_dwpt": NaN,
+      "weather_rhum": NaN,
+      "weather_prcp": NaN,
+      "weather_wdir": NaN,
+      "weather_wspd": NaN,
+      "weather_pres": NaN,
+      "past_segment_positive_count": 0,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 3494,
+      "past_segment_hourofweek_count": 0
+    },
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 4,
+      "hour_of_week": 28,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "service",
+      "segment_length_m": 256.7203671104891,
+      "oneway": "B",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": 23.3,
+      "weather_dwpt": 20.6,
+      "weather_rhum": 85.0,
+      "weather_prcp": 0.0,
+      "weather_wdir": 200.0,
+      "weather_wspd": 7.6,
+      "weather_pres": 1011.6,
+      "past_segment_positive_count": 0,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 3494,
+      "past_segment_hourofweek_count": 0
+    },
+    {
+      "month": 8,
+      "weekday": 1,
+      "hour": 5,
+      "hour_of_week": 29,
+      "is_weekend": 0,
+      "is_night": 1,
+      "road_class": "motorway_link",
+      "segment_length_m": 723.8708762584165,
+      "oneway": "F",
+      "bridge": "F",
+      "tunnel": "F",
+      "weather_temp": 22.0,
+      "weather_dwpt": 19.9,
+      "weather_rhum": 88.0,
+      "weather_prcp": 0.0,
+      "weather_wdir": 0.0,
+      "weather_wspd": 0.0,
+      "weather_pres": 1013.0,
+      "past_segment_positive_count": 0,
+      "past_segment_positive_count_7d": 0,
+      "past_segment_positive_count_30d": 0,
+      "past_road_class_positive_count": 7939,
+      "past_segment_hourofweek_count": 0
+    }
+  ],
+  "example_response": [
+    {
+      "risk_score": 0.0058909582957299145,
+      "calibrated_probability": 0.0,
+      "risk_level": "low",
+      "confidence_score": 1.0,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.3984391853425329,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_dwpt",
+          "value": null,
+          "importance": 0.7148570471058726,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.6484579670707669,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_rhum",
+          "value": null,
+          "importance": 0.57858024335112,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_temp",
+          "value": null,
+          "importance": 0.35931493099020334,
+          "direction": "increases_risk"
+        }
+      ]
+    },
+    {
+      "risk_score": 0.8794842669761773,
+      "calibrated_probability": 0.7841916491845435,
+      "risk_level": "critical",
+      "confidence_score": 0.3230595738649227,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.3984391853425329,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_dwpt",
+          "value": null,
+          "importance": 0.7148570471058726,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.6484579670707669,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_rhum",
+          "value": null,
+          "importance": 0.57858024335112,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_temp",
+          "value": null,
+          "importance": 0.35931493099020334,
+          "direction": "increases_risk"
+        }
+      ]
+    },
+    {
+      "risk_score": 0.801473323822189,
+      "calibrated_probability": 0.6445672191528545,
+      "risk_level": "critical",
+      "confidence_score": 0.08359872341435792,
+      "model_version": "occurrence_beta_v1",
+      "top_factors": [
+        {
+          "feature": "num__past_segment_hourofweek_count",
+          "value": null,
+          "importance": 1.3984391853425329,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_dwpt",
+          "value": null,
+          "importance": 0.7148570471058726,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__past_road_class_positive_count",
+          "value": null,
+          "importance": 0.6484579670707669,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_rhum",
+          "value": null,
+          "importance": 0.57858024335112,
+          "direction": "increases_risk"
+        },
+        {
+          "feature": "num__weather_temp",
+          "value": null,
+          "importance": 0.35931493099020334,
+          "direction": "increases_risk"
+        }
+      ]
+    }
+  ]
+}

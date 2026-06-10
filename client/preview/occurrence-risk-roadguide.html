@@ -410,6 +410,75 @@
         <p class="annot"><b>Requirement:</b> "if occurrence or severity is missing, the app should not crash." Every binding is null-guarded and the missing block is hidden or shows a neutral placeholder.</p>
       </div>
 
+      <!-- ════════ COLUMN 4: Current Risk ════════ -->
+      <div>
+        <p class="panel-label">4 · Current risk (your location)</p>
+        <div class="device"><div class="screen">
+
+          <!-- Expanded Current Risk card -->
+          <div class="sheet" style="margin-bottom:14px">
+            <div class="sheet-head">
+              <div class="t"><span class="hdot" style="background:var(--moderate)"></span>Current Occurrence Risk</div>
+              <span class="pill rec" style="background:var(--violet-soft)">💡 Why?</span>
+            </div>
+
+            <!-- PRIMARY: occurrence (model + personalized) -->
+            <div class="occ-dual">
+              <div class="occ-dual-head">
+                <span class="occ-kicker">OCCURRENCE RISK</span>
+                <span class="caption">your area · selected time</span>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Model<span>road · time · weather</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:28%; background:var(--moderate)"></div></div>
+                <div class="occ-rval"><div class="p occ-accent">14%</div><span class="lvl lvl-moderate">MODERATE</span></div>
+              </div>
+              <div class="occ-row">
+                <div class="occ-rlabel">Personalized<span>+ your driver quiz</span></div>
+                <div class="occ-rtrack"><div class="occ-rfill" style="width:34%; background:var(--moderate)"></div></div>
+                <div class="occ-rval"><div class="p" style="color:#a16207">17%</div><span class="lvl lvl-moderate">MODERATE</span></div>
+              </div>
+              <div class="occ-delta">
+                <span class="arrow" style="color:var(--high)">▲</span>
+                <span><b>+3%</b> vs model — driver quiz score <b>62/100</b> (×1.12).</span>
+              </div>
+            </div>
+
+            <!-- SECONDARY: severity breakdown (multiclass model) -->
+            <div class="sev-block" style="margin-bottom:0">
+              <div class="sev-head">
+                <span class="section-tag">▾ SEVERITY DETAIL (SECONDARY)</span>
+                <span class="caption">if an accident occurs</span>
+              </div>
+              <div class="sev-row"><span class="sev-name">Severity 1</span><span class="sev-track"><span class="sev-fill" style="width:62%; background:var(--low)"></span></span><span class="sev-val">62%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 2</span><span class="sev-track"><span class="sev-fill" style="width:25%; background:var(--moderate)"></span></span><span class="sev-val">25%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 3</span><span class="sev-track"><span class="sev-fill" style="width:9%; background:var(--high)"></span></span><span class="sev-val">9%</span></div>
+              <div class="sev-row"><span class="sev-name">Severity 4</span><span class="sev-track"><span class="sev-fill" style="width:4%; background:var(--critical)"></span></span><span class="sev-val">4%</span></div>
+              <div class="sev-foot">
+                <div class="box"><div class="bl">Most likely</div><div class="bv">Severity 1</div></div>
+                <div class="box"><div class="bl">Expected</div><div class="bv">1.55</div></div>
+                <div class="box"><div class="bl">Severe (S3+S4)</div><div class="bv">13%</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Compact (collapsed bottom-sheet) Current Risk -->
+          <div class="sheet">
+            <div class="sheet-head" style="margin-bottom:8px">
+              <div class="t" style="font-size:13px"><span class="hdot" style="background:var(--moderate)"></span>Current Occurrence Risk</div>
+            </div>
+            <div style="display:flex; align-items:baseline; gap:8px">
+              <span style="font-size:28px; font-weight:900; color:#a16207">17%</span>
+              <span class="lvl lvl-moderate">MODERATE</span>
+              <span class="caption" style="margin-left:auto">Sev 1 most likely · 13% severe</span>
+            </div>
+            <p class="caption" style="margin:8px 0 0">Collapsed view shows the personalized occurrence headline; expand for model + severity breakdown.</p>
+          </div>
+
+        </div></div>
+        <p class="annot"><b>Changes:</b> Current Risk now leads with <b>occurrence</b> (model + personalized) from <code>/api/occurrence-risk/segment</code> using the <code>road_segment_id</code> that <code>/api/risk/current</code> already returns. Severity (multiclass) drops below as secondary detail. The old danger-zone model is not used. Same null-safe fallbacks as the segment view.</p>
+      </div>
+
     </div>
   </div>
 </body>

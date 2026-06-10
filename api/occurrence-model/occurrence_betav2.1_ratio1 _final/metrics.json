@@ -1,0 +1,403 @@
+{
+  "selected_model": "lightgbm",
+  "calibration_method": "isotonic",
+  "model_comparison": [
+    {
+      "model_name": "lightgbm",
+      "pr_auc": 0.768296958162004,
+      "roc_auc": 0.806645517850433,
+      "brier": 0.17633063261452583,
+      "fit_seconds": 7.16
+    },
+    {
+      "model_name": "hist_gradient_boosting",
+      "pr_auc": 0.7657737583315304,
+      "roc_auc": 0.8042965608343853,
+      "brier": 0.1757955131550063,
+      "fit_seconds": 20.67
+    },
+    {
+      "model_name": "logistic_regression",
+      "pr_auc": 0.6824327485223574,
+      "roc_auc": 0.6846409320022795,
+      "brier": 0.22807038237472613,
+      "fit_seconds": 4.96
+    }
+  ],
+  "validation_calibrated": {
+    "roc_auc": 0.8110815194701269,
+    "pr_auc": 0.7731528675121604,
+    "brier": 0.1586430910872854,
+    "log_loss": 0.47216103714975477,
+    "recall_at_top_1pct": 0.014773432650527623,
+    "recall_at_top_5pct": 0.07181874612042209,
+    "recall_at_top_10pct": 0.14115456238361265,
+    "precision_at_top_1pct": 0.8122866894197952,
+    "precision_at_top_5pct": 0.7886843899113838,
+    "precision_at_top_10pct": 0.7750511247443763,
+    "confusion_matrix_at_threshold": {
+      "threshold": 0.2,
+      "matrix": [
+        [
+          5656,
+          7575
+        ],
+        [
+          112,
+          15998
+        ]
+      ],
+      "tn": 5656,
+      "fp": 7575,
+      "fn": 112,
+      "tp": 15998
+    },
+    "threshold_table": [
+      {
+        "threshold": 0.01,
+        "predicted_positive_rows": 24633,
+        "tp": 16109,
+        "fp": 8524,
+        "fn": 1,
+        "tn": 4707,
+        "precision": 0.6539601347785491,
+        "recall": 0.9999379267535692
+      },
+      {
+        "threshold": 0.02,
+        "predicted_positive_rows": 24633,
+        "tp": 16109,
+        "fp": 8524,
+        "fn": 1,
+        "tn": 4707,
+        "precision": 0.6539601347785491,
+        "recall": 0.9999379267535692
+      },
+      {
+        "threshold": 0.05,
+        "predicted_positive_rows": 24511,
+        "tp": 16104,
+        "fp": 8407,
+        "fn": 6,
+        "tn": 4824,
+        "precision": 0.6570111378564726,
+        "recall": 0.9996275605214152
+      },
+      {
+        "threshold": 0.1,
+        "predicted_positive_rows": 23999,
+        "tp": 16065,
+        "fp": 7934,
+        "fn": 45,
+        "tn": 5297,
+        "precision": 0.6694028917871578,
+        "recall": 0.9972067039106145
+      },
+      {
+        "threshold": 0.2,
+        "predicted_positive_rows": 23573,
+        "tp": 15998,
+        "fp": 7575,
+        "fn": 112,
+        "tn": 5656,
+        "precision": 0.6786577864506003,
+        "recall": 0.9930477963997517
+      },
+      {
+        "threshold": 0.3,
+        "predicted_positive_rows": 23183,
+        "tp": 15900,
+        "fp": 7283,
+        "fn": 210,
+        "tn": 5948,
+        "precision": 0.6858473881723677,
+        "recall": 0.9869646182495344
+      },
+      {
+        "threshold": 0.5,
+        "predicted_positive_rows": 18695,
+        "tp": 13988,
+        "fp": 4707,
+        "fn": 2122,
+        "tn": 8524,
+        "precision": 0.7482214495854507,
+        "recall": 0.8682805710738671
+      }
+    ]
+  },
+  "test_uncalibrated": {
+    "roc_auc": 0.8204491195504552,
+    "pr_auc": 0.7684845757234944,
+    "brier": 0.16671081631100493,
+    "log_loss": 0.5534838767402152,
+    "recall_at_top_1pct": 0.014443040259974725,
+    "recall_at_top_5pct": 0.07188421496058253,
+    "recall_at_top_10pct": 0.14319672624420773,
+    "precision_at_top_1pct": 0.7754442649434572,
+    "precision_at_top_5pct": 0.771640826873385,
+    "precision_at_top_10pct": 0.7685102947113444,
+    "confusion_matrix_at_threshold": {
+      "threshold": 0.2,
+      "matrix": [
+        [
+          29979,
+          27405
+        ],
+        [
+          1285,
+          65183
+        ]
+      ],
+      "tn": 29979,
+      "fp": 27405,
+      "fn": 1285,
+      "tp": 65183
+    },
+    "threshold_table": [
+      {
+        "threshold": 0.01,
+        "predicted_positive_rows": 102842,
+        "tp": 66468,
+        "fp": 36374,
+        "fn": 0,
+        "tn": 21010,
+        "precision": 0.64631181812878,
+        "recall": 1.0
+      },
+      {
+        "threshold": 0.02,
+        "predicted_positive_rows": 100909,
+        "tp": 66468,
+        "fp": 34441,
+        "fn": 0,
+        "tn": 22943,
+        "precision": 0.6586924853085453,
+        "recall": 1.0
+      },
+      {
+        "threshold": 0.05,
+        "predicted_positive_rows": 99182,
+        "tp": 66429,
+        "fp": 32753,
+        "fn": 39,
+        "tn": 24631,
+        "precision": 0.6697687080316993,
+        "recall": 0.9994132514894385
+      },
+      {
+        "threshold": 0.1,
+        "predicted_positive_rows": 96801,
+        "tp": 66189,
+        "fp": 30612,
+        "fn": 279,
+        "tn": 26772,
+        "precision": 0.683763597483497,
+        "recall": 0.9958024914244449
+      },
+      {
+        "threshold": 0.2,
+        "predicted_positive_rows": 92588,
+        "tp": 65183,
+        "fp": 27405,
+        "fn": 1285,
+        "tn": 29979,
+        "precision": 0.7040113189614204,
+        "recall": 0.9806673888186797
+      },
+      {
+        "threshold": 0.3,
+        "predicted_positive_rows": 88385,
+        "tp": 63536,
+        "fp": 24849,
+        "fn": 2932,
+        "tn": 32535,
+        "precision": 0.718855009334163,
+        "recall": 0.9558885478726605
+      },
+      {
+        "threshold": 0.5,
+        "predicted_positive_rows": 79692,
+        "tp": 59466,
+        "fp": 20226,
+        "fn": 7002,
+        "tn": 37158,
+        "precision": 0.746197861767806,
+        "recall": 0.8946560751038094
+      }
+    ]
+  },
+  "test_calibrated": {
+    "roc_auc": 0.825265417040648,
+    "pr_auc": 0.7762812651383805,
+    "brier": 0.15093513242902767,
+    "log_loss": 0.45124421280277327,
+    "recall_at_top_1pct": 0.014668712764036829,
+    "recall_at_top_5pct": 0.07393031233074562,
+    "recall_at_top_10pct": 0.14852259734007342,
+    "precision_at_top_1pct": 0.7875605815831987,
+    "precision_at_top_5pct": 0.7936046511627907,
+    "precision_at_top_10pct": 0.7970932579733548,
+    "confusion_matrix_at_threshold": {
+      "threshold": 0.2,
+      "matrix": [
+        [
+          27512,
+          29872
+        ],
+        [
+          442,
+          66026
+        ]
+      ],
+      "tn": 27512,
+      "fp": 29872,
+      "fn": 442,
+      "tp": 66026
+    },
+    "threshold_table": [
+      {
+        "threshold": 0.01,
+        "predicted_positive_rows": 99907,
+        "tp": 66455,
+        "fp": 33452,
+        "fn": 13,
+        "tn": 23932,
+        "precision": 0.665168606804328,
+        "recall": 0.9998044171631462
+      },
+      {
+        "threshold": 0.02,
+        "predicted_positive_rows": 99907,
+        "tp": 66455,
+        "fp": 33452,
+        "fn": 13,
+        "tn": 23932,
+        "precision": 0.665168606804328,
+        "recall": 0.9998044171631462
+      },
+      {
+        "threshold": 0.05,
+        "predicted_positive_rows": 99418,
+        "tp": 66443,
+        "fp": 32975,
+        "fn": 25,
+        "tn": 24409,
+        "precision": 0.6683196201895029,
+        "recall": 0.9996238791598965
+      },
+      {
+        "threshold": 0.1,
+        "predicted_positive_rows": 97506,
+        "tp": 66300,
+        "fp": 31206,
+        "fn": 168,
+        "tn": 26178,
+        "precision": 0.6799581564211433,
+        "recall": 0.9974724679545044
+      },
+      {
+        "threshold": 0.2,
+        "predicted_positive_rows": 95898,
+        "tp": 66026,
+        "fp": 29872,
+        "fn": 442,
+        "tn": 27512,
+        "precision": 0.6885023670983753,
+        "recall": 0.99335018354697
+      },
+      {
+        "threshold": 0.3,
+        "predicted_positive_rows": 94136,
+        "tp": 65626,
+        "fp": 28510,
+        "fn": 842,
+        "tn": 28874,
+        "precision": 0.6971403076400102,
+        "recall": 0.9873322501053138
+      },
+      {
+        "threshold": 0.5,
+        "predicted_positive_rows": 74876,
+        "tp": 56991,
+        "fp": 17885,
+        "fn": 9477,
+        "tn": 39499,
+        "precision": 0.7611384155136492,
+        "recall": 0.857420111933562
+      }
+    ]
+  },
+  "decision_threshold": 0.2,
+  "weather_coverage": {
+    "rows_seen": 546872,
+    "unique_cache_keys_requested": 543055,
+    "cache_hits": 418883,
+    "cache_hit_rate": 0.7659616875612575,
+    "weather_available_rows": 418758,
+    "weather_available_rate": 0.7657331148788016,
+    "skipped_fetch": true,
+    "cached_weather_only": true,
+    "live_weather_fetch_used": false
+  },
+  "negative_sampler_stats": {
+    "negative_ratio_requested": {
+      "train": 1,
+      "valid": 1,
+      "test": 1
+    },
+    "negative_ratio_strategy": "uniform",
+    "negative_rows_built": 262443,
+    "skipped_rows": 0,
+    "fallback_counts": {
+      "exact_road_class_month_weekday_hour": 271186,
+      "road_class_weekday_hour": 12312,
+      "road_class_only": 871,
+      "all_segments": 60
+    },
+    "per_split": {
+      "train": {
+        "positives": 201851,
+        "negatives": 191828,
+        "requested_ratio": 1,
+        "achieved_ratio": 0.9503445610871385,
+        "fallback_counts": {
+          "exact_road_class_month_weekday_hour": 197098,
+          "road_class_weekday_hour": 4472,
+          "road_class_only": 248,
+          "all_segments": 33
+        },
+        "skipped_rows": 0
+      },
+      "valid": {
+        "positives": 16110,
+        "negatives": 13231,
+        "requested_ratio": 1,
+        "achieved_ratio": 0.8212911235257604,
+        "fallback_counts": {
+          "road_class_only": 369,
+          "road_class_weekday_hour": 2045,
+          "exact_road_class_month_weekday_hour": 13683,
+          "all_segments": 13
+        },
+        "skipped_rows": 0
+      },
+      "test": {
+        "positives": 66468,
+        "negatives": 57384,
+        "requested_ratio": 1,
+        "achieved_ratio": 0.8633327315399891,
+        "fallback_counts": {
+          "exact_road_class_month_weekday_hour": 60405,
+          "road_class_weekday_hour": 5795,
+          "road_class_only": 254,
+          "all_segments": 14
+        },
+        "skipped_rows": 0
+      }
+    },
+    "overlap_with_positives": 0
+  },
+  "lightgbm_tuning_trials": [],
+  "best_lightgbm_params": null,
+  "tuned_lightgbm_validation_metrics": null
+}
