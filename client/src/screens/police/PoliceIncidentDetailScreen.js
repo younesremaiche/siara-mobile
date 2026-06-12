@@ -10,30 +10,28 @@ import PoliceScreenFrame, {
   PoliceTimelineItem,
 } from '../../components/police/PoliceScreenFrame';
 import { Colors } from '../../theme/colors';
+import PhotoViewer from '../../components/ui/PhotoViewer';
 import {
   usePoliceIncident,
   usePoliceIncidentActionMutation,
 } from '../../features/police/hooks/usePoliceQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
-/* ── Which actions are available per status ──────────────────────── */
+/* ── Which actions are available per status ──────────────────────────
+   Mirrors the web reference (PoliceIncidentDetailPage): every non-terminal
+   incident exposes Backup + Resolve + Reject; Verify is offered only while
+   the incident is not yet verified (verified shows an "Already Verified"
+   chip instead). `assign_self` ("Take Case") is a mobile-only convenience
+   surfaced for unassigned pending incidents. Terminal cases expose nothing. */
 function availableActions(incident) {
   const s = (incident?.displayStatus || incident?.status || 'pending').toLowerCase();
-  switch (s) {
-    case 'pending':
-      return incident?.assignedOfficer
-        ? ['verify', 'reject', 'resolve', 'backup']
-        : ['assign_self', 'verify', 'reject', 'backup'];
-    case 'under_review':
-      return ['verify', 'reject', 'resolve', 'backup'];
-    case 'verified':
-      return ['resolve', 'backup'];
-    case 'resolved':
-    case 'rejected':
-      return [];
-    default:
-      return ['verify', 'reject', 'backup'];
-  }
+  if (s === 'resolved' || s === 'rejected') return [];
+
+  const actions = [];
+  if (s === 'pending' && !incident?.assignedOfficer) actions.push('assign_self');
+  if (s !== 'verified') actions.push('verify');
+  actions.push('backup', 'resolve', 'reject');
+  return actions;
 }
 
 /* ── Status banner ────────────────────────────────────────────────── */
@@ -110,6 +108,9 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
 
   const [note,    setNote]    = React.useState('');
   const [actionError, setActionError] = React.useState('');
+  const [successMsg, setSuccessMsg] = React.useState('');
+  const [viewerVisible, setViewerVisible] = React.useState(false);
+  const [viewerIndex, setViewerIndex] = React.useState(0);
   const detailQuery = usePoliceIncident(incidentId);
   const actionMutation = usePoliceIncidentActionMutation();
   useFocusRefresh(detailQuery.refetch, Boolean(incidentId));
@@ -148,6 +149,7 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
     }
 
     setActionError('');
+    setSuccessMsg('');
     try {
       let payload = {};
       switch (action) {
@@ -167,9 +169,32 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
       }
       await actionMutation.mutateAsync({ incidentId: incident.id, action, payload });
 
+      // Confirmation feedback — mirrors the web reference's success banners.
+      switch (action) {
+        case 'verify':
+          setSuccessMsg('Incident verified successfully.');
+          break;
+        case 'backup':
+          // The backend fans this out to nearby on-duty officers and the
+          // requesting officer's supervisor, and moves the case to review.
+          setSuccessMsg('Backup requested — nearby officers and your supervisor have been alerted.');
+          break;
+        case 'assign_self':
+          setSuccessMsg('Case assigned to you. It is now under review.');
+          break;
+        case 'reject':
+          setSuccessMsg('Incident rejected. Returning to dashboard…');
+          break;
+        case 'resolve':
+          setSuccessMsg('Incident resolved. Returning to dashboard…');
+          break;
+        default:
+          break;
+      }
+
       // Navigate back after terminal actions
       if (action === 'reject' || action === 'resolve') {
-        setTimeout(() => navigation.goBack(), 1200);
+        setTimeout(() => navigation.goBack(), 1500);
       }
     } catch (e) {
       setActionError(e.message || 'Action failed.');
@@ -211,6 +236,14 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
       {/* Status banner */}
       <StatusBanner incident={incident} />
 
+      {/* Success feedback — mirrors the web reference confirmation banners */}
+      {successMsg ? (
+        <View style={s.successBanner}>
+          <Ionicons name="checkmark-circle" size={16} color={Colors.accent} />
+          <Text style={s.successText}>{successMsg}</Text>
+        </View>
+      ) : null}
+
       {/* Incident summary */}
       <PoliceSectionCard title="Incident Details" icon="document-text-outline">
         <PoliceListItem
@@ -237,17 +270,25 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
         </View>
       </PoliceSectionCard>
 
-      {/* Evidence photos — same media the citizen submitted */}
+      {/* Evidence photos — same media the citizen submitted. Tap to view full-screen. */}
       {(incident?.media || []).length > 0 && (
         <PoliceSectionCard title="Photos" icon="images-outline">
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.photoRow}>
             {incident.media.map((item, idx) => (
-              <Image
+              <TouchableOpacity
                 key={item.id || idx}
-                source={{ uri: item.url }}
-                style={s.photoThumb}
-                resizeMode="cover"
-              />
+                activeOpacity={0.85}
+                onPress={() => { setViewerIndex(idx); setViewerVisible(true); }}
+              >
+                <Image
+                  source={{ uri: item.url }}
+                  style={s.photoThumb}
+                  resizeMode="cover"
+                />
+                <View style={s.photoExpandBadge}>
+                  <Ionicons name="expand-outline" size={13} color={Colors.white} />
+                </View>
+              </TouchableOpacity>
             ))}
           </ScrollView>
         </PoliceSectionCard>
@@ -263,6 +304,15 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
             </View>
           ) : (
             <View style={s.actionsGrid}>
+              {/* Already-verified indicator — mirrors the web reference chip,
+                  shown in place of the Verify button once verified. */}
+              {(incident?.displayStatus || incident?.status || '').toLowerCase() === 'verified' && (
+                <View style={s.verifiedChip}>
+                  <Ionicons name="shield-checkmark" size={15} color={Colors.accent} />
+                  <Text style={s.verifiedChipText}>Already Verified</Text>
+                </View>
+              )}
+
               {/* Primary: Verify alone, full width */}
               {actions.includes('verify') && (
                 <ActionBtn
@@ -281,7 +331,7 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
                     <ActionBtn label="Take Case" icon="person-add-outline" color={Colors.secondary} onPress={() => runAction('assign_self')} outline />
                   )}
                   {actions.includes('backup') && (
-                    <ActionBtn label="Backup" icon="people-outline" color={Colors.secondary} onPress={() => runAction('backup')} outline />
+                    <ActionBtn label="Request Backup" icon="people-outline" color={Colors.secondary} onPress={() => runAction('backup')} outline />
                   )}
                 </View>
               )}
@@ -367,6 +417,14 @@ export default function PoliceIncidentDetailScreen({ route, navigation }) {
           ))}
         </PoliceSectionCard>
       )}
+
+      {/* Full-screen photo viewer */}
+      <PhotoViewer
+        visible={viewerVisible}
+        images={incident?.media || []}
+        initialIndex={viewerIndex}
+        onClose={() => setViewerVisible(false)}
+      />
     </PoliceScreenFrame>
   );
 }
@@ -385,10 +443,31 @@ const s = StyleSheet.create({
 
   photoRow: { gap: 10, paddingTop: 2 },
   photoThumb: { width: 150, height: 110, borderRadius: 12, backgroundColor: Colors.bg },
+  photoExpandBadge: {
+    position: 'absolute', top: 8, right: 8,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  successBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    backgroundColor: 'rgba(15,169,88,0.10)',
+    borderWidth: 1, borderColor: 'rgba(15,169,88,0.30)',
+    borderRadius: 14, padding: 13,
+  },
+  successText: { color: Colors.accent, fontSize: 13, fontWeight: '700', flex: 1 },
 
   actionsGrid: {
     gap: 10,
   },
+  verifiedChip: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    backgroundColor: 'rgba(15,169,88,0.10)',
+    borderWidth: 1, borderColor: 'rgba(15,169,88,0.30)',
+    borderRadius: 12, paddingVertical: 11,
+  },
+  verifiedChipText: { color: Colors.accent, fontSize: 13, fontWeight: '800' },
   actionRow: {
     flexDirection: 'row', gap: 10,
   },

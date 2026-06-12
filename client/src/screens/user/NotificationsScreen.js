@@ -5,12 +5,14 @@ import {
   Platform,
   RefreshControl,
   SectionList,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../theme/colors';
 import { useNotifications } from '../../contexts/NotificationsContext';
 import {
@@ -37,36 +39,51 @@ export default function NotificationsScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={Colors.heading} />
-        </TouchableOpacity>
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Notifications</Text>
-          <Text style={styles.headerSubtitle}>
-            {unreadCount > 0 ? `${unreadCount} unread` : 'Everything is up to date'}
-          </Text>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.gradientFrom} />
+      <LinearGradient
+        colors={[Colors.gradientFrom, Colors.gradientTo]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <View style={styles.headerDecor1} />
+        <View style={styles.headerDecor2} />
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+          </TouchableOpacity>
+          <View style={styles.headerCopy}>
+            <View style={styles.titleRow}>
+              <Text style={styles.headerTitle}>Notifications</Text>
+              {unreadCount > 0 ? (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={styles.headerSubtitle}>
+              {unreadCount > 0
+                ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}`
+                : 'Everything is up to date'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.markReadBtn, unreadCount === 0 && styles.markReadBtnDisabled]}
+            onPress={() => markAllRead()}
+            disabled={unreadCount === 0}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name="checkmark-done"
+              size={16}
+              color={unreadCount === 0 ? 'rgba(255,255,255,0.5)' : Colors.white}
+            />
+            <Text style={[styles.markReadText, unreadCount === 0 && styles.markReadTextDisabled]}>
+              Mark all
+            </Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.refreshBtn}
-          onPress={() => refreshNotifications()}
-          disabled={refreshing}
-          activeOpacity={0.8}
-        >
-          {refreshing ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <Ionicons name="refresh" size={18} color={Colors.heading} />
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.markReadBtn, unreadCount === 0 && styles.markReadBtnDisabled]}
-          onPress={() => markAllRead()}
-          disabled={unreadCount === 0}
-        >
-          <Ionicons name="checkmark-done" size={16} color={unreadCount === 0 ? Colors.greyLight : Colors.primary} />
-        </TouchableOpacity>
-      </View>
+      </LinearGradient>
 
       {loading && items.length === 0 ? (
         <View style={styles.centerState}>
@@ -141,60 +158,95 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 48,
-    paddingBottom: 14,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingBottom: 22,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+  },
+  headerDecor1: {
+    position: 'absolute',
+    top: -40,
+    right: -30,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  headerDecor2: {
+    position: 'absolute',
+    bottom: -50,
+    left: -20,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
   backBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   headerTitle: {
     fontSize: 22,
     fontWeight: '800',
-    color: Colors.heading,
+    color: Colors.white,
+  },
+  unreadBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.white,
   },
   headerSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: Colors.subtext,
-  },
-  refreshBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 3,
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.82)',
   },
   markReadBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.violetLight,
-    borderWidth: 1,
-    borderColor: Colors.violetBorder,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  markReadText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.white,
   },
   markReadBtnDisabled: {
-    backgroundColor: '#F8FAFC',
-    borderColor: Colors.border,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  markReadTextDisabled: {
+    color: 'rgba(255,255,255,0.5)',
   },
   listContent: {
     paddingHorizontal: 18,
@@ -227,9 +279,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.border,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
   cardUnread: {
     backgroundColor: '#FCFCFF',
+    borderColor: Colors.violetBorder,
   },
   unreadAccent: {
     position: 'absolute',

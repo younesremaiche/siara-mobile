@@ -22,7 +22,11 @@ export function useMyReports(userId, params = {}, options = {}) {
   return useQuery({
     queryKey: queryKeys.reports.mine(userId, params),
     queryFn: async () => {
-      const result = await listReports(params);
+      // The "mine" feed is owner-scoped server-side and — unlike the public
+      // feeds — includes the reporter's rejected reports, so the "Rejected"
+      // filter on My Reports can actually populate. The client-side owner
+      // filter below stays as a defensive backstop.
+      const result = await listReports({ ...params, feed: 'mine' });
       const reports = Array.isArray(result?.reports) ? result.reports : [];
 
       return {

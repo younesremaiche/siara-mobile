@@ -23,6 +23,7 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { Colors } from '../../theme/colors';
 import { loadDriverQuizState } from '../../services/driverQuizStorage';
 import DriverQuizModal from '../../components/quiz/DriverQuizModal';
+import PhotoViewer from '../../components/ui/PhotoViewer';
 import useMyAlerts from '../../hooks/useMyAlerts';
 import { useMyReports } from '../../features/reports/hooks/useReportQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
@@ -85,6 +86,7 @@ export default function ProfileScreen({ navigation }) {
   const [editLocation, setEditLocation] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
 
   const initials = (user?.name || 'User')
     .split(' ')
@@ -568,13 +570,17 @@ export default function ProfileScreen({ navigation }) {
           style={styles.editOverlay}
         >
           <View style={styles.editSheet}>
+            {/* Grab handle */}
+            <View style={styles.editHandle} />
+
             {/* Header */}
             <View style={styles.editHeader}>
-              <TouchableOpacity onPress={() => setEditVisible(false)}>
-                <Ionicons name="close" size={24} color={Colors.subtext} />
+              <TouchableOpacity style={styles.editCloseBtn} onPress={() => setEditVisible(false)} activeOpacity={0.8}>
+                <Ionicons name="close" size={20} color={Colors.heading} />
               </TouchableOpacity>
               <Text style={styles.editTitle}>Edit Profile</Text>
-              <TouchableOpacity onPress={saveProfile}>
+              <TouchableOpacity style={styles.editSaveBtn} onPress={saveProfile} activeOpacity={0.85}>
+                <Ionicons name="checkmark" size={15} color={Colors.white} />
                 <Text style={styles.editSaveText}>Save</Text>
               </TouchableOpacity>
             </View>
@@ -583,30 +589,37 @@ export default function ProfileScreen({ navigation }) {
               {/* Avatar preview + photo picker */}
               <View style={styles.editAvatarRow}>
                 <TouchableOpacity
-                  onPress={pickAvatar}
+                  onPress={() => (editAvatar ? setAvatarViewerVisible(true) : pickAvatar())}
                   activeOpacity={0.85}
-                  style={styles.editAvatarCircle}
                 >
-                  {editAvatar ? (
-                    <Image source={{ uri: editAvatar }} style={styles.editAvatarImage} />
-                  ) : (
-                    <Text style={styles.editAvatarText}>
-                      {(editName || 'U').split(' ').map((n) => n.charAt(0)).join('').toUpperCase().slice(0, 2)}
-                    </Text>
-                  )}
-                  <View style={styles.editAvatarCameraBadge}>
-                    <Ionicons name="camera" size={14} color={Colors.white} />
-                  </View>
+                  <LinearGradient
+                    colors={[Colors.gradientFrom, Colors.gradientTo]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.editAvatarRing}
+                  >
+                    <View style={styles.editAvatarCircle}>
+                      {editAvatar ? (
+                        <Image source={{ uri: editAvatar }} style={styles.editAvatarImage} />
+                      ) : (
+                        <Text style={styles.editAvatarText}>
+                          {(editName || 'U').split(' ').map((n) => n.charAt(0)).join('').toUpperCase().slice(0, 2)}
+                        </Text>
+                      )}
+                    </View>
+                  </LinearGradient>
                 </TouchableOpacity>
 
                 <View style={styles.editAvatarActions}>
-                  <TouchableOpacity onPress={pickAvatar} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.editAvatarChip} onPress={pickAvatar} activeOpacity={0.8}>
+                    <Ionicons name="image-outline" size={14} color={Colors.primary} />
                     <Text style={styles.editAvatarActionText}>
                       {editAvatar ? 'Change photo' : 'Add photo'}
                     </Text>
                   </TouchableOpacity>
                   {editAvatar ? (
-                    <TouchableOpacity onPress={removeAvatar} activeOpacity={0.7}>
+                    <TouchableOpacity style={styles.editAvatarChipDanger} onPress={removeAvatar} activeOpacity={0.8}>
+                      <Ionicons name="trash-outline" size={14} color={Colors.error} />
                       <Text style={styles.editAvatarRemoveText}>Remove</Text>
                     </TouchableOpacity>
                   ) : null}
@@ -683,6 +696,13 @@ export default function ProfileScreen({ navigation }) {
               <View style={{ height: 30 }} />
             </ScrollView>
           </View>
+
+          {/* Tap the avatar to view it full-screen */}
+          <PhotoViewer
+            visible={avatarViewerVisible}
+            images={editAvatar ? [{ id: 'avatar', url: editAvatar }] : []}
+            onClose={() => setAvatarViewerVisible(false)}
+          />
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1294,47 +1314,86 @@ const styles = StyleSheet.create({
   },
   editSheet: {
     backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '90%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '92%',
     paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  editHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: Colors.border,
+    marginTop: 10,
+    marginBottom: 2,
   },
   editHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  editCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: Colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   editTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.heading,
   },
+  editSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 12,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
   editSaveText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.white,
   },
   editBody: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 18,
   },
   editAvatarRow: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
+  },
+  editAvatarRing: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   editAvatarCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 94,
+    height: 94,
+    borderRadius: 47,
     backgroundColor: Colors.violetLight,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
-    position: 'relative',
+    borderWidth: 3,
+    borderColor: Colors.white,
   },
   editAvatarImage: {
     width: '100%',
@@ -1345,49 +1404,58 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
   },
-  editAvatarCameraBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.white,
-  },
   editAvatarActions: {
     flexDirection: 'row',
-    gap: 16,
-    marginTop: 12,
+    gap: 10,
+    marginTop: 14,
+  },
+  editAvatarChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Colors.violetLight,
+    borderWidth: 1,
+    borderColor: Colors.violetBorder,
+  },
+  editAvatarChipDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(220,38,38,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(220,38,38,0.2)',
   },
   editAvatarActionText: {
     color: Colors.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   editAvatarRemoveText: {
     color: Colors.error,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
   },
   editLabel: {
     color: Colors.heading,
     fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 6,
-    marginTop: 14,
+    fontWeight: '700',
+    marginBottom: 7,
+    marginTop: 16,
   },
   editInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.bg,
-    borderRadius: 12,
-    borderWidth: 1,
+    backgroundColor: Colors.white,
+    borderRadius: 14,
+    borderWidth: 1.5,
     borderColor: Colors.border,
-    height: 48,
+    height: 52,
   },
   editInputIcon: {
     marginLeft: 14,
@@ -1395,8 +1463,8 @@ const styles = StyleSheet.create({
   },
   editInput: {
     flex: 1,
-    height: 48,
-    fontSize: 14,
+    height: 50,
+    fontSize: 15,
     color: Colors.text,
     paddingHorizontal: 8,
   },

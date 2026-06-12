@@ -8,14 +8,13 @@ import {
   Platform,
   Alert,
   Linking,
-  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { Colors } from '../../theme/colors';
-
-const { width } = Dimensions.get('window');
 
 const CONTACT_INFO = [
   {
@@ -24,20 +23,23 @@ const CONTACT_INFO = [
     value: 'support@siara.dz',
     color: Colors.primary,
     bg: Colors.violetLight,
+    href: 'mailto:support@siara.dz',
   },
   {
     icon: 'location',
     title: 'Location',
-    value: 'Algiers, Algeria',
+    value: 'Constantine, Algeria',
     color: Colors.secondary,
     bg: Colors.blueLight,
+    href: 'https://maps.google.com/?q=Constantine,Algeria',
   },
   {
     icon: 'call',
     title: 'Phone',
-    value: '+213 555 0123',
+    value: '+213 542 866 839',
     color: Colors.accent,
     bg: 'rgba(15,169,88,0.08)',
+    href: 'tel:+213542866839',
   },
 ];
 
@@ -77,36 +79,59 @@ export default function ContactScreen({ navigation }) {
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={Colors.heading} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Contact Us</Text>
-        <View style={{ width: 38 }} />
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.gradientFrom} />
 
-      {/* Hero */}
-      <View style={styles.hero}>
-        <View style={styles.heroIconWrap}>
-          <Ionicons name="chatbubbles" size={36} color={Colors.white} />
+      {/* Gradient header — back + title + hero, matching the app's other pages */}
+      <LinearGradient
+        colors={[Colors.gradientFrom, Colors.gradientTo]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <View style={styles.headerDecor1} />
+        <View style={styles.headerDecor2} />
+
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Contact Us</Text>
+          <View style={{ width: 38 }} />
         </View>
-        <Text style={styles.heroTitle}>Get in Touch</Text>
-        <Text style={styles.heroSubtitle}>
-          We would love to hear from you. Send us a message and we will respond as soon as possible.
-        </Text>
-      </View>
 
-      {/* Contact info cards */}
+        <View style={styles.hero}>
+          <View style={styles.heroIconWrap}>
+            <Ionicons name="chatbubbles" size={34} color={Colors.white} />
+          </View>
+          <Text style={styles.heroTitle}>Get in Touch</Text>
+          <Text style={styles.heroSubtitle}>
+            We would love to hear from you. Send us a message and we will respond as soon as possible.
+          </Text>
+        </View>
+      </LinearGradient>
+
+      {/* Contact info cards — equal-size, aligned, tappable */}
       <View style={styles.infoRow}>
         {CONTACT_INFO.map((item) => (
-          <View key={item.title} style={styles.infoCard}>
+          <TouchableOpacity
+            key={item.title}
+            style={styles.infoCard}
+            activeOpacity={0.85}
+            onPress={() => Linking.openURL(item.href).catch(() => {})}
+          >
             <View style={[styles.infoIconWrap, { backgroundColor: item.bg }]}>
               <Ionicons name={item.icon} size={20} color={item.color} />
             </View>
             <Text style={styles.infoTitle}>{item.title}</Text>
-            <Text style={styles.infoValue}>{item.value}</Text>
-          </View>
+            <Text
+              style={styles.infoValue}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {item.value}
+            </Text>
+          </TouchableOpacity>
         ))}
       </View>
 
@@ -188,107 +213,125 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  /* Header */
+  /* Gradient header */
   header: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 48,
+    paddingBottom: 44,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+  },
+  headerDecor1: {
+    position: 'absolute',
+    top: -40,
+    right: -30,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  headerDecor2: {
+    position: 'absolute',
+    bottom: -30,
+    left: -25,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 48,
-    paddingBottom: 14,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   backBtn: {
     width: 38,
     height: 38,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    color: Colors.heading,
+    color: Colors.white,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 
-  /* Hero */
+  /* Hero (on the gradient) */
   hero: {
     alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 28,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingHorizontal: 20,
+    paddingTop: 18,
   },
   heroIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: Colors.btnPrimary,
+    width: 70,
+    height: 70,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.20)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.30)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: Colors.btnPrimary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
+    marginBottom: 14,
   },
   heroTitle: {
-    color: Colors.heading,
+    color: Colors.white,
     fontSize: 24,
     fontWeight: '800',
     marginBottom: 8,
   },
   heroSubtitle: {
-    color: Colors.subtext,
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
 
-  /* Contact info */
+  /* Contact info — uniform floating cards overlapping the header */
   infoRow: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     gap: 10,
-    marginTop: 20,
+    marginTop: -26,
   },
   infoCard: {
     flex: 1,
+    minHeight: 116,
     backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
-    gap: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    gap: 7,
   },
   infoIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
   },
   infoTitle: {
     color: Colors.subtext,
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   infoValue: {
     color: Colors.heading,
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12.5,
+    fontWeight: '700',
     textAlign: 'center',
   },
 

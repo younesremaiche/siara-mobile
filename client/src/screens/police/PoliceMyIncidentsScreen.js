@@ -7,7 +7,7 @@ import { Colors } from '../../theme/colors';
 import { usePoliceIncidents } from '../../features/police/hooks/usePoliceQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
-const FILTERS = ['all', 'pending', 'under_review', 'verified', 'dispatched', 'resolved'];
+const FILTERS = ['all', 'pending', 'under_review', 'verified', 'resolved', 'rejected'];
 
 export default function PoliceMyIncidentsScreen() {
   const navigation = useNavigation();

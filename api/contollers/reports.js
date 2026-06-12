@@ -48,7 +48,7 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const ALLOWED_FEED_TYPES = new Set(["latest", "nearby", "verified", "following"]);
+const ALLOWED_FEED_TYPES = new Set(["latest", "nearby", "verified", "following", "mine"]);
 const ALLOWED_SORT_TYPES = new Set(["recent", "severity"]);
 const ALLOWED_REACTION_TYPES = new Set(["like", "saw_it_too"]);
 const REACTION_COUNT_COLUMNS = Object.freeze({
@@ -317,7 +317,7 @@ function normalizeQueryNumber(
 function normalizeFeed(value) {
   const normalized = String(value || "latest").trim().toLowerCase();
   if (!ALLOWED_FEED_TYPES.has(normalized)) {
-    throw createError(400, "feed must be one of: latest, nearby, verified, following");
+    throw createError(400, "feed must be one of: latest, nearby, verified, following, mine");
   }
   return normalized;
 }
@@ -1145,8 +1145,38 @@ async function listReports(query, db = pool, { viewerUserId = null } = {}) {
     values.push(normalizedQuery.radiusKm);
   }
 
+  // The "mine" feed returns the authenticated owner's full report history.
+  // Without an identified viewer there is no owner to scope to, so return an
+  // empty set rather than leaking the global feed.
+  if (normalizedQuery.feed === "mine") {
+    if (!viewerUserId) {
+      return {
+        reports: [],
+        pagination: {
+          limit: normalizedQuery.limit,
+          offset: normalizedQuery.offset,
+          hasMore: false,
+          returned: 0,
+        },
+        meta: {
+          feed: normalizedQuery.feed,
+          sort: normalizedQuery.sort,
+          followingSupported: true,
+        },
+      };
+    }
+
+    values.push(viewerUserId);
+    whereClauses.push(`base.reported_by = $${parameterIndex++}::uuid`);
+  }
+
   if (normalizedQuery.feed === "verified") {
     whereClauses.push("base.status = 'verified'");
+  } else if (normalizedQuery.feed === "mine") {
+    // The reporter is allowed to see the outcome of their own reports —
+    // including rejected ones. Only admin-archived (soft-deleted) rows stay
+    // hidden, matching every other feed.
+    whereClauses.push("base.status <> 'archived'");
   } else {
     // Hide both rejected (confirmed spam / false report) AND archived
     // (admin-soft-deleted) reports from every public-facing feed.

@@ -2,7 +2,7 @@ import { request as apiRequest } from './api';
 
 export const PAGE_SIZE = 10;
 export const DEFAULT_RADIUS_KM = 25;
-export const REPORT_FEEDS = ['latest', 'nearby', 'verified', 'following'];
+export const REPORT_FEEDS = ['latest', 'nearby', 'verified', 'following', 'mine'];
 export const REPORT_SORTS = ['recent', 'severity'];
 export const INCIDENT_TYPES = ['accident', 'traffic', 'danger', 'weather', 'roadworks', 'other'];
 export const REPORT_SEVERITIES = ['low', 'medium', 'high'];
@@ -197,8 +197,13 @@ function buildCreatePayload(data) {
 
 export async function listReports(params = {}) {
   const query = buildQuery(params);
+  // Send the bearer token when available: the backend reads it via optional
+  // auth to identify the viewer. This is required for the "mine" feed (owner's
+  // own reports, including rejected) and also enables per-viewer social state
+  // (liked / saw-it-too) on the public feeds. It is a no-op when logged out.
   const payload = await apiRequest(`/api/reports${query ? `?${query}` : ''}`, {
     method: 'GET',
+    withAuth: true,
     signal: params.signal,
   });
 

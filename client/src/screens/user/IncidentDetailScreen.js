@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme/colors';
+import PhotoViewer from '../../components/ui/PhotoViewer';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useReportDetail } from '../../features/reports/hooks/useReportQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
@@ -165,6 +166,9 @@ export default function IncidentDetailScreen({ navigation, route }) {
   const load = detailQuery.refetch;
   useFocusRefresh(detailQuery.refetch, Boolean(reportId));
 
+  const [viewerVisible, setViewerVisible] = React.useState(false);
+  const [viewerIndex, setViewerIndex] = React.useState(0);
+
   const handleShare = async () => {
     if (!report) return;
     try {
@@ -299,7 +303,16 @@ export default function IncidentDetailScreen({ navigation, route }) {
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.mediaRow}>
               {report.media.map((media, i) => (
-                <Image key={i} source={{ uri: media.url }} style={s.mediaThumb} />
+                <TouchableOpacity
+                  key={i}
+                  activeOpacity={0.85}
+                  onPress={() => { setViewerIndex(i); setViewerVisible(true); }}
+                >
+                  <Image source={{ uri: media.url }} style={s.mediaThumb} />
+                  <View style={s.mediaExpandBadge}>
+                    <Ionicons name="expand-outline" size={13} color={Colors.white} />
+                  </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
@@ -317,6 +330,14 @@ export default function IncidentDetailScreen({ navigation, route }) {
           </TouchableOpacity>
         ) : null}
       </ScrollView>
+
+      {/* Full-screen photo viewer */}
+      <PhotoViewer
+        visible={viewerVisible}
+        images={report.media || []}
+        initialIndex={viewerIndex}
+        onClose={() => setViewerVisible(false)}
+      />
     </View>
   );
 }
@@ -428,6 +449,12 @@ const s = StyleSheet.create({
   /* media */
   mediaRow: { gap: 10, paddingTop: 2 },
   mediaThumb: { width: 150, height: 110, borderRadius: 14, backgroundColor: Colors.bg },
+  mediaExpandBadge: {
+    position: 'absolute', top: 8, right: 8,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   /* owner actions */
   editBtn: {
