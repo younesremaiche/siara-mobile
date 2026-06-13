@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SIARA · AI Risk — Predicted Danger Zones (mockup)</title>
+<style>
+  :root{
+    --primary:#7A3DF0; --secondary:#1D4ED8;
+    --bg:#F6F7FB; --surface:#FFFFFF; --heading:#232323; --text:#4A4A4A; --subtext:#6B7280;
+    --border:#E5E7EB;
+    --high:#ef4444; --med:#f59e0b; --low:#22c55e; --extreme:#b91c1c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+  body{background:#0c1120;display:flex;gap:28px;flex-wrap:wrap;justify-content:center;align-items:flex-start;padding:32px 16px;}
+  .note{color:#9aa4b2;max-width:880px;font-size:13px;line-height:1.6;text-align:center;margin-bottom:8px;flex-basis:100%;}
+  .note b{color:#cbd5e1;}
+  .phone{width:390px;height:800px;background:var(--bg);border-radius:42px;overflow:hidden;position:relative;box-shadow:0 30px 60px rgba(0,0,0,.5);border:10px solid #11131b;}
+  .caption{color:#9aa4b2;font-size:12px;text-align:center;margin-top:10px;}
+
+  /* ── Map area ── */
+  .map{position:absolute;inset:0;background:
+      radial-gradient(circle at 30% 22%, #eef1f7 0%, #e4e8f1 38%, #dfe3ec 100%);}
+  /* fake streets */
+  .street{position:absolute;background:#cfd6e3;opacity:.8;border-radius:4px;}
+  .s1{top:140px;left:-20px;width:460px;height:10px;transform:rotate(-7deg);}
+  .s2{top:300px;left:-20px;width:460px;height:12px;transform:rotate(5deg);}
+  .s3{top:470px;left:-20px;width:460px;height:9px;transform:rotate(-3deg);}
+  .s4{top:60px;left:120px;width:10px;height:640px;transform:rotate(6deg);}
+  .s5{top:60px;left:280px;width:8px;height:640px;transform:rotate(-5deg);}
+
+  /* ── Predicted zones (translucent blobs) ── */
+  .zone{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;
+        animation:breathe 4s ease-in-out infinite;}
+  .zone .pin{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;transform:translateY(-6px);}
+  .zone .pct{font-weight:800;font-size:15px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.45);}
+  .zone .nm{font-size:10px;font-weight:700;color:#fff;background:rgba(17,19,27,.55);padding:2px 7px;border-radius:999px;white-space:nowrap;}
+  @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+
+  .z-high{width:200px;height:200px;top:170px;left:150px;
+    background:radial-gradient(circle, rgba(239,68,68,.42) 0%, rgba(239,68,68,.20) 55%, rgba(239,68,68,0) 72%);}
+  .z-extreme{width:150px;height:150px;top:90px;left:30px;
+    background:radial-gradient(circle, rgba(185,28,28,.5) 0%, rgba(185,28,28,.24) 55%, rgba(185,28,28,0) 72%);}
+  .z-med{width:160px;height:160px;top:430px;left:90px;
+    background:radial-gradient(circle, rgba(245,158,11,.36) 0%, rgba(245,158,11,.16) 55%, rgba(245,158,11,0) 72%);}
+  .z-low{width:130px;height:130px;top:520px;left:250px;
+    background:radial-gradient(circle, rgba(34,197,94,.30) 0%, rgba(34,197,94,.13) 55%, rgba(34,197,94,0) 72%);}
+
+  /* user dot */
+  .user{position:absolute;top:360px;left:200px;width:18px;height:18px;border-radius:50%;background:var(--primary);border:3px solid #fff;box-shadow:0 0 0 6px rgba(122,61,240,.18);}
+
+  /* ── Top bar ── */
+  .topbar{position:absolute;top:0;left:0;right:0;padding:14px 16px 10px;display:flex;align-items:center;gap:10px;
+    background:linear-gradient(180deg, rgba(246,247,251,.96) 60%, rgba(246,247,251,0));}
+  .search{flex:1;height:44px;background:#fff;border-radius:14px;display:flex;align-items:center;padding:0 14px;gap:9px;box-shadow:0 4px 14px rgba(0,0,0,.06);}
+  .search input{border:0;outline:0;flex:1;font-size:14px;color:var(--text);background:transparent;}
+  .ico-btn{width:44px;height:44px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.06);font-size:18px;}
+
+  /* horizon selector */
+  .horizon{position:absolute;top:70px;left:16px;right:16px;display:flex;gap:8px;justify-content:center;}
+  .chip{padding:7px 15px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.9);color:var(--subtext);box-shadow:0 3px 10px rgba(0,0,0,.07);}
+  .chip.active{background:var(--primary);color:#fff;}
+
+  /* AI badge */
+  .ai-flag{position:absolute;top:118px;left:16px;display:flex;align-items:center;gap:6px;background:rgba(17,19,27,.78);color:#fff;padding:6px 11px;border-radius:999px;font-size:11px;font-weight:700;}
+  .ai-flag .dot{width:7px;height:7px;border-radius:50%;background:#a78bfa;box-shadow:0 0 8px #a78bfa;}
+
+  /* legend */
+  .legend{position:absolute;right:14px;top:160px;background:rgba(255,255,255,.94);border-radius:12px;padding:9px 11px;box-shadow:0 6px 18px rgba(0,0,0,.1);display:flex;flex-direction:column;gap:7px;}
+  .legend .row{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:700;color:var(--text);}
+  .legend .sw{width:11px;height:11px;border-radius:3px;}
+
+  /* ── Layer tabs (bottom of map) ── */
+  .layers{position:absolute;left:12px;right:12px;bottom:300px;display:flex;gap:6px;justify-content:space-between;background:rgba(255,255,255,.92);padding:7px;border-radius:16px;box-shadow:0 8px 22px rgba(0,0,0,.12);}
+  .layer{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border-radius:11px;font-size:9.5px;font-weight:700;color:var(--subtext);}
+  .layer .gi{font-size:16px;}
+  .layer.active{background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;}
+
+  /* ── Bottom sheet ── */
+  .sheet{position:absolute;left:0;right:0;bottom:0;height:286px;background:#fff;border-radius:22px 22px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.14);padding:10px 16px 16px;}
+  .handle{width:42px;height:5px;border-radius:3px;background:#e1e5ee;margin:2px auto 12px;}
+  .sheet h3{font-size:15px;color:var(--heading);font-weight:800;display:flex;align-items:center;gap:8px;}
+  .sheet h3 .sub{font-size:11px;font-weight:600;color:var(--subtext);margin-left:auto;}
+  .zlist{margin-top:12px;display:flex;flex-direction:column;gap:9px;}
+  .zrow{display:flex;align-items:center;gap:11px;background:var(--bg);border-radius:13px;padding:10px 12px;}
+  .zrow .bar{width:5px;align-self:stretch;border-radius:3px;}
+  .zrow .info{flex:1;}
+  .zrow .info .t{font-size:13px;font-weight:800;color:var(--heading);}
+  .zrow .info .m{font-size:11px;color:var(--subtext);margin-top:1px;}
+  .zrow .pctbox{text-align:right;}
+  .zrow .pctbox .p{font-size:17px;font-weight:900;}
+  .zrow .pctbox .why{font-size:10px;font-weight:700;color:var(--primary);}
+  .lvl{font-size:8px;font-weight:800;padding:2px 6px;border-radius:999px;color:#fff;letter-spacing:.4px;}
+</style>
+</head>
+<body>
+  <div class="note">
+    <b>MOCKUP — AI Risk tab · "Predicted danger zones"</b><br/>
+    AI forecast of <b>where accidents are likely in the next few hours</b> (occurrence model), drawn as translucent
+    colored zones — distinct from the Heatmap tab, which shows <i>historical</i> reports. Time horizon switches the forecast window.
+    Tap a zone (or a row) → the SHAP/XAI "why this risk?" panel you already have. Needs a new backend endpoint
+    <b>GET /api/risk/forecast-zones?bounds&amp;hours</b> (in siara\api).
+  </div>
+
+  <div>
+    <div class="phone">
+      <div class="map">
+        <div class="street s1"></div><div class="street s2"></div><div class="street s3"></div>
+        <div class="street s4"></div><div class="street s5"></div>
+
+        <!-- predicted zones -->
+        <div class="zone z-extreme"><div class="pin"><span class="pct">81%</span><span class="nm">Bab Ezzouar</span></div></div>
+        <div class="zone z-high"><div class="pin"><span class="pct">67%</span><span class="nm">Alger Centre</span></div></div>
+        <div class="zone z-med"><div class="pin"><span class="pct">44%</span><span class="nm">El Harrach</span></div></div>
+        <div class="zone z-low"><div class="pin"><span class="pct">18%</span><span class="nm">Hydra</span></div></div>
+
+        <div class="user"></div>
+      </div>
+
+      <!-- top bar -->
+      <div class="topbar">
+        <div class="search">🔍 <input placeholder="Search destination" /></div>
+        <div class="ico-btn">⚙️</div>
+      </div>
+
+      <!-- forecast horizon -->
+      <div class="horizon">
+        <div class="chip">Now</div>
+        <div class="chip active">+3h</div>
+        <div class="chip">+6h</div>
+        <div class="chip">Tonight</div>
+      </div>
+
+      <div class="ai-flag"><span class="dot"></span> AI forecast · next 3 hours</div>
+
+      <div class="legend">
+        <div class="row"><span class="sw" style="background:var(--extreme)"></span> Critical</div>
+        <div class="row"><span class="sw" style="background:var(--high)"></span> High</div>
+        <div class="row"><span class="sw" style="background:var(--med)"></span> Moderate</div>
+        <div class="row"><span class="sw" style="background:var(--low)"></span> Low</div>
+      </div>
+
+      <!-- layer tabs -->
+      <div class="layers">
+        <div class="layer"><span class="gi">📍</span>Points</div>
+        <div class="layer"><span class="gi">🔥</span>Heatmap</div>
+        <div class="layer"><span class="gi">🛡️</span>Zones</div>
+        <div class="layer active"><span class="gi">📊</span>AI Risk</div>
+        <div class="layer"><span class="gi">🚗</span>Roads</div>
+      </div>
+
+      <!-- bottom sheet -->
+      <div class="sheet">
+        <div class="handle"></div>
+        <h3>Predicted danger zones <span class="sub">next 3h · model + your profile</span></h3>
+        <div class="zlist">
+          <div class="zrow">
+            <div class="bar" style="background:var(--extreme)"></div>
+            <div class="info"><div class="t">Bab Ezzouar <span class="lvl" style="background:var(--extreme)">CRITICAL</span></div>
+              <div class="m">rain · rush hour · prior accidents</div></div>
+            <div class="pctbox"><div class="p" style="color:var(--extreme)">81%</div><div class="why">Why? ›</div></div>
+          </div>
+          <div class="zrow">
+            <div class="bar" style="background:var(--high)"></div>
+            <div class="info"><div class="t">Alger Centre <span class="lvl" style="background:var(--high)">HIGH</span></div>
+              <div class="m">dense traffic · evening peak</div></div>
+            <div class="pctbox"><div class="p" style="color:var(--high)">67%</div><div class="why">Why? ›</div></div>
+          </div>
+          <div class="zrow">
+            <div class="bar" style="background:var(--med)"></div>
+            <div class="info"><div class="t">El Harrach <span class="lvl" style="background:var(--med)">MODERATE</span></div>
+              <div class="m">wet road · moderate flow</div></div>
+            <div class="pctbox"><div class="p" style="color:var(--med)">44%</div><div class="why">Why? ›</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">AI Risk tab · predicted danger zones (forecast window = +3h)</div>
+  </div>
+</body>
+</html>

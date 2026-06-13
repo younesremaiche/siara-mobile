@@ -9,9 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polygon } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import AdminHeader from '../../components/layout/AdminHeader';
+import AdminLeafletMap from '../../components/map/AdminLeafletMap';
 import {
   fetchAdminZoneDetails,
   fetchAdminZoneMap,
@@ -229,6 +229,52 @@ export default function AdminZonesScreen({ navigation }) {
     () => [...mapPayload.items].sort((a, b) => (b.riskScore - a.riskScore) || a.name.localeCompare(b.name)),
     [mapPayload.items]
   );
+
+  // ── Leaflet map data (memoized for stable WebView identity) ──
+  const zonePolygons = useMemo(() => {
+    const list = [];
+    mapPayload.items.forEach((zone) => {
+      const color = getZoneColor(zone, metric);
+      const selected = zone.adminAreaId === selectedZoneId;
+      extractPolygonSets(zone.geometry).forEach((coordinates) => {
+        list.push({
+          id: zone.adminAreaId,
+          coords: coordinates.map((c) => [c.latitude, c.longitude]),
+          color: selected ? Colors.white : color,
+          fillColor: color,
+          fillOpacity: selected ? 0.4 : 0.2,
+          weight: selected ? 2.5 : 1.5,
+        });
+      });
+    });
+    return list;
+  }, [mapPayload.items, metric, selectedZoneId]);
+
+  const zoneMarkers = useMemo(
+    () => mapPayload.items
+      .filter((zone) => zone.centroid)
+      .map((zone) => ({
+        id: `zone-${zone.adminAreaId}`,
+        adminAreaId: zone.adminAreaId,
+        lat: zone.centroid.lat,
+        lng: zone.centroid.lng,
+        color: getZoneColor(zone, metric),
+        size: 14,
+        label: `${zone.name} · Risk ${zone.riskScore}`,
+        kind: 'zone',
+        selected: zone.adminAreaId === selectedZoneId,
+      })),
+    [mapPayload.items, metric, selectedZoneId],
+  );
+
+  const zoneMapCenter = useMemo(() => {
+    if (selectedZone?.centroid
+      && typeof selectedZone.centroid.lat === 'number'
+      && typeof selectedZone.centroid.lng === 'number') {
+      return [selectedZone.centroid.lat, selectedZone.centroid.lng];
+    }
+    return null;
+  }, [selectedZone]);
 
   async function refreshZones() {
     setRefreshing(true);
@@ -500,35 +546,18 @@ export default function AdminZonesScreen({ navigation }) {
             Polygon-first wilaya risk view colored by {getMetricTitle(metric).toLowerCase()}
           </Text>
 
-          <MapView key={`${metric}-${selectedZoneId || 'none'}-${period}`} style={styles.map} initialRegion={getMapRegion(selectedZone)}>
-            {mapPayload.items.flatMap((zone) =>
-              extractPolygonSets(zone.geometry).map((coordinates, index) => {
-                const color = getZoneColor(zone, metric);
-                const selected = zone.adminAreaId === selectedZoneId;
-                return (
-                  <Polygon
-                    key={`${zone.adminAreaId}-${index}`}
-                    coordinates={coordinates}
-                    tappable
-                    onPress={() => setSelectedZoneId(zone.adminAreaId)}
-                    strokeColor={selected ? Colors.white : color}
-                    fillColor={`${color}${selected ? '66' : '33'}`}
-                    strokeWidth={selected ? 2.5 : 1.5}
-                  />
-                );
-              })
-            )}
-            {mapPayload.items.filter((zone) => zone.centroid).map((zone) => (
-              <Marker
-                key={`marker-${zone.adminAreaId}`}
-                coordinate={{ latitude: zone.centroid.lat, longitude: zone.centroid.lng }}
-                onPress={() => setSelectedZoneId(zone.adminAreaId)}
-                pinColor={getZoneColor(zone, metric)}
-                title={zone.name}
-                description={`Risk ${zone.riskScore} · Metric ${zone.metricScore}`}
-              />
-            ))}
-          </MapView>
+          <AdminLeafletMap
+            key={`${metric}-${selectedZoneId || 'none'}-${period}`}
+            style={styles.map}
+            center={zoneMapCenter}
+            zoom={selectedZone ? 7 : 5}
+            polygons={zonePolygons}
+            markers={zoneMarkers}
+            onPolygonPress={(id) => setSelectedZoneId(id)}
+            onMarkerPress={(marker) => {
+              if (marker?.adminAreaId != null) setSelectedZoneId(marker.adminAreaId);
+            }}
+          />
 
           <View style={styles.legendRow}>
             {['critical', 'high', 'medium', 'low'].map((tone) => (
@@ -706,7 +735,7 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
   sectionTitle: { color: Colors.adminText, fontSize: 16, fontWeight: '700', marginBottom: 4 },
   sectionSubtitle: { color: Colors.grey, fontSize: 12, lineHeight: 18 },
-  map: { width: '100%', height: 320, borderRadius: 12, marginBottom: 12 },
+  map: { width: '100%', height: 320, borderRadius: 12, marginBottom: 12, overflow: 'hidden' },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },

@@ -301,6 +301,9 @@ export function buildLeafletHTML({
   mapLayer = 'points',
   heatClusters = [],
   alertZones = [],
+  forecastZones = [],
+  polygons = [],
+  showZoomControl = false,
   mapClickEnabled = false,
 } = {}) {
   const tile = TILE_LAYERS[tileLayer] || TILE_LAYERS.voyager;
@@ -310,6 +313,8 @@ export function buildLeafletHTML({
   const userJSON = JSON.stringify(userLocation);
   const heatClustersJSON = JSON.stringify(heatClusters);
   const alertZonesJSON = JSON.stringify(alertZones);
+  const forecastZonesJSON = JSON.stringify(forecastZones);
+  const polygonsJSON = JSON.stringify(polygons);
 
   return `<!DOCTYPE html>
 <html>
@@ -322,12 +327,22 @@ export function buildLeafletHTML({
     *{margin:0;padding:0;box-sizing:border-box}
     html,body,#map{width:100%;height:100%;background:#f6f7fb;overflow:hidden;touch-action:none}
     .leaflet-control-attribution{font-size:8px!important;opacity:.6}
-    .leaflet-control-zoom{display:none!important}
+    ${showZoomControl ? '.leaflet-control-zoom{box-shadow:0 1px 6px rgba(0,0,0,.25)!important}' : '.leaflet-control-zoom{display:none!important}'}
     .marker-dot{position:relative;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font:700 11px/1 -apple-system,system-ui,sans-serif}
     .report-pin{position:relative;width:28px;height:40px;pointer-events:none}
     .report-pin__body{position:absolute;left:0;top:0;width:28px;height:28px;border-radius:14px 14px 14px 4px;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.28)}
     .report-pin__glyph{position:absolute;left:50%;top:50%;transform:translate(-50%,-62%);font-size:13px;line-height:1}
     .user-dot{width:16px;height:16px;border-radius:50%;background:#7A3DF0;border:3px solid #fff;box-shadow:0 1px 8px rgba(122,61,240,.5)}
+    /* ── Redesigned signs ── */
+    .m-pin{position:relative;width:34px;height:46px;pointer-events:none}
+    .m-pin__shadow{position:absolute;left:11px;top:39px;width:14px;height:5px;border-radius:50%;background:rgba(0,0,0,.22)}
+    .m-pin__body{position:absolute;left:3px;top:0;width:28px;height:28px;border-radius:14px 14px 14px 3px;transform:rotate(-45deg);border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+    .m-pin__glyph{position:absolute;left:0;top:3px;width:34px;height:24px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:900;line-height:1}
+    .m-shield{position:relative;width:34px;height:38px;pointer-events:none;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+    .m-shield::before{content:'';position:absolute;inset:0;background:var(--c,#22c55e);border:2.5px solid #fff;clip-path:polygon(50% 0,100% 18%,100% 60%,50% 100%,0 60%,0 18%)}
+    .m-shield::after{content:'';position:absolute;left:50%;top:42%;width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.95);transform:translate(-50%,-50%)}
+    .m-zone{width:26px;height:26px;border:2.5px solid #fff;border-radius:7px;transform:rotate(45deg);box-shadow:0 2px 7px rgba(0,0,0,.3)}
+    .m-sel{box-shadow:0 0 0 4px rgba(124,58,237,.4),0 2px 8px rgba(0,0,0,.3)!important}
     .marker-tooltip{font-size:12px;font-weight:600;padding:4px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.15);border:none}
     .legend{position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(255,255,255,.94);border-radius:10px;padding:8px 12px;font-family:-apple-system,system-ui,sans-serif;font-size:11px;box-shadow:0 2px 8px rgba(0,0,0,.12);backdrop-filter:blur(8px)}
     .legend-item{display:flex;align-items:center;margin:3px 0}
@@ -348,7 +363,7 @@ export function buildLeafletHTML({
   <script>
     // ── Initialize map ──
     var map = L.map('map',{
-      zoomControl:false,
+      zoomControl:${showZoomControl ? 'true' : 'false'},
       attributionControl:true,
     }).setView([${center[0]},${center[1]}],${zoom});
 
@@ -417,17 +432,73 @@ export function buildLeafletHTML({
       }).addTo(map);
     });
 
+    // ── Render AI predicted danger zones ──
+    var forecastData=${forecastZonesJSON};
+    forecastData.forEach(function(z){
+      if(z.lat==null||z.lng==null) return;
+      var fClr=z.color||getColor(z.level);
+      var circle=L.circle([z.lat,z.lng],{
+        radius:z.radius||600,
+        fillColor:fClr,
+        fillOpacity:0.22,
+        color:fClr,
+        weight:2,
+        opacity:0.8,
+      }).addTo(map);
+      function openZone(){
+        if(z.roadSegmentId){
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'forecastZonePress',roadSegmentId:z.roadSegmentId}));
+        }
+      }
+      circle.on('click',openZone);
+      if(z.percent!=null){
+        L.marker([z.lat,z.lng],{
+          icon:L.divIcon({className:'',html:'<div class="cluster-lbl">'+z.percent+'%</div>',iconSize:[40,20],iconAnchor:[20,10]}),
+          zIndexOffset:600,
+        }).on('click',openZone).addTo(map);
+      }
+    });
+
+    // ── Render polygons (admin zone geometries) ──
+    var polygonData=${polygonsJSON};
+    polygonData.forEach(function(pg){
+      if(!pg.coords||pg.coords.length<3) return;
+      var poly=L.polygon(pg.coords,{
+        color:pg.color||'#3B82F6',
+        weight:pg.weight||1.5,
+        fillColor:pg.fillColor||pg.color||'#3B82F6',
+        fillOpacity:pg.fillOpacity!=null?pg.fillOpacity:0.2,
+      }).addTo(map);
+      if(pg.id!=null){
+        poly.on('click',function(){
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'polygonPress',id:pg.id}));
+        });
+      }
+    });
+
     // ── Render markers ──
     var markerData=${markersJSON};
     markerData.forEach(function(m){
       if(m.lat==null||m.lng==null) return;
       var color=m.color||getColor(m.severity);
       var size=m.size||12;
-      var markerHtml=m.isReport
-        ? '<div class="report-pin"><div class="report-pin__body" style="background:'+color+'"></div>'+(m.glyph?'<span class="report-pin__glyph">'+String(m.glyph)+'</span>':'')+'</div>'
-        : '<div class="marker-dot" style="width:'+size+'px;height:'+size+'px;background:'+color+'"></div>';
-      var iconSize=m.iconSize||[size,size];
-      var iconAnchor=m.iconAnchor||[size/2,size/2];
+      var sel=m.selected?' m-sel':'';
+      var kind=m.kind||(m.isReport?'incident':'dot');
+      var markerHtml,iconSize,iconAnchor;
+      if(kind==='officer'){
+        markerHtml='<div class="m-shield" style="--c:'+color+'"></div>';
+        iconSize=[34,38];iconAnchor=[17,36];
+      }else if(kind==='zone'){
+        markerHtml='<div class="m-zone'+sel+'" style="background:'+color+'"></div>';
+        iconSize=[30,30];iconAnchor=[15,15];
+      }else if(kind==='incident'||m.isReport){
+        var glyph=m.glyph||'⚠';
+        markerHtml='<div class="m-pin"><span class="m-pin__shadow"></span><span class="m-pin__body'+sel+'" style="background:'+color+'"></span><span class="m-pin__glyph">'+String(glyph)+'</span></div>';
+        iconSize=[34,46];iconAnchor=[17,44];
+      }else{
+        markerHtml='<div class="marker-dot'+sel+'" style="width:'+size+'px;height:'+size+'px;background:'+color+'"></div>';
+        iconSize=m.iconSize||[size,size];iconAnchor=m.iconAnchor||[size/2,size/2];
+      }
       var icon=L.divIcon({
         className:'',
         html:markerHtml,
@@ -439,7 +510,7 @@ export function buildLeafletHTML({
         marker.bindTooltip(m.label,{
           permanent:false,
           direction:'top',
-          offset:[0,-size/2-2],
+          offset:[0,-iconAnchor[1]-2],
           className:'marker-tooltip',
         });
       }

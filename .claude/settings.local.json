@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git diff *)",
+      "Read(//e/WebSites/siara/api/contollers/**)",
+      "Read(//e/WebSites/siara/api/**)",
+      "Bash(grep -rl \"autoMergeReportOnCreate\" services/)",
+      "Bash(grep -rl \"function emitNotificationCreatedToUser\\\\|emitNotificationCreatedToUser\" services/notificationSocket.js)",
+      "Bash(grep -n \"\\\\\"mine\\\\\"\\\\|'mine'\" contollers/reports.js)",
+      "Bash(node --check contollers/reports.js)",
+      "Bash(ls client/preview)",
+      "Bash(sed -n '1,60p' client/src/theme/colors.js)",
+      "Bash(node -e ' *)"
     ]
   }
 }

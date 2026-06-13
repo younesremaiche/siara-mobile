@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AdminHeader from '../../components/layout/AdminHeader';
+import AdminLeafletMap from '../../components/map/AdminLeafletMap';
 import { fetchAdminIncident, submitAdminIncidentAction } from '../../services/adminIncidentsService';
 import { Colors } from '../../theme/colors';
 
@@ -217,15 +217,21 @@ export default function AdminIncidentReviewScreen() {
 
         <View style={styles.card}>
           {hasCoordinates ? (
-            <MapView
+            <AdminLeafletMap
               style={styles.map}
-              initialRegion={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
-              region={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng, latitudeDelta: 0.08, longitudeDelta: 0.08 }}
-              scrollEnabled={false}
-              zoomEnabled={false}
-            >
-              <Marker coordinate={{ latitude: incident.coordinates.lat, longitude: incident.coordinates.lng }} title={incident.title || formatLabel(incident.incidentType)} description={incident.location} />
-            </MapView>
+              interactive={false}
+              center={[incident.coordinates.lat, incident.coordinates.lng]}
+              zoom={13}
+              markers={[{
+                id: incident.reportId || 'incident',
+                lat: incident.coordinates.lat,
+                lng: incident.coordinates.lng,
+                color: Colors.adminInfo,
+                size: 18,
+                isReport: true,
+                label: incident.title || formatLabel(incident.incidentType),
+              }]}
+            />
           ) : (
             <View style={styles.mapPlaceholder}>
               <Ionicons name="map-outline" size={34} color={Colors.greyLight} />
@@ -379,7 +385,7 @@ const styles = StyleSheet.create({
   queueId: { color: Colors.adminText, fontSize: 13, fontWeight: '700' },
   inlineError: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
   inlineErrorText: { color: Colors.adminDanger, fontSize: 12, marginLeft: 8, flex: 1 },
-  map: { height: 230, borderRadius: 14 },
+  map: { height: 230, borderRadius: 14, overflow: 'hidden' },
   mapPlaceholder: { height: 220, borderRadius: 14, borderWidth: 1, borderColor: Colors.adminBorder, backgroundColor: 'rgba(255,255,255,0.02)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   sectionTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   statusText: { fontSize: 11, fontWeight: '700' },

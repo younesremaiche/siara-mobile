@@ -7,10 +7,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Callout } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { S } from '../../components/supervisor/SupervisorScreenFrame';
+import SupervisorLeafletMap from '../../components/supervisor/SupervisorLeafletMap';
 import { useSupervisorGlobalMap } from '../../features/supervisor/hooks/useSupervisorQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
@@ -69,15 +69,52 @@ export default function SupervisorMapScreen({ navigation }) {
   const incidents = data?.incidents || [];
   const officers  = data?.officers  || [];
 
-  const offWithCoords = officers.filter(o => o.lat && o.lng);
-  const incWithCoords = incidents
-    .filter(i => i.lat && i.lng)
-    .filter(i => sev === 'all' || severityBucket(i) === sev)
-    .filter(i => {
-      if (coverage === 'all') return true;
-      const assigned = Boolean(i.assignedOfficerId || i.assignedOfficerName);
-      return coverage === 'assigned' ? assigned : !assigned;
-    });
+  // Memoized so the Leaflet marker set keeps a stable identity between renders
+  // (a new array each render would reload the WebView on every poll/tap).
+  const offWithCoords = React.useMemo(
+    () => officers.filter(o => o.lat && o.lng),
+    [officers],
+  );
+  const incWithCoords = React.useMemo(
+    () => incidents
+      .filter(i => i.lat && i.lng)
+      .filter(i => sev === 'all' || severityBucket(i) === sev)
+      .filter(i => {
+        if (coverage === 'all') return true;
+        const assigned = Boolean(i.assignedOfficerId || i.assignedOfficerName);
+        return coverage === 'assigned' ? assigned : !assigned;
+      }),
+    [incidents, sev, coverage],
+  );
+
+  const markers = React.useMemo(() => {
+    const list = [];
+    if (layer !== 'officers') {
+      incWithCoords.forEach((inc) => list.push({
+        id: `inc-${inc.id}`,
+        lat: inc.lat,
+        lng: inc.lng,
+        color: severityColor(inc),
+        size: 16,
+        isReport: true,
+        label: inc.title || 'Incident',
+        kind: 'incident',
+        incidentId: inc.id,
+      }));
+    }
+    if (layer !== 'incidents') {
+      offWithCoords.forEach((off) => list.push({
+        id: `off-${off.id}`,
+        lat: off.lat,
+        lng: off.lng,
+        color: off.isOnDuty ? '#22C55E' : '#64748B',
+        size: 15,
+        label: `${off.name || 'Officer'}${off.isOnDuty ? ' · On duty' : ' · Off duty'}`,
+        kind: 'officer',
+      }));
+    }
+    return list;
+  }, [incWithCoords, offWithCoords, layer]);
 
   // Legend counts reflect what is currently visible after filtering.
   const sevCounts = { high: 0, medium: 0, low: 0 };
@@ -85,12 +122,7 @@ export default function SupervisorMapScreen({ navigation }) {
   const onDutyCount = offWithCoords.filter(o => o.isOnDuty).length;
 
   function fitMap() {
-    const all = [
-      ...(layer !== 'officers' ? incWithCoords.map(i => ({ latitude: i.lat, longitude: i.lng })) : []),
-      ...(layer !== 'incidents' ? offWithCoords.map(o => ({ latitude: o.lat, longitude: o.lng })) : []),
-    ];
-    if (all.length === 0 || !mapRef.current) return;
-    mapRef.current.fitToCoordinates(all, { edgePadding: { top: 60, right: 40, bottom: 60, left: 40 }, animated: true });
+    mapRef.current?.fit();
   }
 
   return (
@@ -181,76 +213,14 @@ export default function SupervisorMapScreen({ navigation }) {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-          <MapView
+          <SupervisorLeafletMap
             ref={mapRef}
             style={{ flex: 1 }}
-            initialRegion={ALGERIA_REGION}
-            onMapReady={fitMap}
-            mapType="standard"
-            showsUserLocation={false}
-            showsCompass
-            showsScale
-          >
-            {/* Incident markers */}
-            {layer !== 'officers' && incWithCoords.map(inc => (
-              <Marker
-                key={inc.id}
-                coordinate={{ latitude: inc.lat, longitude: inc.lng }}
-                pinColor={severityColor(inc)}
-              >
-                <Callout tooltip onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: inc.id })}>
-                  <View style={s.callout}>
-                    <Text style={s.calloutTitle} numberOfLines={2}>{inc.title || 'Incident'}</Text>
-                    {inc.locationLabel ? <Text style={s.calloutSub}>{inc.locationLabel}</Text> : null}
-                    <View style={s.calloutTags}>
-                      <Text style={[s.calloutTag, { color: severityColor(inc) }]}>
-                        {severityBucket(inc).toUpperCase()}
-                      </Text>
-                      <Text style={[s.calloutTag, { color: STATUS_COLOR[inc.status] || '#94A3B8' }]}>
-                        {(inc.status || '').replace(/_/g, ' ')}
-                      </Text>
-                    </View>
-                    <Text style={s.calloutSub}>
-                      {inc.assignedOfficerName ? `Officer: ${inc.assignedOfficerName}` : 'Unassigned'}
-                    </Text>
-                    <Text style={s.calloutLink}>Tap to view details ›</Text>
-                  </View>
-                </Callout>
-              </Marker>
-            ))}
-
-            {/* Officer markers */}
-            {layer !== 'incidents' && offWithCoords.map(off => (
-              <Marker
-                key={off.id}
-                coordinate={{ latitude: off.lat, longitude: off.lng }}
-              >
-                {/* Custom officer pin */}
-                <View style={[s.officerPin, { borderColor: off.isOnDuty ? '#22C55E' : '#64748B' }]}>
-                  <Ionicons name="shield" size={13} color={off.isOnDuty ? '#22C55E' : '#64748B'} />
-                </View>
-                <Callout tooltip>
-                  <View style={s.callout}>
-                    <Text style={s.calloutTitle}>{off.name || 'Officer'}</Text>
-                    {off.rank || off.badgeNumber ? (
-                      <Text style={s.calloutSub}>
-                        {[off.rank, off.badgeNumber ? `#${off.badgeNumber}` : null].filter(Boolean).join(' · ')}
-                      </Text>
-                    ) : null}
-                    <Text style={[s.calloutTag, { color: off.isOnDuty ? '#22C55E' : '#94A3B8', marginTop: 4 }]}>
-                      {off.isOnDuty ? 'ON DUTY' : 'OFF DUTY'}
-                    </Text>
-                    {(off.communeName || off.wilayaName) ? (
-                      <Text style={s.calloutSub}>{[off.communeName, off.wilayaName].filter(Boolean).join(', ')}</Text>
-                    ) : null}
-                    {off.locationCapturedAt ? (
-                      <Text style={s.calloutSub}>Last seen {relativeTime(off.locationCapturedAt)}</Text>
-                    ) : null}
-                  </View>
-                </Callout>
-              </Marker>
-            ))}
-          </MapView>
+            markers={markers}
+            onIncidentPress={(incidentId) =>
+              navigation.navigate('PoliceIncidentDetail', { incidentId })
+            }
+          />
 
           {/* Fit button */}
           <TouchableOpacity style={s.fitBtn} onPress={fitMap} activeOpacity={0.85}>

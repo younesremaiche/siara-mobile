@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const ITEMS = [
   { route: 'PoliceMyIncidents', icon: 'briefcase-outline', title: 'My Incidents', subtitle: 'Reports created by you or assigned to you' },
+  { route: 'PoliceOfficersMap', icon: 'map-outline', title: 'Zone Officers Map', subtitle: 'On-duty officers in your zone' },
   { route: 'PoliceFieldReports', icon: 'document-text-outline', title: 'Field Reports', subtitle: 'Citizen and officer reports for police review' },
   { route: 'PoliceOperationHistory', icon: 'time-outline', title: 'Operation History', subtitle: 'Audit log of officer actions' },
   { route: 'PoliceZoneSetup', icon: 'location-outline', title: 'Working Zone', subtitle: 'Review or update your current Wilaya and Commune' },

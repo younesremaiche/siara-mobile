@@ -150,6 +150,7 @@ export const POLICE_ROUTES = [
   'PoliceMyIncidents',
   'PoliceFieldReports',
   'PoliceOperationHistory',
+  'PoliceOfficersMap',
   'PoliceIncidentDetail',
 ];
 

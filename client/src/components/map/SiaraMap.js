@@ -32,6 +32,7 @@ import {
 import {
   fetchHeatmapClusters,
   fetchAlertZonesOverlay,
+  fetchForecastZones,
 } from '../../services/mapRiskService';
 import { isAbortError } from '../../utils/requestCache';
 import {
@@ -241,6 +242,8 @@ const SiaraMap = React.forwardRef(function SiaraMap({
   const [heatClustersError, setHeatClustersError] = useState('');
   const [alertZones, setAlertZones] = useState([]);
   const [alertZonesState, setAlertZonesState] = useState('idle');
+  const [forecastZones, setForecastZones] = useState([]);
+  const [forecastZonesState, setForecastZonesState] = useState('idle');
   const [pendingMapClick, setPendingMapClick] = useState(null);
 
   // ── Timestamp computation ──
@@ -483,7 +486,13 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     fetchAlertZonesOverlay({ signal: controller.signal })
       .then((data) => {
         if (controller.signal.aborted) return;
-        const zones = Array.isArray(data?.alerts) ? data.alerts : Array.isArray(data) ? data : [];
+        const zones = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.alerts)
+            ? data.alerts
+            : Array.isArray(data)
+              ? data
+              : [];
         setAlertZones(zones);
         setAlertZonesState('success');
       })
@@ -494,6 +503,43 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
     return () => { controller.abort(); };
   }, [mapLayer]);
+
+  // ── API: AI predicted danger zones ──
+  // Hotspots in the visible area scored by the occurrence model for the
+  // selected (forecast) time. Re-fires on pan/zoom and time change.
+  useEffect(() => {
+    if (mapLayer !== 'ai' || !mapBounds) {
+      setForecastZones([]);
+      setForecastZonesState('idle');
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setForecastZonesState('loading');
+      fetchForecastZones({
+        bounds: mapBounds,
+        timestamp: selectedTimestampIso,
+        zoom: mapBounds.zoom || mapViewport?.zoom || 12,
+        signal: controller.signal,
+      })
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          const zones = Array.isArray(data?.zones) ? data.zones : [];
+          setForecastZones(zones);
+          setForecastZonesState('success');
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return;
+          setForecastZonesState('error');
+        });
+    }, 350);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [mapLayer, mapBounds, selectedTimestampIso, mapViewport?.zoom]);
 
   // ── Memoized data ──
   const heatmapPoints = useMemo(
@@ -759,16 +805,21 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     const zoom = mapBounds?.zoom || mapViewport?.zoom || 10;
     const baseRadius = Math.max(150, 2500 / Math.pow(2, Math.max(0, zoom - 10)));
     return heatClusters
-      .filter((c) => c.lat != null && c.lng != null)
+      // Backend returns { lat, lon, reportCount, dominantSeverity, radiusMeters }.
+      // Accept the lng/count/severity aliases too so either shape renders.
+      .filter((c) => c.lat != null && (c.lng ?? c.lon) != null)
       .map((c) => {
-        const severity = c.severity || 'low';
-        const count = c.count || 1;
+        const severity = c.severity || c.dominantSeverity || 'low';
+        const count = c.count ?? c.reportCount ?? 1;
+        const serverRadius = Number(c.radiusMeters);
         return {
           lat: Number(c.lat),
-          lng: Number(c.lng),
+          lng: Number(c.lng ?? c.lon),
           count,
           severity,
-          radius: Math.round(baseRadius * (1 + Math.min(count - 1, 9) * 0.08)),
+          radius: serverRadius > 0
+            ? Math.round(serverRadius)
+            : Math.round(baseRadius * (1 + Math.min(count - 1, 9) * 0.08)),
           color: getDangerColor(severity),
           fillOpacity: Math.min(0.18 + count * 0.01, 0.35),
         };
@@ -777,22 +828,51 @@ const SiaraMap = React.forwardRef(function SiaraMap({
 
   const leafletAlertZones = useMemo(() => {
     if (mapLayer !== 'zones') return [];
+    // Alert items from GET /api/alerts have shape:
+    //   { zone: { center:{lat,lng}, radiusM, displayName }, severityLevels:[…], area:{ name, center } }
+    // Older overlay shapes (flat lat/lng) are kept as fallbacks.
+    const pickLat = (z) => z.zone?.center?.lat ?? z.area?.center?.lat ?? z.lat ?? z.latitude ?? z.zone?.lat ?? z.zone?.latitude;
+    const pickLng = (z) => z.zone?.center?.lng ?? z.area?.center?.lng ?? z.lng ?? z.longitude ?? z.zone?.lng ?? z.zone?.longitude;
+    const pickSeverity = (z) => {
+      const levels = Array.isArray(z.severityLevels) ? z.severityLevels.map((s) => String(s).toLowerCase()) : [];
+      if (levels.includes('high') || levels.includes('extreme')) return 'high';
+      if (levels.includes('medium') || levels.includes('moderate')) return 'medium';
+      if (levels.includes('low')) return 'low';
+      return z.severity ?? z.zone?.severity ?? 'medium';
+    };
     return alertZones
-      .filter((z) => {
-        const lat = z.lat ?? z.latitude ?? z.zone?.lat ?? z.zone?.latitude;
-        const lng = z.lng ?? z.longitude ?? z.zone?.lng ?? z.zone?.longitude;
-        return lat != null && lng != null;
-      })
+      .filter((z) => pickLat(z) != null && pickLng(z) != null)
       .map((z) => {
-        const lat = Number(z.lat ?? z.latitude ?? z.zone?.lat ?? z.zone?.latitude);
-        const lng = Number(z.lng ?? z.longitude ?? z.zone?.lng ?? z.zone?.longitude);
-        const severity = z.severity ?? z.zone?.severity ?? 'medium';
-        const name = z.name ?? z.zone?.name ?? z.title ?? 'Alert Zone';
-        const radius = Number(z.radius_m ?? z.zone?.radius_m ?? z.radius ?? 1000);
+        const lat = Number(pickLat(z));
+        const lng = Number(pickLng(z));
+        const severity = pickSeverity(z);
+        const name = z.zone?.displayName ?? z.area?.name ?? z.name ?? z.zone?.name ?? z.title ?? 'Alert zone';
+        // Radius zones carry radiusM; admin-area (wilaya/commune) zones are
+        // polygons with no radius — fall back to a visible default circle.
+        const radius = Number(z.zone?.radiusM ?? z.radius_m ?? z.zone?.radius_m ?? z.radius ?? 1500);
         const count = z.incident_count ?? z.count ?? null;
         return { lat, lng, severity, name, radius, count, color: getDangerColor(severity) };
       });
   }, [mapLayer, alertZones]);
+
+  const leafletForecastZones = useMemo(() => {
+    if (mapLayer !== 'ai') return [];
+    return forecastZones
+      .filter((z) => z.lat != null && z.lng != null)
+      .map((z) => {
+        const level = z.level || z.severity || 'low';
+        return {
+          lat: Number(z.lat),
+          lng: Number(z.lng),
+          radius: Number(z.radiusM) > 0 ? Number(z.radiusM) : 600,
+          percent: Number.isFinite(Number(z.percent)) ? Number(z.percent) : null,
+          level,
+          color: getDangerColor(z.severity || level),
+          roadSegmentId: z.roadSegmentId != null ? String(z.roadSegmentId) : null,
+          personalized: Boolean(z.personalized),
+        };
+      });
+  }, [mapLayer, forecastZones]);
 
   const mapClickEnabled = mapLayer === 'nearbyRoads';
 
@@ -872,9 +952,10 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       mapLayer,
       heatClusters: leafletHeatClusters,
       alertZones: leafletAlertZones,
+      forecastZones: leafletForecastZones,
       mapClickEnabled,
     });
-  }, [mapCenter, mapZoom, tileLayer, allLeafletMarkers, leafletCircles, leafletPolylines, userLocation, mapLayer, leafletHeatClusters, leafletAlertZones, mapClickEnabled]);
+  }, [mapCenter, mapZoom, tileLayer, allLeafletMarkers, leafletCircles, leafletPolylines, userLocation, mapLayer, leafletHeatClusters, leafletAlertZones, leafletForecastZones, mapClickEnabled]);
 
   // ── Send message to WebView ──
   const postToWebView = useCallback((message) => {
@@ -976,6 +1057,11 @@ const SiaraMap = React.forwardRef(function SiaraMap({
       }
       if (msg.type === 'polylinePress' && msg.segment) {
         guidedSegmentPressRef.current?.(msg.segment);
+      }
+      if (msg.type === 'forecastZonePress' && msg.roadSegmentId) {
+        // Reuse the segment XAI flow so a predicted-zone tap opens the same
+        // "why this risk?" panel as a tapped route segment.
+        guidedSegmentPressRef.current?.({ segment_id: String(msg.roadSegmentId) });
       }
     } catch {
       // ignore parse errors
@@ -1602,7 +1688,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
         </View>
       )}
 
-      {(overlayState === 'loading' || nearbyRoutesState === 'loading' || guidedRouteState === 'loading' || guidedRouteState === 'refreshing' || heatClustersState === 'loading' || alertZonesState === 'loading') && (
+      {(overlayState === 'loading' || nearbyRoutesState === 'loading' || guidedRouteState === 'loading' || guidedRouteState === 'refreshing' || heatClustersState === 'loading' || alertZonesState === 'loading' || forecastZonesState === 'loading') && (
         <View style={styles.layerLoadingBadge}>
           <ActivityIndicator size="small" color={Colors.white} />
           <Text style={styles.layerLoadingText}>
@@ -1610,7 +1696,9 @@ const SiaraMap = React.forwardRef(function SiaraMap({
               ? 'Loading heatmap clusters...'
               : alertZonesState === 'loading'
                 ? 'Loading alert zones...'
-                : overlayState === 'loading'
+                : forecastZonesState === 'loading'
+                  ? 'Forecasting danger zones...'
+                  : overlayState === 'loading'
                   ? 'Analyzing AI risk...'
                   : guidedRouteState === 'loading' || guidedRouteState === 'refreshing'
                     ? 'Calculating route options...'

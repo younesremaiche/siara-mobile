@@ -56,6 +56,7 @@ import PoliceFieldReportsScreen from '../screens/police/PoliceFieldReportsScreen
 import PoliceOperationHistoryScreen from '../screens/police/PoliceOperationHistoryScreen';
 import PoliceIncidentDetailScreen from '../screens/police/PoliceIncidentDetailScreen';
 import PoliceWorkZoneScreen from '../screens/police/PoliceWorkZoneScreen';
+import PoliceOfficersMapScreen from '../screens/police/PoliceOfficersMapScreen';
 
 import SupervisorDashboardScreen from '../screens/supervisor/SupervisorDashboardScreen';
 import SupervisorOfficersScreen from '../screens/supervisor/SupervisorOfficersScreen';
@@ -205,6 +206,7 @@ function PoliceStackNavigator({ requiresZoneSelection }) {
       <PoliceStack.Screen name="PoliceMyIncidents" component={PoliceMyIncidentsScreen} />
       <PoliceStack.Screen name="PoliceFieldReports" component={PoliceFieldReportsScreen} />
       <PoliceStack.Screen name="PoliceOperationHistory" component={PoliceOperationHistoryScreen} />
+      <PoliceStack.Screen name="PoliceOfficersMap" component={PoliceOfficersMapScreen} />
       <PoliceStack.Screen name="PoliceIncidentDetail" component={PoliceIncidentDetailScreen} />
     </PoliceStack.Navigator>
   );

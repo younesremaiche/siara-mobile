@@ -290,6 +290,15 @@ export async function getPoliceDashboard() {
   };
 }
 
+// On-duty officers in the caller's own work zone, excluding the caller.
+export async function getPoliceZoneOfficers() {
+  const payload = await apiRequest('/api/police/zone-officers', {
+    method: 'GET',
+    withAuth: true,
+  });
+  return Array.isArray(payload?.officers) ? payload.officers : [];
+}
+
 export async function listPoliceIncidents(params = {}) {
   const query = buildQuery(params);
   const payload = await apiRequest(`/api/police/incidents${query ? `?${query}` : ''}`, {

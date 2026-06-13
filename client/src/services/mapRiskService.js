@@ -14,10 +14,12 @@ import { TtlCache, boundsKey } from '../utils/requestCache';
 const HEATMAP_TTL_MS = 60_000;
 const ALERT_ZONES_TTL_MS = 90_000;
 const ZONE_PROFILES_TTL_MS = 10 * 60_000;
+const FORECAST_ZONES_TTL_MS = 60_000;
 
 const heatmapCache = new TtlCache({ ttlMs: HEATMAP_TTL_MS, max: 24 });
 const alertZonesCache = new TtlCache({ ttlMs: ALERT_ZONES_TTL_MS, max: 4 });
 const zoneProfilesCache = new TtlCache({ ttlMs: ZONE_PROFILES_TTL_MS, max: 4 });
+const forecastZonesCache = new TtlCache({ ttlMs: FORECAST_ZONES_TTL_MS, max: 24 });
 
 export async function fetchHeatmapClusters({
   bounds,
@@ -49,16 +51,55 @@ export async function fetchHeatmapClusters({
   return result;
 }
 
-// Note: the existing backend mounts a legacy /alerts (no /api prefix) used by
-// the map overlay. Kept as-is so we don't break the running app.
+// The authenticated user's own alert zones. GET /api/alerts is scoped to the
+// caller (fetchAlertsForUser(req.user.userId)) and returns { items: [...] }, so
+// the request must carry the Bearer token.
 export async function fetchAlertZonesOverlay({ signal, force = false } = {}) {
   const cacheKey = 'alert-zones-overlay';
   if (!force) {
     const cached = alertZonesCache.get(cacheKey);
     if (cached) return cached;
   }
-  const result = await request('/alerts', { method: 'GET', signal });
+  const result = await request('/api/alerts', { method: 'GET', signal, withAuth: true });
   alertZonesCache.set(cacheKey, result);
+  return result;
+}
+
+// AI "predicted danger zones" for the visible area. GET /api/occurrence-risk/
+// forecast-zones scores accident hotspots in-bounds with the occurrence model
+// for the forecast time (timestamp). Requires the Bearer token so the score
+// can be personalized to the driver.
+export async function fetchForecastZones({
+  bounds,
+  timestamp,
+  zoom,
+  hours,
+  signal,
+  force = false,
+} = {}) {
+  if (!bounds) throw new Error('fetchForecastZones: bounds required');
+  const cacheKey = `${boundsKey(bounds, 2)}:${timestamp || hours || 'now'}`;
+  if (!force) {
+    const cached = forecastZonesCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
+  const params = new URLSearchParams({
+    north: String(bounds.north),
+    south: String(bounds.south),
+    east: String(bounds.east),
+    west: String(bounds.west),
+    zoom: String(zoom ?? bounds.zoom ?? 12),
+  });
+  if (timestamp) params.set('timestamp', String(timestamp));
+  if (hours != null) params.set('hours', String(hours));
+
+  const result = await request(`/api/occurrence-risk/forecast-zones?${params}`, {
+    method: 'GET',
+    signal,
+    withAuth: true,
+  });
+  forecastZonesCache.set(cacheKey, result);
   return result;
 }
 
@@ -78,6 +119,7 @@ export function clearMapRiskCaches() {
   heatmapCache.clear();
   alertZonesCache.clear();
   zoneProfilesCache.clear();
+  forecastZonesCache.clear();
 }
 
 // Re-export so callers that mainly think in "map-layer" terms can find the
