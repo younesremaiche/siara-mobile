@@ -148,7 +148,17 @@ function AlertRow({ item }) {
           <SupervisorStatusPill status={item.status || (item.expired ? 'expired' : 'active')} />
         </View>
       </View>
-      <Text style={s.alertTime}>{relativeTime(item.createdAt)}</Text>
+      <View style={s.alertRight}>
+        <Text style={s.alertTime}>{relativeTime(item.createdAt)}</Text>
+        {item.read ? (
+          <View style={s.readRow}>
+            <Ionicons name="checkmark-done" size={12} color="#22C55E" />
+            <Text style={s.readText}>Read</Text>
+          </View>
+        ) : (
+          <View style={s.unreadDot} />
+        )}
+      </View>
     </View>
   );
 }
@@ -474,7 +484,11 @@ const s = StyleSheet.create({
   alertTitle: { color: S.light, fontSize: 13, fontWeight: '800' },
   alertDesc: { color: S.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
   alertMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 7 },
-  alertTime: { color: S.muted, fontSize: 10, minWidth: 44, textAlign: 'right', marginTop: 2 },
+  alertRight: { alignItems: 'flex-end', gap: 6, minWidth: 48 },
+  alertTime: { color: S.muted, fontSize: 10, textAlign: 'right' },
+  readRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  readText: { color: '#22C55E', fontSize: 10, fontWeight: '700' },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#F97316' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 24 },
   emptyText: { color: S.muted, fontSize: 13 },
   guidelineRow: {

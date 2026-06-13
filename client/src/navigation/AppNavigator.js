@@ -241,6 +241,7 @@ function SupervisorStackNavigator() {
       <SupervisorStack.Screen name="SupervisorAlerts"   component={SupervisorAlertsScreen}   />
       <SupervisorStack.Screen name="SupervisorAnalytics" component={SupervisorAnalyticsScreen} />
       <SupervisorStack.Screen name="SupervisorMap"       component={SupervisorMapScreen}       />
+      <SupervisorStack.Screen name="PoliceIncidentDetail" component={PoliceIncidentDetailScreen} />
     </SupervisorStack.Navigator>
   );
 }

@@ -150,9 +150,43 @@ export default function SupervisorDashboardScreen({ navigation }) {
         <Ionicons name="chevron-forward" size={16} color="rgba(28,18,0,0.5)" />
       </TouchableOpacity>
 
+      {/* Officer status breakdown — mirrors the web "Officer Status" card */}
+      <SupervisorSectionCard
+        title="Officer Status"
+        icon="people-outline"
+        action={(
+          <TouchableOpacity onPress={() => navigation.navigate('SupervisorOfficers')} activeOpacity={0.8} style={s.headerAction}>
+            <Text style={s.headerActionText}>Monitor</Text>
+            <Ionicons name="arrow-forward" size={13} color={S.accent} />
+          </TouchableOpacity>
+        )}
+      >
+        <View style={s.officerStatusRow}>
+          {[
+            { label: 'On Duty',  value: officerStatus.onDuty ?? 0,  color: '#22C55E' },
+            { label: 'Off Duty', value: officerStatus.offDuty ?? Math.max(0, (officerStatus.total ?? 0) - (officerStatus.onDuty ?? 0)), color: S.muted },
+            { label: 'Total',    value: officerStatus.total ?? 0,   color: '#3B82F6' },
+          ].map((o) => (
+            <View key={o.label} style={s.officerStatusCell}>
+              <Text style={[s.officerStatusValue, { color: o.color }]}>{o.value}</Text>
+              <Text style={s.officerStatusLabel}>{o.label}</Text>
+            </View>
+          ))}
+        </View>
+      </SupervisorSectionCard>
+
       {/* High-severity incidents */}
       {(data?.highSeverityIncidents || []).length > 0 && (
-        <SupervisorSectionCard title="High Severity Incidents" icon="warning-outline">
+        <SupervisorSectionCard
+          title="High Severity Incidents"
+          icon="warning-outline"
+          action={(
+            <TouchableOpacity onPress={() => navigation.navigate('SupervisorIncidents')} activeOpacity={0.8} style={s.headerAction}>
+              <Text style={s.headerActionText}>Coordinate</Text>
+              <Ionicons name="arrow-forward" size={13} color={S.accent} />
+            </TouchableOpacity>
+          )}
+        >
           {data.highSeverityIncidents.map((inc) => (
             <SupervisorListItem
               key={inc.id}
@@ -163,7 +197,7 @@ export default function SupervisorDashboardScreen({ navigation }) {
                 relativeTime(inc.createdAt),
               ]}
               right={<SupervisorSeverityTag severity={inc.severity || (inc.severityHint >= 4 ? 'critical' : 'high')} />}
-              onPress={() => navigation.navigate('SupervisorIncidents')}
+              onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: inc.id })}
             />
           ))}
         </SupervisorSectionCard>
@@ -221,6 +255,13 @@ const s = StyleSheet.create({
   },
   kpiValue: { color: S.light, fontSize: 18, fontWeight: '900' },
   kpiLabel: { color: S.muted, fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 },
+
+  headerAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerActionText: { color: S.accent, fontSize: 12, fontWeight: '800' },
+  officerStatusRow: { flexDirection: 'row' },
+  officerStatusCell: { flex: 1, alignItems: 'center', gap: 3 },
+  officerStatusValue: { fontSize: 22, fontWeight: '900' },
+  officerStatusLabel: { color: S.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
 
   qaRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   qaBtn: { width: '22%', alignItems: 'center', gap: 7, paddingVertical: 10 },

@@ -29,10 +29,32 @@ function severityColor(inc) {
   return '#22C55E';
 }
 
+function severityBucket(inc) {
+  const s = String(inc.severity || '').toLowerCase();
+  if (s) return s === 'critical' ? 'high' : s;
+  const h = inc.severityHint || 0;
+  if (h >= 3) return 'high';
+  if (h === 2) return 'medium';
+  return 'low';
+}
+
+function relativeTime(val) {
+  if (!val) return '';
+  const diff = Date.now() - new Date(val).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 const ALGERIA_REGION = { latitude: 28.0, longitude: 2.5, latitudeDelta: 14, longitudeDelta: 14 };
 
 export default function SupervisorMapScreen({ navigation }) {
   const [layer, setLayer] = React.useState('both'); // 'incidents' | 'officers' | 'both'
+  const [sev, setSev] = React.useState('all');         // all | high | medium | low
+  const [coverage, setCoverage] = React.useState('all'); // all | assigned | unassigned
   const mapRef = React.useRef(null);
 
   // useSupervisorGlobalMap already polls every 30s and shares its cache, so an
@@ -47,8 +69,20 @@ export default function SupervisorMapScreen({ navigation }) {
   const incidents = data?.incidents || [];
   const officers  = data?.officers  || [];
 
-  const incWithCoords = incidents.filter(i => i.lat && i.lng);
   const offWithCoords = officers.filter(o => o.lat && o.lng);
+  const incWithCoords = incidents
+    .filter(i => i.lat && i.lng)
+    .filter(i => sev === 'all' || severityBucket(i) === sev)
+    .filter(i => {
+      if (coverage === 'all') return true;
+      const assigned = Boolean(i.assignedOfficerId || i.assignedOfficerName);
+      return coverage === 'assigned' ? assigned : !assigned;
+    });
+
+  // Legend counts reflect what is currently visible after filtering.
+  const sevCounts = { high: 0, medium: 0, low: 0 };
+  incWithCoords.forEach(i => { const b = severityBucket(i); if (sevCounts[b] != null) sevCounts[b] += 1; });
+  const onDutyCount = offWithCoords.filter(o => o.isOnDuty).length;
 
   function fitMap() {
     const all = [
@@ -99,6 +133,36 @@ export default function SupervisorMapScreen({ navigation }) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Severity + coverage filters (apply to incidents) */}
+        {layer !== 'officers' ? (
+          <>
+            <View style={[s.layerRow, { marginTop: 8 }]}>
+              {[['all', 'All Sev'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([key, label]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[s.layerBtn, sev === key && s.layerBtnActive]}
+                  onPress={() => setSev(key)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[s.layerText, sev === key && s.layerTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={[s.layerRow, { marginTop: 8 }]}>
+              {[['all', 'All'], ['assigned', 'Assigned'], ['unassigned', 'Unassigned']].map(([key, label]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[s.layerBtn, coverage === key && s.layerBtnActive]}
+                  onPress={() => setCoverage(key)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[s.layerText, coverage === key && s.layerTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        ) : null}
       </LinearGradient>
 
       {/* Map */}
@@ -134,23 +198,22 @@ export default function SupervisorMapScreen({ navigation }) {
                 coordinate={{ latitude: inc.lat, longitude: inc.lng }}
                 pinColor={severityColor(inc)}
               >
-                <Callout tooltip>
+                <Callout tooltip onPress={() => navigation.navigate('PoliceIncidentDetail', { incidentId: inc.id })}>
                   <View style={s.callout}>
                     <Text style={s.calloutTitle} numberOfLines={2}>{inc.title || 'Incident'}</Text>
                     {inc.locationLabel ? <Text style={s.calloutSub}>{inc.locationLabel}</Text> : null}
                     <View style={s.calloutTags}>
-                      {inc.severity && (
-                        <Text style={[s.calloutTag, { color: severityColor(inc) }]}>
-                          {inc.severity.toUpperCase()}
-                        </Text>
-                      )}
+                      <Text style={[s.calloutTag, { color: severityColor(inc) }]}>
+                        {severityBucket(inc).toUpperCase()}
+                      </Text>
                       <Text style={[s.calloutTag, { color: STATUS_COLOR[inc.status] || '#94A3B8' }]}>
                         {(inc.status || '').replace(/_/g, ' ')}
                       </Text>
                     </View>
-                    {inc.assignedOfficerName && (
-                      <Text style={s.calloutSub}>Officer: {inc.assignedOfficerName}</Text>
-                    )}
+                    <Text style={s.calloutSub}>
+                      {inc.assignedOfficerName ? `Officer: ${inc.assignedOfficerName}` : 'Unassigned'}
+                    </Text>
+                    <Text style={s.calloutLink}>Tap to view details ›</Text>
                   </View>
                 </Callout>
               </Marker>
@@ -177,7 +240,12 @@ export default function SupervisorMapScreen({ navigation }) {
                     <Text style={[s.calloutTag, { color: off.isOnDuty ? '#22C55E' : '#94A3B8', marginTop: 4 }]}>
                       {off.isOnDuty ? 'ON DUTY' : 'OFF DUTY'}
                     </Text>
-                    {off.communeName && <Text style={s.calloutSub}>{off.communeName}</Text>}
+                    {(off.communeName || off.wilayaName) ? (
+                      <Text style={s.calloutSub}>{[off.communeName, off.wilayaName].filter(Boolean).join(', ')}</Text>
+                    ) : null}
+                    {off.locationCapturedAt ? (
+                      <Text style={s.calloutSub}>Last seen {relativeTime(off.locationCapturedAt)}</Text>
+                    ) : null}
                   </View>
                 </Callout>
               </Marker>
@@ -189,24 +257,30 @@ export default function SupervisorMapScreen({ navigation }) {
             <Ionicons name="expand-outline" size={20} color={S.light} />
           </TouchableOpacity>
 
-          {/* Legend */}
+          {/* Legend with live counts */}
           <View style={s.legend}>
-            <View style={s.legendItem}>
-              <View style={[s.legendDot, { backgroundColor: '#EF4444' }]} />
-              <Text style={s.legendText}>Critical</Text>
-            </View>
-            <View style={s.legendItem}>
-              <View style={[s.legendDot, { backgroundColor: '#F97316' }]} />
-              <Text style={s.legendText}>High</Text>
-            </View>
-            <View style={s.legendItem}>
-              <View style={[s.legendDot, { backgroundColor: '#EAB308' }]} />
-              <Text style={s.legendText}>Medium</Text>
-            </View>
-            <View style={s.legendItem}>
-              <Ionicons name="shield" size={12} color="#22C55E" />
-              <Text style={s.legendText}>Officer</Text>
-            </View>
+            {layer !== 'officers' ? (
+              <>
+                <View style={s.legendItem}>
+                  <View style={[s.legendDot, { backgroundColor: '#F97316' }]} />
+                  <Text style={s.legendText}>High {sevCounts.high}</Text>
+                </View>
+                <View style={s.legendItem}>
+                  <View style={[s.legendDot, { backgroundColor: '#EAB308' }]} />
+                  <Text style={s.legendText}>Med {sevCounts.medium}</Text>
+                </View>
+                <View style={s.legendItem}>
+                  <View style={[s.legendDot, { backgroundColor: '#22C55E' }]} />
+                  <Text style={s.legendText}>Low {sevCounts.low}</Text>
+                </View>
+              </>
+            ) : null}
+            {layer !== 'incidents' ? (
+              <View style={s.legendItem}>
+                <Ionicons name="shield" size={12} color="#22C55E" />
+                <Text style={s.legendText}>{onDutyCount}/{offWithCoords.length} on duty</Text>
+              </View>
+            ) : null}
           </View>
         </View>
       )}
@@ -261,6 +335,7 @@ const s = StyleSheet.create({
   calloutSub:   { color: S.muted, fontSize: 11, marginTop: 2 },
   calloutTags:  { flexDirection: 'row', gap: 8, marginTop: 4 },
   calloutTag:   { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  calloutLink:  { color: S.accent, fontSize: 11, fontWeight: '800', marginTop: 6 },
 
   officerPin: {
     width: 28, height: 28, borderRadius: 8,

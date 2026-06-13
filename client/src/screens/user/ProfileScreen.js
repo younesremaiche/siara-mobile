@@ -87,6 +87,7 @@ export default function ProfileScreen({ navigation }) {
   const [editBio, setEditBio] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
   const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
+  const [headerViewerVisible, setHeaderViewerVisible] = useState(false);
 
   const initials = (user?.name || 'User')
     .split(' ')
@@ -101,6 +102,13 @@ export default function ProfileScreen({ navigation }) {
     : isPolice
       ? 'Police & Community Member'
       : 'Community Member';
+  const userAvatar = user?.avatarUri || user?.avatar_url || '';
+
+  // Real profile completion: share of the editable fields that are filled in.
+  const completionFields = [user?.name, user?.email, user?.phone, user?.location, user?.bio, userAvatar];
+  const completion = Math.round(
+    (completionFields.filter((f) => f && String(f).trim()).length / completionFields.length) * 100,
+  );
 
   function openEditProfile() {
     setEditName(user?.name || '');
@@ -157,7 +165,11 @@ export default function ProfileScreen({ navigation }) {
       phone: editPhone.trim(),
       location: editLocation.trim(),
       bio: editBio.trim(),
+      // Clear BOTH avatar fields so removing the photo actually sticks — the
+      // header falls back to avatar_url, so leaving it set would keep the old
+      // picture visible after a "Remove" + Save.
       avatarUri: editAvatar || null,
+      avatar_url: editAvatar || null,
     };
     setUser(updated);
     setEditVisible(false);
@@ -215,56 +227,73 @@ export default function ProfileScreen({ navigation }) {
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {/* Profile header */}
-      <View style={styles.profileHeader}>
-        <View style={styles.headerBg} />
+      {/* Profile header — gradient hero */}
+      <LinearGradient
+        colors={[Colors.gradientFrom, Colors.gradientTo]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        <View style={styles.heroDecor1} />
+        <View style={styles.heroDecor2} />
+
         <View style={styles.avatarSection}>
-          <View style={styles.avatarOuter}>
-            <View style={styles.avatar}>
-              {user?.avatarUri || user?.avatar_url ? (
-                <Image
-                  source={{ uri: user.avatarUri || user.avatar_url }}
-                  style={styles.avatarImage}
-                />
-              ) : (
-                <Text style={styles.avatarText}>{initials}</Text>
-              )}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => (userAvatar ? setHeaderViewerVisible(true) : openEditProfile())}
+          >
+            <View style={styles.avatarOuter}>
+              <View style={styles.avatar}>
+                {userAvatar ? (
+                  <Image source={{ uri: userAvatar }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarText}>{initials}</Text>
+                )}
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
           <Text style={styles.name}>{user?.name || 'User'}</Text>
           <Text style={styles.email}>{user?.email || 'user@siara.dz'}</Text>
           <View style={styles.roleBadge}>
-            <Ionicons
-              name={roleIconName}
-              size={12}
-              color={Colors.primary}
-            />
-            <Text style={styles.roleText}>
-              {roleLabel}
-            </Text>
+            <Ionicons name={roleIconName} size={12} color={Colors.white} />
+            <Text style={styles.roleText}>{roleLabel}</Text>
           </View>
 
           {/* Extra profile info */}
-          {(user?.phone || user?.location || user?.bio) && (
-            <View style={styles.profileInfoRow}>
+          {(user?.phone || user?.location) && (
+            <View style={styles.heroInfoRow}>
               {!!user?.phone && (
-                <View style={styles.profileInfoItem}>
-                  <Ionicons name="call-outline" size={13} color={Colors.subtext} />
-                  <Text style={styles.profileInfoText}>{user.phone}</Text>
+                <View style={styles.heroInfoItem}>
+                  <Ionicons name="call-outline" size={12} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.heroInfoText}>{user.phone}</Text>
                 </View>
               )}
               {!!user?.location && (
-                <View style={styles.profileInfoItem}>
-                  <Ionicons name="location-outline" size={13} color={Colors.subtext} />
-                  <Text style={styles.profileInfoText}>{user.location}</Text>
+                <View style={styles.heroInfoItem}>
+                  <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.heroInfoText}>{user.location}</Text>
                 </View>
-              )}
-              {!!user?.bio && (
-                <Text style={styles.profileBioText}>{user.bio}</Text>
               )}
             </View>
           )}
+          {!!user?.bio && <Text style={styles.heroBio}>{user.bio}</Text>}
         </View>
+      </LinearGradient>
+
+      {/* Floating stats card — overlaps the hero for a layered, premium feel */}
+      <View style={styles.statsCard}>
+        {stats.map((s, i) => (
+          <React.Fragment key={s.label}>
+            {i > 0 ? <View style={styles.statDivider} /> : null}
+            <View style={styles.statCol}>
+              <View style={[styles.statIconWrap, { backgroundColor: `${s.color}14` }]}>
+                <Ionicons name={s.icon} size={18} color={s.color} />
+              </View>
+              <Text style={styles.statValue}>{s.value}</Text>
+              <Text style={styles.statLabel}>{s.label}</Text>
+            </View>
+          </React.Fragment>
+        ))}
       </View>
 
       {/* Return to Police mode — only when a police officer is currently in user view */}
@@ -287,31 +316,19 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       ) : null}
 
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        {stats.map((s) => (
-          <View key={s.label} style={styles.statCard}>
-            <View style={[styles.statIconWrap, { backgroundColor: `${s.color}14` }]}>
-              <Ionicons name={s.icon} size={18} color={s.color} />
-            </View>
-            <Text style={styles.statValue}>{s.value}</Text>
-            <Text style={styles.statLabel}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-
       {/* Profile Completion */}
       <View style={styles.completionCard}>
         <View style={styles.completionHeader}>
           <Text style={styles.completionTitle}>Profile Completion</Text>
-          <Text style={styles.completionPct}>65%</Text>
+          <Text style={styles.completionPct}>{completion}%</Text>
         </View>
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: '65%' }]} />
+          <View style={[styles.progressFill, { width: `${completion}%` }]} />
         </View>
         <Text style={styles.completionHint}>
-          Complete your profile to unlock all features
+          {completion >= 100
+            ? 'Your profile is complete — nicely done!'
+            : 'Complete your profile to unlock all features'}
         </Text>
       </View>
 
@@ -411,29 +428,30 @@ export default function ProfileScreen({ navigation }) {
                 activeOpacity={0.7}
                 onPress={() => navigation.navigate('Alerts')}
               >
-                <View style={styles.activityItemRow}>
+                <View style={[styles.activityAccent, { backgroundColor: getSeverityColor(a.severity) }]} />
+                <View style={styles.activityBody}>
                   <Text style={styles.activityItemTitle} numberOfLines={1}>{a.name}</Text>
+                  <View style={styles.activityItemMeta}>
+                    {a.area?.label || a.zone?.label ? (
+                      <View style={styles.activityMetaItem}>
+                        <Ionicons name="location-outline" size={12} color={Colors.subtext} />
+                        <Text style={styles.activityMetaText} numberOfLines={1}>
+                          {a.area?.label || a.zone?.label}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.activityMetaItem}>
+                      <Ionicons name="time-outline" size={12} color={Colors.subtext} />
+                      <Text style={styles.activityMetaText}>Last: {a.lastTriggered || 'Never'}</Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.activityPills}>
                   <View style={[styles.severityPill, { backgroundColor: `${getSeverityColor(a.severity)}1A` }]}>
                     <Text style={[styles.severityPillText, { color: getSeverityColor(a.severity) }]}>
                       {String(a.severity || 'low').toUpperCase()}
                     </Text>
                   </View>
-                </View>
-                <View style={styles.activityItemMeta}>
-                  {a.area?.label || a.zone?.label ? (
-                    <View style={styles.activityMetaItem}>
-                      <Ionicons name="location" size={12} color={Colors.subtext} />
-                      <Text style={styles.activityMetaText} numberOfLines={1}>
-                        {a.area?.label || a.zone?.label}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {a.lastTriggered ? (
-                    <View style={styles.activityMetaItem}>
-                      <Ionicons name="time-outline" size={12} color={Colors.subtext} />
-                      <Text style={styles.activityMetaText}>Last: {a.lastTriggered}</Text>
-                    </View>
-                  ) : null}
                   <View style={[styles.statusPill, a.status === 'active' ? styles.statusPillActive : styles.statusPillPaused]}>
                     <Text style={[styles.statusPillText, a.status === 'active' ? styles.statusPillActiveText : styles.statusPillPausedText]}>
                       {a.status?.toUpperCase() || 'ACTIVE'}
@@ -461,27 +479,30 @@ export default function ProfileScreen({ navigation }) {
               activeOpacity={0.7}
               onPress={() => navigation.navigate('IncidentDetail', { reportId: r.id })}
             >
-              <View style={styles.activityItemRow}>
+              <View style={[styles.activityAccent, { backgroundColor: getSeverityColor(r.severity) }]} />
+              <View style={styles.activityBody}>
                 <Text style={styles.activityItemTitle} numberOfLines={1}>{r.title}</Text>
+                <View style={styles.activityItemMeta}>
+                  {r.locationLabel ? (
+                    <View style={styles.activityMetaItem}>
+                      <Ionicons name="location-outline" size={12} color={Colors.subtext} />
+                      <Text style={styles.activityMetaText} numberOfLines={1}>{r.locationLabel}</Text>
+                    </View>
+                  ) : null}
+                  {r.relativeTime ? (
+                    <View style={styles.activityMetaItem}>
+                      <Ionicons name="time-outline" size={12} color={Colors.subtext} />
+                      <Text style={styles.activityMetaText}>{r.relativeTime}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.activityPills}>
                 <View style={[styles.severityPill, { backgroundColor: `${getSeverityColor(r.severity)}1A` }]}>
                   <Text style={[styles.severityPillText, { color: getSeverityColor(r.severity) }]}>
                     {String(r.severity || 'low').toUpperCase()}
                   </Text>
                 </View>
-              </View>
-              <View style={styles.activityItemMeta}>
-                {r.locationLabel ? (
-                  <View style={styles.activityMetaItem}>
-                    <Ionicons name="location" size={12} color={Colors.subtext} />
-                    <Text style={styles.activityMetaText} numberOfLines={1}>{r.locationLabel}</Text>
-                  </View>
-                ) : null}
-                {r.relativeTime ? (
-                  <View style={styles.activityMetaItem}>
-                    <Ionicons name="time-outline" size={12} color={Colors.subtext} />
-                    <Text style={styles.activityMetaText}>{r.relativeTime}</Text>
-                  </View>
-                ) : null}
                 <View style={[styles.statusPill, r.status === 'verified' ? styles.statusPillActive : styles.statusPillPaused]}>
                   <Text style={[styles.statusPillText, r.status === 'verified' ? styles.statusPillActiveText : styles.statusPillPausedText]}>
                     {r.status?.toUpperCase() || 'PENDING'}
@@ -706,6 +727,13 @@ export default function ProfileScreen({ navigation }) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Tap the header avatar to view it full-screen */}
+      <PhotoViewer
+        visible={headerViewerVisible}
+        images={userAvatar ? [{ id: 'me', url: userAvatar }] : []}
+        onClose={() => setHeaderViewerVisible(false)}
+      />
+
       <View style={styles.bottomSpacer} />
     </ScrollView>
 
@@ -728,44 +756,44 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  /* Profile header */
-  profileHeader: {
-    alignItems: 'center',
-    paddingBottom: 20,
+  /* Profile header — gradient hero */
+  hero: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 46,
+    paddingBottom: 34,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    overflow: 'hidden',
   },
-  headerBg: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 160,
-    backgroundColor: Colors.btnPrimary,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+  heroDecor1: {
+    position: 'absolute', top: -50, right: -40,
+    width: 170, height: 170, borderRadius: 85,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  heroDecor2: {
+    position: 'absolute', bottom: -40, left: -30,
+    width: 130, height: 130, borderRadius: 65,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   avatarSection: {
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 70 : 58,
+    paddingTop: 4,
   },
   avatarOuter: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: Colors.white,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
     marginBottom: 14,
   },
   avatar: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: Colors.violetLight,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: Colors.white,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -780,31 +808,48 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   name: {
-    color: Colors.heading,
+    color: Colors.white,
     fontSize: 22,
     fontWeight: '800',
   },
   email: {
-    color: Colors.subtext,
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 13,
     marginTop: 4,
   },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.violetLight,
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 12,
-    marginTop: 8,
+    marginTop: 10,
     borderWidth: 1,
-    borderColor: Colors.violetBorder,
+    borderColor: 'rgba(255,255,255,0.28)',
   },
   roleText: {
-    color: Colors.primary,
+    color: Colors.white,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  heroInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 14,
+    marginTop: 12,
+  },
+  heroInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  heroInfoText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
+  heroBio: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 30,
+    lineHeight: 18,
   },
 
   /* Police banner */
@@ -840,13 +885,25 @@ const styles = StyleSheet.create({
   policeBannerTitle: { color: '#F1F5F9', fontSize: 13, fontWeight: '800' },
   policeBannerSub: { color: 'rgba(241,245,249,0.55)', fontSize: 11, marginTop: 2 },
 
-  /* Stats */
-  statsRow: {
+  /* Stats — floating card overlapping the hero */
+  statsCard: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 10,
-    marginTop: 4,
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: -12,
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
   },
+  statCol: { flex: 1, alignItems: 'center', gap: 6 },
+  statDivider: { width: 1, height: 44, backgroundColor: Colors.border },
   modeSwitchCard: {
     marginHorizontal: 20,
     marginTop: 16,
@@ -927,15 +984,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 18,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   completionHeader: {
     flexDirection: 'row',
@@ -946,7 +1003,7 @@ const styles = StyleSheet.create({
   completionTitle: {
     color: Colors.heading,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   completionPct: {
     color: Colors.primary,
@@ -975,15 +1032,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -1048,14 +1105,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
     elevation: 2,
   },
   activityHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
@@ -1101,21 +1158,24 @@ const styles = StyleSheet.create({
   activityEmpty: { paddingVertical: 24, alignItems: 'center', gap: 6 },
   activityEmptyText: { color: Colors.subtext, fontSize: 13, fontWeight: '600' },
   activityEmptyAction: { color: Colors.primary, fontSize: 13, fontWeight: '700', marginTop: 4 },
-  activityItem: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.border },
-  activityItemRow: {
+  activityItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
+    gap: 12,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
-  activityItemTitle: { flex: 1, color: Colors.heading, fontSize: 14, fontWeight: '700' },
+  activityAccent: { width: 4, alignSelf: 'stretch', borderRadius: 2, minHeight: 38 },
+  activityBody: { flex: 1, gap: 6 },
+  activityItemTitle: { color: Colors.heading, fontSize: 14, fontWeight: '700' },
   activityItemMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  activityMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '60%' },
+  activityMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '70%' },
   activityMetaText: { color: Colors.subtext, fontSize: 12 },
+  activityPills: { alignItems: 'flex-end', gap: 5 },
   severityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   severityPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
-  statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginLeft: 'auto' },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   statusPillActive: { backgroundColor: 'rgba(15,169,88,0.12)' },
   statusPillPaused: { backgroundColor: Colors.bg },
   statusPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
@@ -1127,15 +1187,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 4,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   menuTitle: {
     color: Colors.heading,
@@ -1175,15 +1235,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   safetyHeader: {
     flexDirection: 'row',

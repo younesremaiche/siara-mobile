@@ -23,6 +23,35 @@ function pct(value, total) {
   return Math.min(100, Math.round((value / total) * 100));
 }
 
+function shortDate(iso) {
+  if (!iso) return '';
+  const str = String(iso);
+  return str.length >= 10 ? str.slice(5) : str; // YYYY-MM-DD -> MM-DD
+}
+
+/* ── Daily trend (vertical bars) ───────────────────────────────── */
+function DailyTrend({ data }) {
+  if (!data?.length) return null;
+  const max = Math.max(...data.map(d => Number(d.count) || 0), 1);
+  const labelIdx = [0, Math.floor((data.length - 1) / 2), data.length - 1];
+  return (
+    <View>
+      <View style={s.trendBars}>
+        {data.map((d, i) => (
+          <View key={d.date || i} style={s.trendCol}>
+            <View style={[s.trendBar, { height: `${Math.max(3, ((Number(d.count) || 0) / max) * 100)}%` }]} />
+          </View>
+        ))}
+      </View>
+      <View style={s.trendAxis}>
+        {labelIdx.map((idx, k) => (
+          <Text key={k} style={s.trendAxisLabel}>{shortDate(data[idx]?.date)}</Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 /* ── Bar chart row ─────────────────────────────────────────────── */
 function BarRow({ label, value, total, color }) {
   const w = pct(value, total);
@@ -72,6 +101,7 @@ export default function SupervisorAnalyticsScreen({ navigation }) {
   const bySev     = data?.incidentsBySeverity || {};
   const zones     = data?.busiestZones || [];
   const officers  = data?.officerWorkload || [];
+  const trend     = data?.trendByDay || [];
   const totalInc  = metrics.totalIncidents || 0;
 
   return (
@@ -119,6 +149,13 @@ export default function SupervisorAnalyticsScreen({ navigation }) {
           ))}
         </View>
       </SupervisorSectionCard>
+
+      {/* Daily trend */}
+      {trend.length > 0 && (
+        <SupervisorSectionCard title={`Daily Trend — Last ${days} Days`} icon="trending-up-outline">
+          <DailyTrend data={trend} />
+        </SupervisorSectionCard>
+      )}
 
       {/* By status */}
       {Object.keys(byStatus).length > 0 && (
@@ -199,6 +236,12 @@ const s = StyleSheet.create({
   periodBtnActive: { backgroundColor: 'rgba(245,158,11,0.18)', borderColor: 'rgba(245,158,11,0.5)' },
   periodText:      { color: S.muted, fontSize: 12, fontWeight: '800' },
   periodTextActive:{ color: S.accent },
+
+  trendBars: { flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 2 },
+  trendCol:  { flex: 1, height: '100%', justifyContent: 'flex-end' },
+  trendBar:  { width: '100%', backgroundColor: S.accent, borderRadius: 3, minHeight: 3 },
+  trendAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  trendAxisLabel: { color: S.muted, fontSize: 10 },
 
   metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   metricCard: {

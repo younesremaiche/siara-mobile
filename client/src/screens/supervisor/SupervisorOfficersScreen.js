@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import SupervisorScreenFrame, {
@@ -20,10 +20,18 @@ function relativeTime(val) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function OfficerCard({ officer }) {
+function officerZone(officer) {
+  return [
+    officer.communeName || officer.workZone?.commune?.name,
+    officer.wilayaName || officer.workZone?.wilaya?.name,
+  ].filter(Boolean).join(', ');
+}
+
+function OfficerCard({ officer, onPress }) {
   const onDuty = officer.isOnDuty === true;
+  const zone = officerZone(officer);
   return (
-    <View style={s.card}>
+    <TouchableOpacity style={s.card} onPress={() => onPress(officer)} activeOpacity={0.8}>
       {/* Avatar + status */}
       <View style={s.avatarWrap}>
         <View style={s.avatar}>
@@ -49,14 +57,12 @@ function OfficerCard({ officer }) {
             {[officer.rank, officer.badgeNumber ? `#${officer.badgeNumber}` : null].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
-        {(officer.communeName || officer.wilayaName) && (
+        {zone ? (
           <View style={s.zoneRow}>
             <Ionicons name="location-outline" size={11} color={S.muted} />
-            <Text style={s.zone}>
-              {[officer.communeName, officer.wilayaName].filter(Boolean).join(', ')}
-            </Text>
+            <Text style={s.zone}>{zone}</Text>
           </View>
-        )}
+        ) : null}
         {officer.locationCapturedAt && (
           <View style={s.seenRow}>
             <Ionicons name="time-outline" size={11} color={S.muted} />
@@ -64,13 +70,65 @@ function OfficerCard({ officer }) {
           </View>
         )}
       </View>
-    </View>
+      <Ionicons name="chevron-forward" size={16} color={S.muted} style={{ alignSelf: 'center' }} />
+    </TouchableOpacity>
+  );
+}
+
+/* ── Officer detail sheet ─────────────────────────────────────── */
+function OfficerDetailModal({ officer, onClose }) {
+  const onDuty = officer.isOnDuty === true;
+  const zone = officerZone(officer) || 'Not set';
+  const rows = [
+    { icon: 'shield-outline',    label: 'Rank',         value: officer.rank || '—' },
+    { icon: 'pricetag-outline',  label: 'Badge',        value: officer.badgeNumber ? `#${officer.badgeNumber}` : '—' },
+    { icon: 'mail-outline',      label: 'Email',        value: officer.email || '—' },
+    { icon: 'call-outline',      label: 'Phone',        value: officer.phone || '—' },
+    { icon: 'location-outline',  label: 'Work Zone',    value: zone },
+    { icon: 'time-outline',      label: 'Last Location', value: officer.locationCapturedAt ? relativeTime(officer.locationCapturedAt) : 'No recent ping' },
+  ];
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={d.overlay}>
+        <View style={d.sheet}>
+          <View style={d.handle} />
+          <View style={d.head}>
+            <View style={d.avatar}>
+              <Text style={d.avatarText}>
+                {(officer.name || 'O').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={d.name}>{officer.name || 'Unknown Officer'}</Text>
+              <View style={[s.dutyBadge, { alignSelf: 'flex-start', marginTop: 4, backgroundColor: onDuty ? 'rgba(34,197,94,0.14)' : 'rgba(100,116,139,0.14)' }]}>
+                <Text style={[s.dutyText, { color: onDuty ? '#22C55E' : '#94A3B8' }]}>
+                  {onDuty ? 'ON DUTY' : 'OFF DUTY'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {rows.map(r => (
+            <View key={r.label} style={d.row}>
+              <Ionicons name={r.icon} size={15} color={S.accent} style={{ width: 22 }} />
+              <Text style={d.rowLabel}>{r.label}</Text>
+              <Text style={d.rowValue} numberOfLines={1}>{r.value}</Text>
+            </View>
+          ))}
+
+          <TouchableOpacity style={d.closeBtn} onPress={onClose} activeOpacity={0.85}>
+            <Text style={d.closeBtnText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 export default function SupervisorOfficersScreen({ navigation }) {
   const [search, setSearch] = React.useState('');
   const [filter, setFilter] = React.useState('all'); // all | on | off
+  const [selected, setSelected] = React.useState(null);
 
   // Shared cache: officer duty status stays consistent with the map/assign views
   // and refreshes when an assignment invalidates supervisor.*.
@@ -142,9 +200,11 @@ export default function SupervisorOfficersScreen({ navigation }) {
             <Text style={s.emptyText}>No officers found</Text>
           </View>
         ) : (
-          visible.map(o => <OfficerCard key={o.id} officer={o} />)
+          visible.map(o => <OfficerCard key={o.id} officer={o} onPress={setSelected} />)
         )}
       </SupervisorSectionCard>
+
+      {selected && <OfficerDetailModal officer={selected} onClose={() => setSelected(null)} />}
     </SupervisorScreenFrame>
   );
 }
@@ -198,4 +258,33 @@ const s = StyleSheet.create({
 
   empty:     { alignItems: 'center', gap: 8, paddingVertical: 24 },
   emptyText: { color: S.muted, fontSize: 13 },
+});
+
+const d = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#1C1200', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 20, paddingBottom: 36,
+    borderTopWidth: 1, borderColor: 'rgba(245,158,11,0.2)',
+  },
+  handle: {
+    alignSelf: 'center', width: 40, height: 4,
+    backgroundColor: 'rgba(245,158,11,0.3)', borderRadius: 2, marginBottom: 16,
+  },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  avatar: {
+    width: 56, height: 56, borderRadius: 16,
+    backgroundColor: 'rgba(245,158,11,0.14)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { color: S.accent, fontSize: 18, fontWeight: '900' },
+  name: { color: S.light, fontSize: 17, fontWeight: '900' },
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: 'rgba(245,158,11,0.1)',
+  },
+  rowLabel: { color: S.muted, fontSize: 12, fontWeight: '700', width: 96 },
+  rowValue: { color: S.light, fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
+  closeBtn: { marginTop: 18, backgroundColor: '#2A1800', borderRadius: 14, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: S.border },
+  closeBtnText: { color: S.muted, fontWeight: '800', fontSize: 14 },
 });

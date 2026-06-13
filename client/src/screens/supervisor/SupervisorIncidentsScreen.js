@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList } from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import SupervisorScreenFrame, {
@@ -81,7 +81,15 @@ function AssignModal({ incident, onClose, onAssigned }) {
                   <View style={{ flex: 1 }}>
                     <Text style={m.officerName}>{o.name}</Text>
                     <Text style={m.officerMeta}>
-                      {[o.badgeNumber ? `#${o.badgeNumber}` : null, o.communeName].filter(Boolean).join(' · ')}
+                      {[
+                        o.badgeNumber ? `#${o.badgeNumber}` : null,
+                        o.communeName,
+                        o.distanceLabel || (o.distanceMeters != null
+                          ? (o.distanceMeters >= 1000
+                              ? `${(o.distanceMeters / 1000).toFixed(1)} km away`
+                              : `${Math.round(o.distanceMeters)} m away`)
+                          : null),
+                      ].filter(Boolean).join(' · ')}
                     </Text>
                   </View>
                   <View style={[m.dutyBadge, { backgroundColor: o.isOnDuty ? 'rgba(34,197,94,0.14)' : 'rgba(100,116,139,0.14)' }]}>
@@ -104,33 +112,52 @@ function AssignModal({ incident, onClose, onAssigned }) {
 }
 
 /* ── Incident row ─────────────────────────────────────────────── */
-function IncidentRow({ incident, onAssign }) {
+function IncidentRow({ incident, onAssign, onView }) {
   const status = (incident.displayStatus || incident.status || 'pending');
+  const assignedName = incident.assignedOfficer?.name || incident.assignedOfficerName || null;
+  const location = incident.locationLabel || incident.locationText
+    || incident.commune?.name || incident.wilaya?.name || null;
   return (
     <View style={s.incRow}>
       <View style={{ flex: 1 }}>
         <Text style={s.incTitle} numberOfLines={1}>{incident.title || incident.displayId || '—'}</Text>
-        {incident.locationLabel || incident.locationText ? (
-          <Text style={s.incMeta}>{incident.locationLabel || incident.locationText}</Text>
-        ) : null}
+        {location ? <Text style={s.incMeta} numberOfLines={1}>{location}</Text> : null}
         <View style={s.incTags}>
           <SupervisorStatusPill status={status} />
           {incident.severity && <SupervisorSeverityTag severity={incident.severity} />}
-          <Text style={s.incTime}>{relativeTime(incident.createdAt)}</Text>
+          <Text style={s.incTime}>{relativeTime(incident.occurredAt || incident.createdAt)}</Text>
+        </View>
+        {/* Currently assigned officer — mirrors the web "Assigned To" column */}
+        <View style={s.assignedRow}>
+          <Ionicons
+            name={assignedName ? 'shield-checkmark-outline' : 'shield-outline'}
+            size={12}
+            color={assignedName ? '#22C55E' : S.muted}
+          />
+          <Text style={[s.assignedText, assignedName && { color: S.light }]} numberOfLines={1}>
+            {assignedName ? `Assigned to ${assignedName}` : 'Unassigned'}
+          </Text>
         </View>
       </View>
-      <TouchableOpacity style={s.assignBtn} onPress={() => onAssign(incident)} activeOpacity={0.8}>
-        <Ionicons name="person-add-outline" size={14} color={S.accent} />
-        <Text style={s.assignBtnText}>Assign</Text>
-      </TouchableOpacity>
+      <View style={s.incActions}>
+        <TouchableOpacity style={s.viewBtn} onPress={() => onView(incident)} activeOpacity={0.8}>
+          <Ionicons name="eye-outline" size={14} color={S.muted} />
+          <Text style={s.viewBtnText}>View</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.assignBtn} onPress={() => onAssign(incident)} activeOpacity={0.8}>
+          <Ionicons name="person-add-outline" size={14} color={S.accent} />
+          <Text style={s.assignBtnText}>Assign</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 export default function SupervisorIncidentsScreen({ navigation }) {
-  const [search,         setSearch]        = React.useState('');
-  const [statusFilter,   setStatusFilter]  = React.useState('active');
-  const [assignTarget,   setAssignTarget]  = React.useState(null);
+  const [search,         setSearch]         = React.useState('');
+  const [statusFilter,   setStatusFilter]   = React.useState('active');
+  const [severityFilter, setSeverityFilter] = React.useState('all');
+  const [assignTarget,   setAssignTarget]   = React.useState(null);
   const params = React.useMemo(() => ({ limit: 60 }), []);
   const incidentsQuery = useSupervisorIncidents(params);
   useFocusRefresh(incidentsQuery.refetch);
@@ -139,15 +166,31 @@ export default function SupervisorIncidentsScreen({ navigation }) {
   const loading = incidentsQuery.isLoading;
   const error = incidentsQuery.error?.message || '';
 
+  const viewIncident = React.useCallback((inc) => {
+    navigation.navigate('PoliceIncidentDetail', { incidentId: inc.id });
+  }, [navigation]);
+
+  // Map the numeric severity hint (0-4) to a bucket when no string severity is set.
+  const severityOf = (inc) => {
+    const s = String(inc.severity || '').toLowerCase();
+    if (s) return s === 'critical' ? 'high' : s;
+    const hint = Number(inc.severityHint);
+    if (hint >= 3) return 'high';
+    if (hint === 2) return 'medium';
+    if (Number.isFinite(hint)) return 'low';
+    return '';
+  };
+
   const ACTIVE_STATUSES = ['pending', 'under_review', 'verified', 'dispatched'];
   const visible = incidents.filter(inc => {
     const st = (inc.displayStatus || inc.status || '').toLowerCase();
     const matchStatus = statusFilter === 'all' || (statusFilter === 'active' && ACTIVE_STATUSES.includes(st)) || st === statusFilter;
+    const matchSeverity = severityFilter === 'all' || severityOf(inc) === severityFilter;
     const q = search.toLowerCase();
     const matchSearch = !q ||
       (inc.title || '').toLowerCase().includes(q) ||
-      (inc.locationLabel || inc.locationText || '').toLowerCase().includes(q);
-    return matchStatus && matchSearch;
+      (inc.locationLabel || inc.locationText || inc.commune?.name || inc.wilaya?.name || '').toLowerCase().includes(q);
+    return matchStatus && matchSeverity && matchSearch;
   });
 
   return (
@@ -177,8 +220,8 @@ export default function SupervisorIncidentsScreen({ navigation }) {
         />
       </View>
 
-      <View style={s.filterRow}>
-        {[['active', 'Active'], ['all', 'All'], ['pending', 'Pending'], ['resolved', 'Resolved']].map(([key, label]) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+        {[['active', 'Active'], ['all', 'All'], ['pending', 'Pending'], ['under_review', 'Under Review'], ['verified', 'Verified'], ['rejected', 'Rejected'], ['resolved', 'Resolved']].map(([key, label]) => (
           <TouchableOpacity
             key={key}
             style={[s.filterBtn, statusFilter === key && s.filterBtnActive]}
@@ -188,7 +231,20 @@ export default function SupervisorIncidentsScreen({ navigation }) {
             <Text style={[s.filterText, statusFilter === key && s.filterTextActive]}>{label}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+        {[['all', 'All Severity'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([key, label]) => (
+          <TouchableOpacity
+            key={key}
+            style={[s.filterBtn, severityFilter === key && s.filterBtnActive]}
+            onPress={() => setSeverityFilter(key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[s.filterText, severityFilter === key && s.filterTextActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <SupervisorSectionCard title={`Incidents (${visible.length})`} icon="warning-outline">
         {visible.length === 0 ? (
@@ -198,7 +254,7 @@ export default function SupervisorIncidentsScreen({ navigation }) {
           </View>
         ) : (
           visible.map(inc => (
-            <IncidentRow key={inc.id} incident={inc} onAssign={setAssignTarget} />
+            <IncidentRow key={inc.id} incident={inc} onAssign={setAssignTarget} onView={viewIncident} />
           ))
         )}
       </SupervisorSectionCard>
@@ -222,9 +278,9 @@ const s = StyleSheet.create({
   },
   searchInput: { flex: 1, color: S.light, fontSize: 13, paddingVertical: 11, paddingRight: 12 },
 
-  filterRow: { flexDirection: 'row', gap: 7 },
+  filterRow: { flexDirection: 'row', gap: 7, paddingRight: 4 },
   filterBtn: {
-    flex: 1, paddingVertical: 8, borderRadius: 10,
+    paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10,
     backgroundColor: S.card, borderWidth: 1, borderColor: S.border,
     alignItems: 'center',
   },
@@ -233,7 +289,7 @@ const s = StyleSheet.create({
   filterTextActive:{ color: S.accent, fontSize: 11, fontWeight: '800' },
 
   incRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
     paddingVertical: 11,
     borderBottomWidth: 1, borderBottomColor: S.borderLight,
   },
@@ -241,8 +297,18 @@ const s = StyleSheet.create({
   incMeta:  { color: S.muted, fontSize: 11, marginTop: 2 },
   incTags:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5, flexWrap: 'wrap' },
   incTime:  { color: S.muted, fontSize: 10 },
+  assignedRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  assignedText: { color: S.muted, fontSize: 11, fontWeight: '600', flexShrink: 1 },
+  incActions: { gap: 7, alignItems: 'stretch' },
+  viewBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    backgroundColor: S.card,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7,
+    borderWidth: 1, borderColor: S.border,
+  },
+  viewBtnText: { color: S.muted, fontSize: 11, fontWeight: '800' },
   assignBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
     backgroundColor: 'rgba(245,158,11,0.12)',
     borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7,
     borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
