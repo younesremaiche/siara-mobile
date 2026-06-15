@@ -155,10 +155,13 @@ function IncidentRow({ incident, onAssign, onView }) {
 
 export default function SupervisorIncidentsScreen({ navigation }) {
   const [search,         setSearch]         = React.useState('');
-  const [statusFilter,   setStatusFilter]   = React.useState('active');
+  const [statusFilter,   setStatusFilter]   = React.useState('all');
   const [severityFilter, setSeverityFilter] = React.useState('all');
   const [assignTarget,   setAssignTarget]   = React.useState(null);
-  const params = React.useMemo(() => ({ limit: 60 }), []);
+  // scope:'all' returns EVERY incident in the supervisor's work zone (all
+  // statuses, including resolved/rejected); the police endpoint pages by
+  // pageSize (max 100) and ignores `limit`.
+  const params = React.useMemo(() => ({ scope: 'all', pageSize: 100 }), []);
   const incidentsQuery = useSupervisorIncidents(params);
   useFocusRefresh(incidentsQuery.refetch);
 
@@ -182,21 +185,27 @@ export default function SupervisorIncidentsScreen({ navigation }) {
   };
 
   const ACTIVE_STATUSES = ['pending', 'under_review', 'verified', 'dispatched'];
-  const visible = incidents.filter(inc => {
-    const st = (inc.displayStatus || inc.status || '').toLowerCase();
-    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' && ACTIVE_STATUSES.includes(st)) || st === statusFilter;
-    const matchSeverity = severityFilter === 'all' || severityOf(inc) === severityFilter;
-    const q = search.toLowerCase();
-    const matchSearch = !q ||
-      (inc.title || '').toLowerCase().includes(q) ||
-      (inc.locationLabel || inc.locationText || inc.commune?.name || inc.wilaya?.name || '').toLowerCase().includes(q);
-    return matchStatus && matchSeverity && matchSearch;
-  });
+  const createdMs = (inc) => new Date(inc.createdAt || inc.occurredAt || 0).getTime() || 0;
+  const visible = incidents
+    .filter(inc => {
+      const st = (inc.displayStatus || inc.status || '').toLowerCase();
+      const matchStatus = statusFilter === 'all' || (statusFilter === 'active' && ACTIVE_STATUSES.includes(st)) || st === statusFilter;
+      const matchSeverity = severityFilter === 'all' || severityOf(inc) === severityFilter;
+      const q = search.toLowerCase();
+      const matchSearch = !q ||
+        (inc.title || '').toLowerCase().includes(q) ||
+        (inc.locationLabel || inc.locationText || inc.commune?.name || inc.wilaya?.name || '').toLowerCase().includes(q);
+      return matchStatus && matchSeverity && matchSearch;
+    })
+    // Newest first by creation time. The API orders by severity first, which
+    // buries recent low-severity (often pending) reports — re-sort here so they
+    // surface chronologically.
+    .sort((a, b) => createdMs(b) - createdMs(a));
 
   return (
     <SupervisorScreenFrame
       title="Incident Coordination"
-      subtitle="Assign officers to active cases"
+      subtitle="All incidents in your work zone"
       loading={loading}
       error={error}
       onRefresh={incidentsQuery.refetch}

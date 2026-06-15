@@ -4,6 +4,7 @@ export const queryKeys = {
     list: (params = {}) => ['reports', 'list', params],
     mine: (userId, params = {}) => ['reports', 'mine', userId || 'anonymous', params],
     detail: (reportId) => ['reports', 'detail', String(reportId || '')],
+    comments: (reportId) => ['reports', 'comments', String(reportId || '')],
   },
   police: {
     all: ['police'],

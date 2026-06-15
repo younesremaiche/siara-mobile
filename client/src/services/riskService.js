@@ -12,7 +12,7 @@
 //   GET  /api/risk/forecast24h
 //   POST /api/predictions/explain-risk
 
-import { request } from './api';
+import { request, LLM_REQUEST_TIMEOUT_MS } from './api';
 import {
   TtlCache,
   coordKey,
@@ -316,6 +316,8 @@ export async function explainRisk({
     method: 'POST',
     body: JSON.stringify(payload),
     signal,
+    // Ollama explanation is slow; wait past the server's LLM budget.
+    timeout: LLM_REQUEST_TIMEOUT_MS,
   });
 }
 

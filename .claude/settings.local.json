@@ -11,7 +11,10 @@
       "Bash(node --check contollers/reports.js)",
       "Bash(ls client/preview)",
       "Bash(sed -n '1,60p' client/src/theme/colors.js)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(\"C:/Users/pc/AppData/Local/Programs/Python/Python313/python.exe\" -m pip install \"scikit-learn==1.6.1\")",
+      "Bash(cd /c/Users/pc/my_app/SiaraMobile/client && echo \"=== ReportCard social? ===\" && grep -nE \"like|saw|comment|share|reaction|Likes|Saw|Comment|Share|footer|action\" src/components/ReportCard.js | head -40)",
+      "Read(//c/c/Users/pc/my_app/SiaraMobile/client/src/components/**)"
     ]
   }
 }

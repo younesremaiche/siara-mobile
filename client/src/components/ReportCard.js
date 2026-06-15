@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Image,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -9,8 +10,19 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
-import { formatDateTime } from '../services/reportsService';
+import {
+  addReportReaction,
+  formatDateTime,
+  removeReportReaction,
+} from '../services/reportsService';
 import PhotoViewer from './ui/PhotoViewer';
+import CommentsSheet from './CommentsSheet';
+
+function formatCount(n) {
+  const v = Number(n) || 0;
+  if (v >= 1000) return `${(v / 1000).toFixed(v % 1000 >= 100 ? 1 : 0)}k`;
+  return String(v);
+}
 
 function severityMeta(severity) {
   if (severity === 'critical') {
@@ -33,6 +45,55 @@ function statusLabel(status) {
 export default function ReportCard({ report, onPress }) {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex]     = useState(0);
+  const [commentsOpen, setCommentsOpen]   = useState(false);
+
+  // Optimistic social state seeded from the report; the feed refetch on focus
+  // reconciles with server truth, so we keep these local for instant feedback.
+  const [liked, setLiked]         = useState(Boolean(report?.viewerHasLiked));
+  const [sawIt, setSawIt]         = useState(Boolean(report?.viewerSawItToo));
+  const [likeCount, setLikeCount] = useState(Number(report?.likesCount) || 0);
+  const [sawCount, setSawCount]   = useState(Number(report?.sawItTooCount) || 0);
+  const [commentCount, setCommentCount] = useState(Number(report?.commentsCount) || 0);
+  const [reactBusy, setReactBusy] = useState(false);
+
+  const reportId = report?.id;
+
+  async function toggleReaction(kind) {
+    if (!reportId || reactBusy) return;
+    const isLike = kind === 'like';
+    const wasActive = isLike ? liked : sawIt;
+    const setActive = isLike ? setLiked : setSawIt;
+    const setCount  = isLike ? setLikeCount : setSawCount;
+
+    // optimistic
+    setActive(!wasActive);
+    setCount((c) => Math.max(0, c + (wasActive ? -1 : 1)));
+    setReactBusy(true);
+    try {
+      const res = wasActive
+        ? await removeReportReaction(reportId, isLike ? 'like' : 'saw_it_too')
+        : await addReportReaction(reportId, isLike ? 'like' : 'saw_it_too');
+      // sync exact counts from server response
+      if (res?.likesCount != null) setLikeCount(Number(res.likesCount));
+      if (res?.sawItTooCount != null) setSawCount(Number(res.sawItTooCount));
+    } catch (e) {
+      // revert on failure
+      setActive(wasActive);
+      setCount((c) => Math.max(0, c + (wasActive ? 1 : -1)));
+    } finally {
+      setReactBusy(false);
+    }
+  }
+
+  async function handleShare() {
+    if (!report) return;
+    try {
+      const where = report.locationLabel ? ` at ${report.locationLabel}` : '';
+      await Share.share({
+        message: `SIARA report: ${report.title || 'Incident'} — ${String(report.severity || 'low').toUpperCase()} severity${where}.`,
+      });
+    } catch {}
+  }
 
   const severity = severityMeta(report?.severity);
   const occurredAt = report?.occurredAt || report?.createdAt;
@@ -105,11 +166,51 @@ export default function ReportCard({ report, onPress }) {
           ) : null}
         </View>
       </View>
+
+      {/* Social action bar — like / saw it / comment / share */}
+      <View style={styles.actionBar}>
+        <TouchableOpacity
+          style={styles.action}
+          activeOpacity={0.7}
+          onPress={() => toggleReaction('like')}
+          disabled={reactBusy}
+        >
+          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={19} color={liked ? Colors.error : Colors.subtext} />
+          <Text style={[styles.actionText, liked && { color: Colors.error }]}>{formatCount(likeCount)}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.action}
+          activeOpacity={0.7}
+          onPress={() => toggleReaction('saw')}
+          disabled={reactBusy}
+        >
+          <Ionicons name={sawIt ? 'eye' : 'eye-outline'} size={19} color={sawIt ? Colors.secondary : Colors.subtext} />
+          <Text style={[styles.actionText, sawIt && { color: Colors.secondary }]}>{formatCount(sawCount)}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.action} activeOpacity={0.7} onPress={() => setCommentsOpen(true)}>
+          <Ionicons name="chatbubble-outline" size={18} color={Colors.subtext} />
+          <Text style={styles.actionText}>{formatCount(commentCount)}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.action} activeOpacity={0.7} onPress={handleShare}>
+          <Ionicons name="share-social-outline" size={18} color={Colors.subtext} />
+          <Text style={styles.actionText}>Share</Text>
+        </TouchableOpacity>
+      </View>
+
       <PhotoViewer
         visible={viewerVisible}
         images={allMedia}
         initialIndex={viewerIndex}
         onClose={() => setViewerVisible(false)}
+      />
+      <CommentsSheet
+        visible={commentsOpen}
+        reportId={reportId}
+        onClose={() => setCommentsOpen(false)}
+        onCountChange={(delta) => setCommentCount((c) => Math.max(0, c + delta))}
       />
     </Pressable>
   );
@@ -198,6 +299,26 @@ const styles = StyleSheet.create({
   },
   footerRow: {
     gap: 8,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  actionText: {
+    color: Colors.subtext,
+    fontSize: 13,
+    fontWeight: '700',
   },
   tagRow: {
     flexDirection: 'row',

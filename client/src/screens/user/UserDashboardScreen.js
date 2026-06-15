@@ -19,70 +19,78 @@ import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 const { width } = Dimensions.get('window');
 
 /* ------------------------------------------------------------------ */
-/*  DATA                                                               */
-/* ------------------------------------------------------------------ */
-
-const WEEKLY_RISK = [
-  { day: 'Mon', value: 62 },
-  { day: 'Tue', value: 45 },
-  { day: 'Wed', value: 78 },
-  { day: 'Thu', value: 55 },
-  { day: 'Fri', value: 88 },
-  { day: 'Sat', value: 42 },
-  { day: 'Sun', value: 35 },
-];
-
-const SEVERITY_PRESSURE = [
-  { label: 'Critical', value: 18, color: Colors.severityCritical },
-  { label: 'High', value: 32, color: Colors.severityHigh },
-  { label: 'Medium', value: 28, color: Colors.severityMedium },
-  { label: 'Low', value: 22, color: Colors.severityLow },
-];
-
-const HOURLY_DIST = [
-  { hour: '00', val: 12 }, { hour: '03', val: 8 }, { hour: '06', val: 22 },
-  { hour: '09', val: 65 }, { hour: '12', val: 48 }, { hour: '15', val: 55 },
-  { hour: '18', val: 82 }, { hour: '21', val: 38 },
-];
-
-const FACTORS = [
-  { label: 'Speeding', pct: 34, icon: 'speedometer-outline', color: Colors.severityCritical },
-  { label: 'DUI / Impaired', pct: 22, icon: 'wine-outline', color: Colors.severityHigh },
-  { label: 'Distracted driving', pct: 18, icon: 'phone-portrait-outline', color: Colors.severityMedium },
-  { label: 'Weather conditions', pct: 14, icon: 'rainy-outline', color: Colors.secondary },
-  { label: 'Infrastructure', pct: 12, icon: 'construct-outline', color: Colors.grey },
-];
-
-const FORECAST_48H = [
-  { period: 'Today AM', risk: 42, level: 'Low', color: Colors.severityLow },
-  { period: 'Today PM', risk: 74, level: 'High', color: Colors.severityHigh },
-  { period: 'Tomorrow AM', risk: 56, level: 'Medium', color: Colors.severityMedium },
-  { period: 'Tomorrow PM', risk: 81, level: 'High', color: Colors.severityHigh },
-];
-
-const TOP_ROADS = [
-  { name: 'Blvd Zirout Youcef', wilaya: 'Algiers', score: 87, incidents: 42, trend: 'up' },
-  { name: 'Autoroute Est km 42-48', wilaya: 'Boumerdes', score: 82, incidents: 28, trend: 'up' },
-  { name: 'Route Nationale 5', wilaya: 'Algiers', score: 65, incidents: 18, trend: 'stable' },
-  { name: 'Route de l\'Aeroport', wilaya: 'Algiers', score: 54, incidents: 12, trend: 'down' },
-  { name: 'Rocade Sud Constantine', wilaya: 'Constantine', score: 48, incidents: 9, trend: 'stable' },
-];
-
-const ACTIVE_ALERTS = [
-  { title: 'High Risk - Autoroute Est', severity: 'critical', time: '12 min ago' },
-  { title: 'Fog Warning - Constantine', severity: 'high', time: '1h ago' },
-  { title: 'Construction Zone - RN5', severity: 'medium', time: '2h ago' },
-];
-
-/* ------------------------------------------------------------------ */
 /*  HELPERS                                                            */
 /* ------------------------------------------------------------------ */
 
+// Map a 0–100 score onto the severity color ramp.
 function getBarColor(value) {
   if (value >= 75) return Colors.severityCritical;
   if (value >= 50) return Colors.severityHigh;
   if (value >= 25) return Colors.severityMedium;
   return Colors.severityLow;
+}
+
+// Color for a textual severity (alerts come back as high/medium/low).
+function severityColor(severity) {
+  switch (String(severity || '').toLowerCase()) {
+    case 'critical': return Colors.severityCritical;
+    case 'high': return Colors.severityHigh;
+    case 'medium':
+    case 'moderate': return Colors.severityMedium;
+    case 'low': return Colors.severityLow;
+    default: return Colors.severityMedium;
+  }
+}
+
+// Best-effort icon for an ML contributing-factor / feature label.
+function factorIconFor(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.includes('speed')) return 'speedometer-outline';
+  if (n.includes('dui') || n.includes('alcohol') || n.includes('impair')) return 'wine-outline';
+  if (n.includes('distract') || n.includes('phone')) return 'phone-portrait-outline';
+  if (n.includes('weather') || n.includes('rain') || n.includes('precip')
+    || n.includes('wind') || n.includes('visib') || n.includes('temp')
+    || n.includes('humid') || n.includes('pressure')) return 'rainy-outline';
+  if (n.includes('junction') || n.includes('cross') || n.includes('signal')
+    || n.includes('stop') || n.includes('rail') || n.includes('infrastructure')
+    || n.includes('road')) return 'construct-outline';
+  if (n.includes('pattern') || n.includes('season') || n.includes('weekly')
+    || n.includes('traffic')) return 'calendar-outline';
+  return 'analytics-outline';
+}
+
+const FACTOR_PALETTE = [
+  Colors.severityCritical,
+  Colors.severityHigh,
+  Colors.severityMedium,
+  Colors.secondary,
+  Colors.primary,
+];
+
+// "00:00–06:00" -> "00". Falls back to the bucket index when unparseable.
+function bucketShortLabel(bucket, index) {
+  const match = String(bucket || '').match(/^(\d{2})/);
+  if (match) return match[1];
+  return String(index * 6).padStart(2, '0');
+}
+
+function forecastLevel(value) {
+  if (value >= 75) return 'High';
+  if (value >= 45) return 'Medium';
+  return 'Low';
+}
+
+// Sample the dense 48h forecast (points every 4h) down to a readable set.
+function sampleForecast(points = []) {
+  if (!Array.isArray(points) || points.length === 0) return [];
+  const wanted = ['Now', '+12h', '+24h', '+36h', '+48h'];
+  const picked = wanted
+    .map((label) => points.find((p) => p.label === label))
+    .filter(Boolean);
+  if (picked.length >= 2) return picked;
+  // Fallback: evenly sample up to 5 points.
+  const step = Math.max(1, Math.ceil(points.length / 5));
+  return points.filter((_, i) => i % step === 0).slice(0, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -95,12 +103,55 @@ export default function UserDashboardScreen() {
   useFocusRefresh(dashboardQuery.refetch);
 
   const dashboard = dashboardQuery.data || {};
-  const currentRisk = dashboard.currentRiskOverview || {};
   const profile = dashboard.profile || {};
-  const activeAlerts = dashboard.activeAlerts || {};
-  const riskScore = Math.round(Number(currentRisk.score || 0));
-  const activeAlertCount = Number(profile.activeAlerts ?? activeAlerts.items?.length ?? 0);
+  const currentRisk = dashboard.currentRiskOverview || {};
+  const volatility = dashboard.riskVolatilityIndex || {};
+  const severity = dashboard.severityPressure || {};
+  const distribution = Array.isArray(dashboard.incidentDistribution24h) ? dashboard.incidentDistribution24h : [];
+  const factors = Array.isArray(dashboard.topContributingFactors) ? dashboard.topContributingFactors : [];
+  const forecast = dashboard.riskForecast48h || {};
+  const roads = Array.isArray(dashboard.highRiskRoadRanking) ? dashboard.highRiskRoadRanking : [];
+  const alertsSummary = dashboard.activeAlerts || {};
+  const exposure = dashboard.exposureIndex || {};
+  const systemOverview = dashboard.systemOverview || {};
+  const aiInsight = dashboard.aiInsightOfWeek || {};
+  const volatileZone = dashboard.mostVolatileZoneToday || null;
+
+  // ----- Risk overview -----
+  const riskScore = currentRisk.score == null ? null : Math.round(Number(currentRisk.score));
+  const riskColor = riskScore == null ? Colors.greyLight : getBarColor(riskScore);
+  const riskFill = riskScore == null ? 0
+    : riskScore >= 75 ? 4 : riskScore >= 50 ? 3 : riskScore >= 25 ? 2 : 1;
+  const changeVsYesterday = currentRisk.changeVsYesterday;
+  const aiConfidence = currentRisk.aiConfidence;
+  const activeAlertCount = Number(profile.activeAlerts ?? alertsSummary.items?.length ?? 0);
   const monitoredZones = Number(profile.monitoredZones || 0);
+
+  // ----- Volatility -----
+  const volScore = Number(volatility.score || 0);
+  const volTrend = Array.isArray(volatility.trend7d) ? volatility.trend7d : [];
+  const hasVolTrend = volTrend.some((v) => Number(v) > 0);
+  const volColor = getBarColor(volScore);
+
+  // ----- Severity pressure -----
+  const severityRows = [
+    { label: 'High', value: Number(severity.high || 0), color: Colors.severityHigh },
+    { label: 'Medium', value: Number(severity.medium || 0), color: Colors.severityMedium },
+    { label: 'Low', value: Number(severity.low || 0), color: Colors.severityLow },
+  ];
+  const totalIncidents = Number(systemOverview.totalIncidents || 0);
+
+  // ----- 24h distribution -----
+  const maxDist = Math.max(1, ...distribution.map((d) => Number(d.incidents || 0)));
+  const peakBucket = [...distribution]
+    .sort((a, b) => Number(b.incidents || 0) - Number(a.incidents || 0))[0] || null;
+
+  // ----- 48h forecast -----
+  const forecastPoints = sampleForecast(forecast.points);
+
+  // ----- Alerts & insight -----
+  const alertItems = Array.isArray(alertsSummary.items) ? alertsSummary.items : [];
+  const insightItems = Array.isArray(aiInsight.items) ? aiInsight.items : [];
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -172,34 +223,53 @@ export default function UserDashboardScreen() {
             </View>
           </View>
 
-          {/* Donut-style indicator */}
+          {/* Donut-style indicator — quarters fill by risk band */}
           <View style={styles.donutSection}>
             <View style={styles.donutOuter}>
               <View style={styles.donutTrack}>
-                {/* Simulated progress arc using positioned elements */}
-                <View style={[styles.donutFillQuarter, styles.donutQ1, { backgroundColor: Colors.severityMedium }]} />
-                <View style={[styles.donutFillQuarter, styles.donutQ2, { backgroundColor: Colors.severityMedium + '80' }]} />
-                <View style={[styles.donutFillQuarter, styles.donutQ3, { backgroundColor: Colors.border }]} />
-                <View style={[styles.donutFillQuarter, styles.donutQ4, { backgroundColor: Colors.border }]} />
+                {[styles.donutQ1, styles.donutQ2, styles.donutQ3, styles.donutQ4].map((q, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.donutFillQuarter,
+                      q,
+                      { backgroundColor: i < riskFill ? riskColor + (i === riskFill - 1 ? 'FF' : 'CC') : Colors.border },
+                    ]}
+                  />
+                ))}
               </View>
               <View style={styles.donutInner}>
-                <Text style={styles.donutValue}>{riskScore || '--'}</Text>
+                <Text style={[styles.donutValue, { color: riskColor }]}>{riskScore == null ? '--' : riskScore}</Text>
                 <Text style={styles.donutUnit}>/100</Text>
               </View>
             </View>
 
             <View style={styles.donutInfo}>
-              <View style={[styles.riskLevelBadge, { backgroundColor: Colors.severityMedium + '18' }]}>
-                <Ionicons name="alert-circle" size={14} color={Colors.severityMedium} />
-                <Text style={[styles.riskLevelText, { color: Colors.severityMedium }]}>{currentRisk.label || 'Unavailable'}</Text>
+              <View style={[styles.riskLevelBadge, { backgroundColor: riskColor + '18' }]}>
+                <Ionicons name="alert-circle" size={14} color={riskColor} />
+                <Text style={[styles.riskLevelText, { color: riskColor }]}>{currentRisk.label || 'Unavailable'}</Text>
               </View>
               <Text style={styles.donutDesc}>
-                Your personal risk score is based on your routes, driving patterns, and current zone conditions.
+                Based on recent SIARA model outputs for your watched zones
+                {aiConfidence != null ? ` · AI confidence ${aiConfidence}%` : ''}.
               </Text>
-              <View style={styles.donutMeta}>
-                <Ionicons name="trending-up" size={14} color={Colors.severityHigh} />
-                <Text style={styles.donutMetaText}>+3 points from last week</Text>
-              </View>
+              {changeVsYesterday == null ? (
+                <View style={styles.donutMeta}>
+                  <Ionicons name="remove-outline" size={14} color={Colors.greyLight} />
+                  <Text style={styles.donutMetaText}>Awaiting trend data</Text>
+                </View>
+              ) : (
+                <View style={styles.donutMeta}>
+                  <Ionicons
+                    name={changeVsYesterday > 0 ? 'trending-up' : changeVsYesterday < 0 ? 'trending-down' : 'remove-outline'}
+                    size={14}
+                    color={changeVsYesterday > 0 ? Colors.severityHigh : changeVsYesterday < 0 ? Colors.severityLow : Colors.grey}
+                  />
+                  <Text style={styles.donutMetaText}>
+                    {changeVsYesterday > 0 ? `+${changeVsYesterday}` : changeVsYesterday} pts vs yesterday
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -214,40 +284,64 @@ export default function UserDashboardScreen() {
               <Text style={styles.cardTitle}>Volatility Index</Text>
             </View>
             <Text style={styles.cardHeaderValue}>
-              <Text style={{ color: Colors.severityHigh, fontWeight: '900' }}>7.2</Text>
+              <Text style={{ color: volColor, fontWeight: '900' }}>{(volScore / 10).toFixed(1)}</Text>
               <Text style={{ color: Colors.subtext, fontSize: 12 }}> /10</Text>
             </Text>
           </View>
 
-          {/* Mini Sparkline */}
-          <View style={styles.sparklineWrap}>
-            <View style={styles.sparkline}>
-              {[32, 48, 42, 58, 52, 72, 65, 78, 68, 82, 74, 72].map((v, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.sparkBar,
-                    {
-                      height: `${v}%`,
-                      backgroundColor: v >= 70 ? Colors.severityHigh + 'CC' : Colors.secondary + '66',
-                    },
-                  ]}
-                />
-              ))}
+          {/* 7-day volatility sparkline */}
+          {hasVolTrend ? (
+            <View style={styles.sparklineWrap}>
+              <View style={styles.sparkline}>
+                {volTrend.map((v, i) => {
+                  const val = Math.max(0, Math.min(100, Number(v) || 0));
+                  return (
+                    <View
+                      key={i}
+                      style={[
+                        styles.sparkBar,
+                        {
+                          height: `${val}%`,
+                          backgroundColor: val >= 60 ? Colors.severityHigh + 'CC' : Colors.secondary + '66',
+                        },
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+              <View style={styles.sparkLabels}>
+                <Text style={styles.sparkLabel}>6d ago</Text>
+                <Text style={styles.sparkLabel}>3d ago</Text>
+                <Text style={styles.sparkLabel}>Now</Text>
+              </View>
             </View>
-            <View style={styles.sparkLabels}>
-              <Text style={styles.sparkLabel}>12h ago</Text>
-              <Text style={styles.sparkLabel}>6h ago</Text>
-              <Text style={styles.sparkLabel}>Now</Text>
-            </View>
-          </View>
+          ) : (
+            <Text style={styles.emptyHint}>Not enough recent risk movement to chart.</Text>
+          )}
 
           <View style={styles.volatilityNote}>
             <Ionicons name="information-circle-outline" size={14} color={Colors.subtext} />
             <Text style={styles.volatilityNoteText}>
-              Risk volatility is elevated due to weekend traffic patterns and weather forecast
+              {volatility.label || 'Volatility unavailable'}
+              {volatility.change24h != null
+                ? ` · ${volatility.change24h > 0 ? '+' : ''}${volatility.change24h} vs prior day`
+                : ''}
             </Text>
           </View>
+
+          {volatileZone?.name ? (
+            <View style={styles.volatileRow}>
+              <Ionicons name="location-outline" size={14} color={Colors.subtext} />
+              <Text style={styles.volatileText} numberOfLines={1}>
+                Most volatile today: {volatileZone.name}
+              </Text>
+              {volatileZone.risk != null ? (
+                <Text style={[styles.volatileRisk, { color: getBarColor(volatileZone.risk) }]}>
+                  {volatileZone.risk}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -261,7 +355,7 @@ export default function UserDashboardScreen() {
             </View>
           </View>
 
-          {SEVERITY_PRESSURE.map((sp) => (
+          {severityRows.map((sp) => (
             <View key={sp.label} style={styles.pressureRow}>
               <View style={styles.pressureLabelWrap}>
                 <View style={[styles.pressureDot, { backgroundColor: sp.color }]} />
@@ -271,7 +365,7 @@ export default function UserDashboardScreen() {
                 <View
                   style={[
                     styles.pressureBarInner,
-                    { width: `${sp.value}%`, backgroundColor: sp.color },
+                    { width: `${Math.max(0, Math.min(100, sp.value))}%`, backgroundColor: sp.color },
                   ]}
                 />
               </View>
@@ -280,8 +374,8 @@ export default function UserDashboardScreen() {
           ))}
 
           <View style={styles.pressureTotal}>
-            <Text style={styles.pressureTotalLabel}>Total incidents analyzed</Text>
-            <Text style={styles.pressureTotalValue}>2,847</Text>
+            <Text style={styles.pressureTotalLabel}>Share of reports (last 7 days)</Text>
+            <Text style={styles.pressureTotalValue}>{totalIncidents.toLocaleString()} total</Text>
           </View>
         </View>
       </View>
@@ -297,15 +391,17 @@ export default function UserDashboardScreen() {
           </View>
 
           <View style={styles.distChart}>
-            {HOURLY_DIST.map((d, i) => {
-              const pct = (d.val / 100) * 100;
-              const color = getBarColor(d.val);
+            {distribution.map((d, i) => {
+              const count = Number(d.incidents || 0);
+              const pct = (count / maxDist) * 100;
+              const color = count === 0 ? Colors.border : getBarColor(pct);
               return (
                 <View key={i} style={styles.distBarWrap}>
+                  <Text style={styles.distCount}>{count}</Text>
                   <View style={styles.distBarOuter}>
-                    <View style={[styles.distBar, { height: `${pct}%`, backgroundColor: color }]} />
+                    <View style={[styles.distBar, { height: `${Math.max(2, pct)}%`, backgroundColor: color }]} />
                   </View>
-                  <Text style={styles.distLabel}>{d.hour}h</Text>
+                  <Text style={styles.distLabel}>{bucketShortLabel(d.bucket, i)}h</Text>
                 </View>
               );
             })}
@@ -313,9 +409,14 @@ export default function UserDashboardScreen() {
 
           <View style={styles.distPeakRow}>
             <Ionicons name="arrow-up-circle-outline" size={16} color={Colors.severityCritical} />
-            <Text style={styles.distPeakText}>
-              Peak risk: <Text style={{ fontWeight: '800', color: Colors.severityCritical }}>18:00 - 20:00</Text> (82% avg)
-            </Text>
+            {peakBucket && Number(peakBucket.incidents || 0) > 0 ? (
+              <Text style={styles.distPeakText}>
+                Peak window: <Text style={{ fontWeight: '800', color: Colors.severityCritical }}>{peakBucket.bucket}</Text>
+                {' '}({peakBucket.incidents} {Number(peakBucket.incidents) === 1 ? 'incident' : 'incidents'})
+              </Text>
+            ) : (
+              <Text style={styles.distPeakText}>No incidents reported in the last 24h.</Text>
+            )}
           </View>
         </View>
       </View>
@@ -330,24 +431,32 @@ export default function UserDashboardScreen() {
             </View>
           </View>
 
-          {FACTORS.map((f) => (
-            <View key={f.label} style={styles.factorRow}>
-              <View style={styles.factorIconWrap}>
-                <Ionicons name={f.icon} size={16} color={f.color} />
-              </View>
-              <View style={styles.factorContent}>
-                <View style={styles.factorLabelRow}>
-                  <Text style={styles.factorLabel}>{f.label}</Text>
-                  <Text style={[styles.factorPct, { color: f.color }]}>{f.pct}%</Text>
+          {factors.length === 0 ? (
+            <Text style={styles.emptyHint}>No model explanations available for your zones yet.</Text>
+          ) : (
+            factors.map((f, idx) => {
+              const color = FACTOR_PALETTE[idx % FACTOR_PALETTE.length];
+              const pct = f.impactPct == null ? null : Number(f.impactPct);
+              return (
+                <View key={f.name || idx} style={styles.factorRow}>
+                  <View style={styles.factorIconWrap}>
+                    <Ionicons name={factorIconFor(f.name)} size={16} color={color} />
+                  </View>
+                  <View style={styles.factorContent}>
+                    <View style={styles.factorLabelRow}>
+                      <Text style={styles.factorLabel} numberOfLines={1}>{f.name}</Text>
+                      <Text style={[styles.factorPct, { color }]}>{pct == null ? '—' : `${pct}%`}</Text>
+                    </View>
+                    <View style={styles.factorBarOuter}>
+                      <View
+                        style={[styles.factorBarInner, { width: `${pct == null ? 0 : Math.max(0, Math.min(100, pct))}%`, backgroundColor: color }]}
+                      />
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.factorBarOuter}>
-                  <View
-                    style={[styles.factorBarInner, { width: `${f.pct}%`, backgroundColor: f.color }]}
-                  />
-                </View>
-              </View>
-            </View>
-          ))}
+              );
+            })
+          )}
         </View>
       </View>
 
@@ -369,29 +478,33 @@ export default function UserDashboardScreen() {
 
           <View style={styles.exposureBody}>
             <View style={styles.exposureScoreWrap}>
-              <Text style={styles.exposureScoreValue}>64</Text>
+              <Text style={styles.exposureScoreValue}>{exposure.score == null ? '--' : Math.round(Number(exposure.score))}</Text>
               <Text style={styles.exposureScoreUnit}>/100</Text>
             </View>
 
             <View style={styles.exposureDetails}>
               <View style={styles.exposureDetailRow}>
                 <Ionicons name="navigate-outline" size={14} color="rgba(255,255,255,0.8)" />
-                <Text style={styles.exposureDetailText}>12 routes monitored</Text>
+                <Text style={styles.exposureDetailText}>
+                  {Number(exposure.monitoredZones || 0)} {Number(exposure.monitoredZones) === 1 ? 'zone' : 'zones'} monitored
+                </Text>
               </View>
               <View style={styles.exposureDetailRow}>
-                <Ionicons name="car-outline" size={14} color="rgba(255,255,255,0.8)" />
-                <Text style={styles.exposureDetailText}>342 km this week</Text>
+                <Ionicons name="notifications-outline" size={14} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.exposureDetailText}>
+                  {Number(exposure.activeAlerts || 0)} active {Number(exposure.activeAlerts) === 1 ? 'alert' : 'alerts'}
+                </Text>
               </View>
               <View style={styles.exposureDetailRow}>
-                <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.8)" />
-                <Text style={styles.exposureDetailText}>18h driving time</Text>
+                <Ionicons name="analytics-outline" size={14} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.exposureDetailText}>{exposure.commutePattern || 'Not enough data'}</Text>
               </View>
             </View>
           </View>
 
           <View style={styles.exposureBar}>
             <View style={styles.exposureBarTrack}>
-              <View style={[styles.exposureBarFill, { width: '64%' }]} />
+              <View style={[styles.exposureBarFill, { width: `${Math.max(0, Math.min(100, Number(exposure.score || 0)))}%` }]} />
             </View>
             <View style={styles.exposureBarLabels}>
               <Text style={styles.exposureBarLabel}>Safe</Text>
@@ -412,30 +525,39 @@ export default function UserDashboardScreen() {
             </View>
           </View>
 
-          <View style={styles.forecastGrid}>
-            {FORECAST_48H.map((f, i) => (
-              <View key={i} style={styles.forecastItem}>
-                <Text style={styles.forecastPeriod}>{f.period}</Text>
-                <View style={styles.forecastBarOuter}>
-                  <View
-                    style={[
-                      styles.forecastBar,
-                      { height: `${f.risk}%`, backgroundColor: f.color },
-                    ]}
-                  />
-                </View>
-                <View style={[styles.forecastLevelBadge, { backgroundColor: f.color + '18' }]}>
-                  <Text style={[styles.forecastLevelText, { color: f.color }]}>{f.risk}%</Text>
-                </View>
-                <Text style={[styles.forecastLevelLabel, { color: f.color }]}>{f.level}</Text>
-              </View>
-            ))}
-          </View>
+          {forecastPoints.length === 0 ? (
+            <Text style={styles.emptyHint}>Forecast unavailable — no recent model outputs.</Text>
+          ) : (
+            <View style={styles.forecastGrid}>
+              {forecastPoints.map((f, i) => {
+                const value = Math.max(0, Math.min(100, Number(f.value || 0)));
+                const color = getBarColor(value);
+                const level = forecastLevel(value);
+                return (
+                  <View key={f.label || i} style={styles.forecastItem}>
+                    <Text style={styles.forecastPeriod}>{f.label}</Text>
+                    <View style={styles.forecastBarOuter}>
+                      <View
+                        style={[
+                          styles.forecastBar,
+                          { height: `${Math.max(4, value)}%`, backgroundColor: color },
+                        ]}
+                      />
+                    </View>
+                    <View style={[styles.forecastLevelBadge, { backgroundColor: color + '18' }]}>
+                      <Text style={[styles.forecastLevelText, { color }]}>{value}%</Text>
+                    </View>
+                    <Text style={[styles.forecastLevelLabel, { color }]}>{level}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           <View style={styles.forecastNote}>
             <Ionicons name="information-circle-outline" size={14} color={Colors.subtext} />
             <Text style={styles.forecastNoteText}>
-              Forecast based on historical patterns, weather data, and current traffic conditions
+              {forecast.note || 'Forecast follows recent SIARA risk outputs across your watched context.'}
             </Text>
           </View>
         </View>
@@ -451,51 +573,73 @@ export default function UserDashboardScreen() {
             </View>
           </View>
 
-          {TOP_ROADS.map((road, i) => {
-            const scoreColor =
-              road.score >= 80 ? Colors.severityCritical :
-              road.score >= 60 ? Colors.severityHigh :
-              road.score >= 40 ? Colors.severityMedium :
-              Colors.severityLow;
-
-            return (
-              <View
-                key={i}
-                style={[styles.roadRow, i === TOP_ROADS.length - 1 && { borderBottomWidth: 0 }]}
-              >
-                <View style={styles.roadRankBadge}>
-                  <Text style={styles.roadRankText}>{i + 1}</Text>
-                </View>
-                <View style={styles.roadInfo}>
-                  <Text style={styles.roadName}>{road.name}</Text>
-                  <View style={styles.roadMeta}>
-                    <Ionicons name="location-outline" size={12} color={Colors.greyLight} />
-                    <Text style={styles.roadWilaya}>{road.wilaya}</Text>
-                    <View style={styles.roadMetaDot} />
-                    <Text style={styles.roadIncidents}>{road.incidents} incidents</Text>
+          {roads.length === 0 ? (
+            <Text style={styles.emptyHint}>No road-level predictions for your zones right now.</Text>
+          ) : (
+            roads.map((road, i) => {
+              const score = Number(road.riskScore || 0);
+              const scoreColor = getBarColor(score);
+              const change = road.change;
+              const trend = change == null ? 'stable' : change > 0 ? 'up' : change < 0 ? 'down' : 'stable';
+              return (
+                <View
+                  key={road.roadSegmentId || i}
+                  style={[styles.roadRow, i === roads.length - 1 && { borderBottomWidth: 0 }]}
+                >
+                  <View style={styles.roadRankBadge}>
+                    <Text style={styles.roadRankText}>{road.rank || i + 1}</Text>
                   </View>
+                  <View style={styles.roadInfo}>
+                    <Text style={styles.roadName} numberOfLines={1}>{road.road}</Text>
+                    <View style={styles.roadMeta}>
+                      <Ionicons name="trending-up" size={12} color={Colors.greyLight} />
+                      <Text style={styles.roadIncidents}>
+                        {change == null ? 'New prediction' : `${change > 0 ? '+' : ''}${change} vs previous run`}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.roadScoreBadge, { backgroundColor: scoreColor + '14' }]}>
+                    <Text style={[styles.roadScoreText, { color: scoreColor }]}>{Math.round(score)}</Text>
+                  </View>
+                  <Ionicons
+                    name={
+                      trend === 'up' ? 'trending-up' :
+                      trend === 'down' ? 'trending-down' :
+                      'remove-outline'
+                    }
+                    size={18}
+                    color={
+                      trend === 'up' ? Colors.severityCritical :
+                      trend === 'down' ? Colors.severityLow :
+                      Colors.grey
+                    }
+                  />
                 </View>
-                <View style={[styles.roadScoreBadge, { backgroundColor: scoreColor + '14' }]}>
-                  <Text style={[styles.roadScoreText, { color: scoreColor }]}>{road.score}</Text>
-                </View>
-                <Ionicons
-                  name={
-                    road.trend === 'up' ? 'trending-up' :
-                    road.trend === 'down' ? 'trending-down' :
-                    'remove-outline'
-                  }
-                  size={18}
-                  color={
-                    road.trend === 'up' ? Colors.severityCritical :
-                    road.trend === 'down' ? Colors.severityLow :
-                    Colors.grey
-                  }
-                />
-              </View>
-            );
-          })}
+              );
+            })
+          )}
         </View>
       </View>
+
+      {/* ========== AI INSIGHT OF THE WEEK ========== */}
+      {insightItems.length > 0 ? (
+        <View style={styles.cardSection}>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="sparkles-outline" size={18} color={Colors.primary} />
+                <Text style={styles.cardTitle}>{aiInsight.title || 'AI Insight of the Week'}</Text>
+              </View>
+            </View>
+            {insightItems.map((item, i) => (
+              <View key={i} style={styles.insightRow}>
+                <View style={styles.insightDot} />
+                <Text style={styles.insightText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {/* ========== ACTIVE ALERTS ========== */}
       <View style={styles.cardSection}>
@@ -506,42 +650,39 @@ export default function UserDashboardScreen() {
               <Text style={styles.cardTitle}>Active Alerts</Text>
             </View>
             <View style={styles.alertCountBadge}>
-              <Text style={styles.alertCountText}>{ACTIVE_ALERTS.length}</Text>
+              <Text style={styles.alertCountText}>{alertItems.length}</Text>
             </View>
           </View>
 
-          {ACTIVE_ALERTS.map((alert, i) => {
-            const alertColor =
-              alert.severity === 'critical' ? Colors.severityCritical :
-              alert.severity === 'high' ? Colors.severityHigh :
-              Colors.severityMedium;
-
-            return (
-              <View
-                key={i}
-                style={[
-                  styles.alertRow,
-                  i === ACTIVE_ALERTS.length - 1 && { borderBottomWidth: 0 },
-                ]}
-              >
-                <View style={[styles.alertDot, { backgroundColor: alertColor }]} />
-                <View style={styles.alertContent}>
-                  <Text style={styles.alertTitle}>{alert.title}</Text>
-                  <Text style={styles.alertTime}>{alert.time}</Text>
+          {alertItems.length === 0 ? (
+            <Text style={styles.emptyHint}>No active alerts triggered for your watched zones.</Text>
+          ) : (
+            alertItems.map((alert, i) => {
+              const alertColor = severityColor(alert.severity);
+              return (
+                <View
+                  key={alert.id || i}
+                  style={[
+                    styles.alertRow,
+                    i === alertItems.length - 1 && { borderBottomWidth: 0 },
+                  ]}
+                >
+                  <View style={[styles.alertDot, { backgroundColor: alertColor }]} />
+                  <View style={styles.alertContent}>
+                    <Text style={styles.alertTitle} numberOfLines={1}>{alert.title}</Text>
+                    <Text style={styles.alertTime}>
+                      {alert.area ? `${alert.area} · ` : ''}{alert.lastTrigger || 'Never'}
+                    </Text>
+                  </View>
+                  <View style={[styles.alertSeverityBadge, { backgroundColor: alertColor + '14' }]}>
+                    <Text style={[styles.alertSeverityText, { color: alertColor }]}>
+                      {alert.severity}
+                    </Text>
+                  </View>
                 </View>
-                <View style={[styles.alertSeverityBadge, { backgroundColor: alertColor + '14' }]}>
-                  <Text style={[styles.alertSeverityText, { color: alertColor }]}>
-                    {alert.severity}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
-
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
-            <Text style={styles.viewAllText}>View all alerts</Text>
-            <Ionicons name="arrow-forward" size={14} color={Colors.primary} />
-          </TouchableOpacity>
+              );
+            })
+          )}
         </View>
       </View>
 
@@ -1229,5 +1370,63 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: 13,
     fontWeight: '700',
+  },
+
+  /* ---------- Shared empty hint ---------- */
+  emptyHint: {
+    color: Colors.subtext,
+    fontSize: 12,
+    lineHeight: 17,
+    paddingVertical: 10,
+    textAlign: 'center',
+  },
+
+  /* ---------- Distribution count label ---------- */
+  distCount: {
+    color: Colors.subtext,
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+
+  /* ---------- Most volatile zone row ---------- */
+  volatileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  volatileText: {
+    flex: 1,
+    color: Colors.subtext,
+    fontSize: 12,
+  },
+  volatileRisk: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  /* ---------- AI Insight ---------- */
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  insightDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+    marginTop: 6,
+  },
+  insightText: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 12.5,
+    lineHeight: 18,
   },
 });

@@ -11,7 +11,7 @@
 //   - navigation/route-alerts is NOT cached — alerts must reflect live position
 //   - all calls accept signal so stale requests can be aborted when user moves
 
-import { request } from './api';
+import { request, LLM_REQUEST_TIMEOUT_MS } from './api';
 import { TtlCache, coordKey } from '../utils/requestCache';
 import { requestRouteGuidance as requestRouteGuidanceImpl } from './routeGuidanceService';
 
@@ -79,6 +79,8 @@ export async function explainRouteRisk({
     method: 'POST',
     body: JSON.stringify(body),
     signal,
+    // Ollama explanation is slow; wait past the server's LLM budget.
+    timeout: LLM_REQUEST_TIMEOUT_MS,
   });
   routeExplainCache.set(cacheKey, result);
   return result;

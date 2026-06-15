@@ -1152,24 +1152,32 @@ function applyIncidentScope({
   if (scope === "field_reports") {
     whereClauses.push(`base.status not in ('rejected', 'archived')`);
 
-    if (workZoneCommuneId) {
-      values.push(workZoneCommuneId);
-      whereClauses.push(`base.commune_id = $${values.length}::bigint`);
-    } else if (workZoneWilayaId) {
+    // Scope to the officer's WILAYA (their region) — incidents in any commune of
+    // the wilaya are relevant to the officer — plus un-located (NULL) reports so
+    // a new report is never silently dropped.
+    if (workZoneWilayaId) {
       values.push(workZoneWilayaId);
-      whereClauses.push(`base.wilaya_id = $${values.length}::bigint`);
+      whereClauses.push(`(base.wilaya_id = $${values.length}::bigint OR base.wilaya_id IS NULL)`);
+    } else if (workZoneCommuneId) {
+      values.push(workZoneCommuneId);
+      whereClauses.push(`(base.commune_id = $${values.length}::bigint OR base.commune_id IS NULL)`);
     }
 
     return { locationRequired: false };
   }
 
   if (scope === "all") {
-    if (workZoneCommuneId) {
-      values.push(workZoneCommuneId);
-      whereClauses.push(`base.commune_id = $${values.length}::bigint`);
-    } else if (workZoneWilayaId) {
+    // Supervisor "all" view: scope to the whole WILAYA (not a single commune) so
+    // a supervisor sees every incident in their area of responsibility, and also
+    // include reports whose location did not resolve to any admin area
+    // (commune/wilaya NULL) — otherwise an un-geocoded new report is invisible to
+    // every zone-scoped view even though it still needs an officer assigned.
+    if (workZoneWilayaId) {
       values.push(workZoneWilayaId);
-      whereClauses.push(`base.wilaya_id = $${values.length}::bigint`);
+      whereClauses.push(`(base.wilaya_id = $${values.length}::bigint OR base.wilaya_id IS NULL)`);
+    } else if (workZoneCommuneId) {
+      values.push(workZoneCommuneId);
+      whereClauses.push(`(base.commune_id = $${values.length}::bigint OR base.commune_id IS NULL)`);
     }
 
     return { locationRequired: false };
@@ -1178,12 +1186,13 @@ function applyIncidentScope({
   whereClauses.push(`base.status <> 'rejected'`);
   whereClauses.push(`base.status <> 'resolved'`);
 
-  if (workZoneCommuneId) {
-    values.push(workZoneCommuneId);
-    whereClauses.push(`base.commune_id = $${values.length}::bigint`);
-  } else if (workZoneWilayaId) {
+  // Active queue: scope to the officer's WILAYA (region) + un-located reports.
+  if (workZoneWilayaId) {
     values.push(workZoneWilayaId);
-    whereClauses.push(`base.wilaya_id = $${values.length}::bigint`);
+    whereClauses.push(`(base.wilaya_id = $${values.length}::bigint OR base.wilaya_id IS NULL)`);
+  } else if (workZoneCommuneId) {
+    values.push(workZoneCommuneId);
+    whereClauses.push(`(base.commune_id = $${values.length}::bigint OR base.commune_id IS NULL)`);
   }
 
   return { locationRequired: false };
@@ -1439,8 +1448,9 @@ async function getPoliceDashboard(officerUserId, db = pool) {
               WHERE base.status <> 'resolved'
                 AND base.status not in ('rejected', 'archived')
                 AND (
-                  ($1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
-                  OR ($1::bigint IS NULL AND $2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  ($2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  OR ($2::bigint IS NULL AND $1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
+                  OR (base.commune_id IS NULL AND base.wilaya_id IS NULL)
                 )
             )::int AS active_count,
             COUNT(*) FILTER (
@@ -1448,15 +1458,17 @@ async function getPoliceDashboard(officerUserId, db = pool) {
                 AND base.status <> 'resolved'
                 AND base.status not in ('rejected', 'archived')
                 AND (
-                  ($1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
-                  OR ($1::bigint IS NULL AND $2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  ($2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  OR ($2::bigint IS NULL AND $1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
+                  OR (base.commune_id IS NULL AND base.wilaya_id IS NULL)
                 )
             )::int AS high_priority_count,
             COUNT(*) FILTER (
               WHERE base.status = 'pending'
                 AND (
-                  ($1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
-                  OR ($1::bigint IS NULL AND $2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  ($2::bigint IS NOT NULL AND base.wilaya_id = $2::bigint)
+                  OR ($2::bigint IS NULL AND $1::bigint IS NOT NULL AND base.commune_id = $1::bigint)
+                  OR (base.commune_id IS NULL AND base.wilaya_id IS NULL)
                 )
             )::int AS pending_verification_count
           FROM base

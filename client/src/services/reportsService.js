@@ -122,6 +122,32 @@ export function normalizeReport(item) {
     reportedBy: normalizeReporter(item),
     media: normalizeMedia(item?.media),
     relativeTime: formatRelativeTime(occurredAt || createdAt),
+    // Social state (backend: mapReportRow). Defaults keep the UI safe when the
+    // viewer is anonymous or the feed omits these fields.
+    likesCount: Number(item?.likesCount ?? item?.likes_count ?? 0),
+    sawItTooCount: Number(item?.sawItTooCount ?? item?.saw_it_too_count ?? 0),
+    commentsCount: Number(item?.commentsCount ?? item?.comments_count ?? 0),
+    viewerHasLiked: Boolean(item?.viewerHasLiked),
+    viewerSawItToo: Boolean(item?.viewerSawItToo),
+  };
+}
+
+export function normalizeComment(item) {
+  if (!item || typeof item !== 'object') return null;
+  const author = item.author || null;
+  return {
+    id: String(item.id),
+    reportId: item.reportId || item.report_id || null,
+    body: String(item.body || ''),
+    createdAt: item.createdAt || item.created_at || null,
+    relativeTime: formatRelativeTime(item.createdAt || item.created_at),
+    author: author
+      ? {
+          id: author.id ?? null,
+          name: author.name || 'Citizen',
+          avatarUrl: author.avatarUrl || author.avatar_url || '',
+        }
+      : { id: null, name: 'Citizen', avatarUrl: '' },
   };
 }
 
@@ -236,6 +262,55 @@ export async function updateReport(reportId, data) {
   });
 
   return normalizeReport(payload?.report);
+}
+
+// ─── Social: reactions (like / saw_it_too) ───────────────────────────
+export async function addReportReaction(reportId, reactionType) {
+  return apiRequest(`/api/reports/${reportId}/reactions`, {
+    method: 'POST',
+    withAuth: true,
+    body: JSON.stringify({ reactionType }),
+  });
+}
+
+export async function removeReportReaction(reportId, reactionType) {
+  return apiRequest(`/api/reports/${reportId}/reactions/${reactionType}`, {
+    method: 'DELETE',
+    withAuth: true,
+  });
+}
+
+// ─── Social: comments ────────────────────────────────────────────────
+export async function listReportComments(reportId, params = {}) {
+  const query = buildQuery({ limit: params.limit, offset: params.offset });
+  const payload = await apiRequest(`/api/reports/${reportId}/comments${query ? `?${query}` : ''}`, {
+    method: 'GET',
+    withAuth: true,
+  });
+
+  return {
+    comments: Array.isArray(payload?.comments)
+      ? payload.comments.map(normalizeComment).filter(Boolean)
+      : [],
+    pagination: payload?.pagination || { limit: params.limit || 20, offset: 0, hasMore: false, returned: 0 },
+  };
+}
+
+export async function addReportComment(reportId, body) {
+  const payload = await apiRequest(`/api/reports/${reportId}/comments`, {
+    method: 'POST',
+    withAuth: true,
+    body: JSON.stringify({ body }),
+  });
+
+  return normalizeComment(payload?.comment);
+}
+
+export async function deleteReportComment(reportId, commentId) {
+  return apiRequest(`/api/reports/${reportId}/comments/${commentId}`, {
+    method: 'DELETE',
+    withAuth: true,
+  });
 }
 
 export async function uploadReportMedia(reportId, files = []) {

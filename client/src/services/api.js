@@ -9,6 +9,13 @@ let inMemoryAccessToken = null;
 // screen forever. Callers can override with `timeout` (ms) or disable with 0.
 const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 
+// LLM (Ollama) explanation endpoints are slow and non-streaming. They must wait
+// longer than the server's OLLAMA_EXPLAIN_TIMEOUT_MS budget (60s by default),
+// otherwise the client aborts before the server returns its answer or fallback.
+// If you raise OLLAMA_EXPLAIN_TIMEOUT_MS on the API to get full (non-fallback)
+// Ollama output, raise this to stay above it.
+export const LLM_REQUEST_TIMEOUT_MS = 90000;
+
 export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
