@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   createReport,
+  deleteReport,
   getReport,
   listReports,
   updateReport,
@@ -72,6 +73,22 @@ export function useUpdateReportMutation(options = {}) {
     onSuccess: async (report, variables, context) => {
       await invalidateReportWorkflow(queryClient, { reportId: report?.id || variables.reportId });
       await options.onSuccess?.(report, variables, context);
+    },
+  });
+}
+
+export function useDeleteReportMutation(options = {}) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    ...options,
+    mutationFn: (reportId) => deleteReport(reportId),
+    onSuccess: async (result, reportId, context) => {
+      // Drop the now-deleted detail outright so nothing refetches a 404, then
+      // refresh every report-derived list/dashboard across roles.
+      queryClient.removeQueries({ queryKey: queryKeys.reports.detail(reportId) });
+      await invalidateReportWorkflow(queryClient, { reportId });
+      await options.onSuccess?.(result, reportId, context);
     },
   });
 }

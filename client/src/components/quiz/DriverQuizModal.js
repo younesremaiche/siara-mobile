@@ -21,6 +21,7 @@ import {
 } from '../../constants/driverQuiz';
 import { clearDriverQuizState, loadDriverQuizState, saveDriverQuizState } from '../../services/driverQuizStorage';
 import { getQuizFriendlyErrorMessage, predictDriverRiskQuizStream } from '../../services/quizService';
+import { ensureDriverQuizPersisted } from '../../services/driverQuizService';
 
 function getRiskTone(label) {
   const normalized = String(label || '').toLowerCase();
@@ -309,6 +310,20 @@ export default function DriverQuizModal({ visible, onClose, onComplete, forceSho
         });
       }
       await finishWithResult(payload, finalizedResult, nextAnswers);
+
+      // Persist the completed attempt to the backend so the user's driver
+      // profile (app.user_driver_quiz_profile) exists — that row is what powers
+      // the "Personalized" occurrence risk on the map. finishWithResult already
+      // saved the local state, so ensure* reads it and pushes once. Fire-and-
+      // forget: this must never block or fail the result that's already shown.
+      ensureDriverQuizPersisted({ force: true }).catch((persistError) => {
+        if (__DEV__) {
+          console.warn(
+            '[DriverQuizModal] driver profile persist failed',
+            persistError?.message || persistError,
+          );
+        }
+      });
     } catch (error) {
       if (!mountedRef.current || activeSubmissionIdRef.current !== submissionId) {
         return;

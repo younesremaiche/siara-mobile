@@ -394,12 +394,17 @@ export default function UserDashboardScreen() {
             {distribution.map((d, i) => {
               const count = Number(d.incidents || 0);
               const pct = (count / maxDist) * 100;
-              const color = count === 0 ? Colors.border : getBarColor(pct);
+              const color = count === 0 ? Colors.greyLight : getBarColor(pct);
               return (
                 <View key={i} style={styles.distBarWrap}>
-                  <Text style={styles.distCount}>{count}</Text>
-                  <View style={styles.distBarOuter}>
-                    <View style={[styles.distBar, { height: `${Math.max(2, pct)}%`, backgroundColor: color }]} />
+                  <Text style={[styles.distCount, count === 0 && styles.distCountZero]}>{count}</Text>
+                  <View style={styles.distBarTrack}>
+                    <View
+                      style={[
+                        styles.distBar,
+                        { height: count === 0 ? 0 : `${Math.max(10, pct)}%`, backgroundColor: color },
+                      ]}
+                    />
                   </View>
                   <Text style={styles.distLabel}>{bucketShortLabel(d.bucket, i)}h</Text>
                 </View>
@@ -1014,31 +1019,32 @@ const styles = StyleSheet.create({
   /* ---------- 24h Distribution ---------- */
   distChart: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 120,
-    marginBottom: 12,
-    paddingBottom: 22,
+    marginBottom: 14,
   },
   distBarWrap: {
     alignItems: 'center',
     flex: 1,
   },
-  distBarOuter: {
-    width: 24,
-    height: 90,
+  distBarTrack: {
+    width: '64%',
+    maxWidth: 34,
+    height: 96,
+    backgroundColor: Colors.bg,
+    borderRadius: 8,
     justifyContent: 'flex-end',
-    alignItems: 'center',
+    overflow: 'hidden',
   },
   distBar: {
     width: '100%',
-    borderRadius: 5,
-    minHeight: 4,
+    borderRadius: 8,
   },
   distLabel: {
     color: Colors.subtext,
-    fontSize: 9,
-    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 8,
   },
   distPeakRow: {
     flexDirection: 'row',
@@ -1383,10 +1389,14 @@ const styles = StyleSheet.create({
 
   /* ---------- Distribution count label ---------- */
   distCount: {
-    color: Colors.subtext,
-    fontSize: 10,
+    color: Colors.heading,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  distCountZero: {
+    color: Colors.greyLight,
     fontWeight: '700',
-    marginBottom: 4,
   },
 
   /* ---------- Most volatile zone row ---------- */

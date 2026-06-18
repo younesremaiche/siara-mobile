@@ -32,6 +32,7 @@ import { Colors } from '../../theme/colors';
 import { fetchCurrentWeather } from '../../services/weatherService';
 import { explainRisk, fetchRiskForecast24h } from '../../services/riskService';
 import { explainRouteRisk } from '../../services/routeRiskService';
+import { ensureDriverQuizPersisted } from '../../services/driverQuizService';
 import { isAbortError } from '../../utils/requestCache';
 import { getOccurrenceColor } from '../../utils/routeGuidance';
 
@@ -766,6 +767,13 @@ export default function MapScreen({ navigation }) {
   useEffect(() => {
     requestLocation().catch(() => {});
   }, [requestLocation]);
+
+  // Backfill: if the driver quiz was completed on-device but never pushed to the
+  // backend (e.g. before backend persistence existed), persist it once so the
+  // occurrence card below can show personalized risk. Idempotent + deduped.
+  useEffect(() => {
+    ensureDriverQuizPersisted().catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!userPosition) return undefined;

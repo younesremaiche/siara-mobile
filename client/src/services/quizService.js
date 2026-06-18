@@ -7,8 +7,11 @@ import { STREAM_STATUS_LABELS } from '../constants/driverQuiz';
 import { predictDriverRisk } from './api';
 
 const STILL_WAITING_MS = 10_000;
-const STREAM_HARD_TIMEOUT_MS = 120_000;
-const PREDICT_HARD_TIMEOUT_MS = 120_000;
+// gemma3:4b on CPU takes ~130s to generate the explanation (plus a possible
+// cold model load). Give it real headroom while staying under the upstream
+// caps (Node proxy + Flask both allow 300s).
+const STREAM_HARD_TIMEOUT_MS = 240_000;
+const PREDICT_HARD_TIMEOUT_MS = 240_000;
 
 // Ollama explanation generation can fail (model offline, timeout, 500). The
 // quiz prediction itself is independent and may already be in hand via the

@@ -5,6 +5,27 @@ import {
   DRIVER_QUIZ_STORAGE_KEY,
 } from '../constants/driverQuiz';
 
+// Records which locally-completed quiz state has already been pushed to the
+// backend driver profile (so occurrence-risk personalization works). Stores the
+// state's `updatedAt`, so a fresh completion (new updatedAt) re-persists.
+const DRIVER_QUIZ_BACKEND_MARKER_KEY = 'siara.driverQuiz.backendPersisted.v1';
+
+export async function getDriverQuizBackendMarker() {
+  try {
+    return await AsyncStorage.getItem(DRIVER_QUIZ_BACKEND_MARKER_KEY);
+  } catch (_error) {
+    return null;
+  }
+}
+
+export async function setDriverQuizBackendMarker(value) {
+  try {
+    await AsyncStorage.setItem(DRIVER_QUIZ_BACKEND_MARKER_KEY, String(value || ''));
+  } catch (_error) {
+    // best-effort; a missed marker just means we may re-persist once more.
+  }
+}
+
 const EMPTY_STATE = Object.freeze({
   completed: false,
   answers: {},
@@ -96,5 +117,6 @@ export async function clearDriverQuizState() {
     DRIVER_QUIZ_STORAGE_KEY,
     DRIVER_QUIZ_LEGACY_COMPLETED_KEY,
     DRIVER_QUIZ_LEGACY_ANSWERS_KEY,
+    DRIVER_QUIZ_BACKEND_MARKER_KEY,
   ]);
 }

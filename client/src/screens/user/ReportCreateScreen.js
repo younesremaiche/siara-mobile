@@ -419,29 +419,33 @@ export default function ReportCreateScreen({ navigation, route }) {
               <Text style={styles.mediaHint}>New photos you add below will be attached to this report.</Text>
             </>
           ) : null}
-          <View style={styles.mediaGrid}>
-            {images.map((asset, index) => (
-              <View key={`${asset.uri}-${index}`} style={styles.mediaThumbWrap}>
-                <Image source={{ uri: asset.uri }} style={styles.mediaThumb} />
-                <TouchableOpacity style={styles.removeBtn}
-                  onPress={() => setImages((c) => c.filter((_, i) => i !== index))}>
-                  <Ionicons name="close" size={13} color={Colors.white} />
-                </TouchableOpacity>
-              </View>
-            ))}
-            {images.length < 5 && (
-              <>
-                <TouchableOpacity style={styles.addMediaCard} onPress={handleTakePhoto} activeOpacity={0.75}>
-                  <Ionicons name="camera" size={24} color={Colors.primary} />
-                  <Text style={styles.addMediaText}>Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.addMediaCard} onPress={handlePickImage} activeOpacity={0.75}>
-                  <Ionicons name="images-outline" size={24} color={Colors.primary} />
-                  <Text style={styles.addMediaText}>Gallery</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+          {images.length > 0 ? (
+            <View style={styles.mediaGrid}>
+              {images.map((asset, index) => (
+                <View key={`${asset.uri}-${index}`} style={styles.mediaThumbWrap}>
+                  <Image source={{ uri: asset.uri }} style={styles.mediaThumb} />
+                  <TouchableOpacity style={styles.removeBtn}
+                    onPress={() => setImages((c) => c.filter((_, i) => i !== index))}>
+                    <Ionicons name="close" size={13} color={Colors.white} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {images.length < 5 ? (
+            <View style={styles.addMediaRow}>
+              <TouchableOpacity style={styles.addMediaBtn} onPress={handleTakePhoto} activeOpacity={0.75}>
+                <Ionicons name="camera" size={20} color={Colors.primary} />
+                <Text style={styles.addMediaText}>Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.addMediaBtn} onPress={handlePickImage} activeOpacity={0.75}>
+                <Ionicons name="images-outline" size={20} color={Colors.primary} />
+                <Text style={styles.addMediaText}>Gallery</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <Text style={styles.mediaHint}>{images.length}/5 photos added</Text>
         </View>
 
@@ -611,14 +615,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.btnDanger,
     alignItems: 'center', justifyContent: 'center',
   },
-  addMediaCard: {
-    width: 88, height: 88, borderRadius: 14,
+  addMediaRow: { flexDirection: 'row', gap: 12 },
+  addMediaBtn: {
+    flex: 1, height: 56, borderRadius: 14,
+    flexDirection: 'row', gap: 8,
     borderWidth: 1.5, borderStyle: 'dashed',
     borderColor: Colors.violetBorder,
     backgroundColor: Colors.violetLight,
-    alignItems: 'center', justifyContent: 'center', gap: 4,
+    alignItems: 'center', justifyContent: 'center',
   },
-  addMediaText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
+  addMediaText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
   addMediaCount: { color: Colors.primary, fontSize: 10, opacity: 0.6 },
 
   /* ── Errors ── */

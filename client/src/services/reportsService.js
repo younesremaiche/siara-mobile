@@ -264,6 +264,15 @@ export async function updateReport(reportId, data) {
   return normalizeReport(payload?.report);
 }
 
+// DELETE /api/reports/:id — owner (or admin) only; backend cascades media.
+// Returns the backend payload ({ id, message }).
+export async function deleteReport(reportId) {
+  return apiRequest(`/api/reports/${reportId}`, {
+    method: 'DELETE',
+    withAuth: true,
+  });
+}
+
 // ─── Social: reactions (like / saw_it_too) ───────────────────────────
 export async function addReportReaction(reportId, reactionType) {
   return apiRequest(`/api/reports/${reportId}/reactions`, {

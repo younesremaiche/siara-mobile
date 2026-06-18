@@ -92,7 +92,7 @@ const SECTIONS = [
     color: Colors.accent,
     bg: 'rgba(15,169,88,0.08)',
     items: [
-      { key: 'twoFA', icon: 'key-outline', label: 'Two-Factor Auth', type: 'toggle' },
+      { key: 'twoFA', icon: 'key-outline', label: 'Two-Factor Auth', type: 'toggle', disabled: true },
       { key: 'changePassword', icon: 'lock-open-outline', label: 'Change Password', type: 'chevron' },
     ],
   },
@@ -111,8 +111,8 @@ const SECTIONS = [
     color: Colors.warning,
     bg: 'rgba(244,162,97,0.1)',
     items: [
-      { key: 'clearCache', icon: 'trash-outline', label: 'Clear Cache', type: 'chevron' },
-      { key: 'exportData', icon: 'download-outline', label: 'Export Data', type: 'chevron' },
+      { key: 'clearCache', icon: 'trash-outline', label: 'Clear Cache', type: 'chevron', disabled: true },
+      { key: 'exportData', icon: 'download-outline', label: 'Export Data', type: 'chevron', disabled: true },
     ],
   },
 ];
@@ -352,8 +352,8 @@ export default function SettingsScreen({ navigation }) {
                   disabled={item.disabled || (preferencesLoading && (item.key === 'push' || item.key === 'inApp'))}
                 />
               ) : (
-                <TouchableOpacity onPress={() => handleChevron(item.key)}>
-                  <Ionicons name="chevron-forward" size={20} color={Colors.greyLight} />
+                <TouchableOpacity onPress={() => handleChevron(item.key)} disabled={item.disabled}>
+                  <Ionicons name="chevron-forward" size={20} color={item.disabled ? Colors.border : Colors.greyLight} />
                 </TouchableOpacity>
               )}
             </View>

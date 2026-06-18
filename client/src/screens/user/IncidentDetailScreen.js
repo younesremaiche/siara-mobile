@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   Share,
@@ -15,7 +16,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme/colors';
 import PhotoViewer from '../../components/ui/PhotoViewer';
 import { AuthContext } from '../../contexts/AuthContext';
-import { useReportDetail } from '../../features/reports/hooks/useReportQueries';
+import {
+  useDeleteReportMutation,
+  useReportDetail,
+} from '../../features/reports/hooks/useReportQueries';
 import { useFocusRefresh } from '../../services/query/useFocusRefresh';
 
 /* ── Status config ─────────────────────────────────────────────────── */
@@ -169,6 +173,31 @@ export default function IncidentDetailScreen({ navigation, route }) {
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
 
+  const deleteMutation = useDeleteReportMutation({
+    onSuccess: () => {
+      navigation.goBack();
+    },
+    onError: (err) => {
+      Alert.alert('Delete failed', err?.message || 'Could not delete this report. Please try again.');
+    },
+  });
+
+  const handleDelete = () => {
+    if (!reportId || deleteMutation.isPending) return;
+    Alert.alert(
+      'Delete report',
+      'This permanently removes your report and its photos. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMutation.mutate(reportId),
+        },
+      ],
+    );
+  };
+
   const handleShare = async () => {
     if (!report) return;
     try {
@@ -320,14 +349,33 @@ export default function IncidentDetailScreen({ navigation, route }) {
 
         {/* ── Owner actions ── */}
         {isOwner ? (
-          <TouchableOpacity
-            style={s.editBtn}
-            onPress={() => navigation.navigate('ReportIncident', { editReport: report })}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="create-outline" size={17} color={Colors.primary} />
-            <Text style={s.editBtnText}>Edit Report</Text>
-          </TouchableOpacity>
+          <View style={s.ownerActions}>
+            <TouchableOpacity
+              style={s.editBtn}
+              onPress={() => navigation.navigate('ReportIncident', { editReport: report })}
+              activeOpacity={0.85}
+              disabled={deleteMutation.isPending}
+            >
+              <Ionicons name="create-outline" size={17} color={Colors.primary} />
+              <Text style={s.editBtnText}>Edit Report</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.deleteBtn, deleteMutation.isPending && s.deleteBtnDisabled]}
+              onPress={handleDelete}
+              activeOpacity={0.85}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <ActivityIndicator size="small" color={Colors.error} />
+              ) : (
+                <Ionicons name="trash-outline" size={17} color={Colors.error} />
+              )}
+              <Text style={s.deleteBtnText}>
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete Report'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
       </ScrollView>
 
@@ -457,12 +505,20 @@ const s = StyleSheet.create({
   },
 
   /* owner actions */
+  ownerActions: { gap: 10 },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: Colors.violetLight, borderRadius: 14, paddingVertical: 14,
     borderWidth: 1, borderColor: Colors.violetBorder,
   },
   editBtnText: { color: Colors.primary, fontWeight: '800', fontSize: 14 },
+  deleteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: 'rgba(220,38,38,0.08)', borderRadius: 14, paddingVertical: 14,
+    borderWidth: 1, borderColor: 'rgba(220,38,38,0.25)',
+  },
+  deleteBtnDisabled: { opacity: 0.6 },
+  deleteBtnText: { color: Colors.error, fontWeight: '800', fontSize: 14 },
 
   /* loading / error */
   loadingText: { color: Colors.subtext, fontSize: 14, marginTop: 8 },

@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const ITEMS = [
+  { route: 'PoliceAssignedIncidents', icon: 'person-add-outline', title: 'Assigned to Me', subtitle: 'Incidents a supervisor assigned to you' },
   { route: 'PoliceMyIncidents', icon: 'briefcase-outline', title: 'My Incidents', subtitle: 'Reports created by you or assigned to you' },
   { route: 'PoliceOfficersMap', icon: 'map-outline', title: 'Zone Officers Map', subtitle: 'On-duty officers in your zone' },
   { route: 'PoliceFieldReports', icon: 'document-text-outline', title: 'Field Reports', subtitle: 'Citizen and officer reports for police review' },

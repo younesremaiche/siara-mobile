@@ -155,7 +155,7 @@ export default function PoliceDashboardScreen() {
             label="My Assigned"
             sublabel="Cases on me"
             count={dashboard?.stats?.assignedToMeCount || 0}
-            onPress={() => navigation.navigate('PoliceMyIncidents')}
+            onPress={() => navigation.navigate('PoliceAssignedIncidents')}
           />
           <PoliceQuickActionTile
             icon="locate-outline"
