@@ -1,14 +1,15 @@
 const baseConfig = require('./app.json');
 
 const STATIC_EXPO_CONFIG = baseConfig.expo || {};
+const DEFAULT_API_URL = 'https://siara-api.onrender.com';
 
 module.exports = ({ config } = {}) => {
   const resolvedConfig = config && typeof config === 'object' ? config : STATIC_EXPO_CONFIG;
-  const apiBaseUrl =
-    process.env.EXPO_PUBLIC_API_BASE_URL
-    || resolvedConfig?.extra?.apiBaseUrl
-    || STATIC_EXPO_CONFIG?.extra?.apiBaseUrl
-    || undefined;
+  const apiUrl =
+    process.env.EXPO_PUBLIC_API_URL
+    || resolvedConfig?.extra?.apiUrl
+    || STATIC_EXPO_CONFIG?.extra?.apiUrl
+    || DEFAULT_API_URL;
   const projectId =
     process.env.EXPO_PUBLIC_EAS_PROJECT_ID
     || resolvedConfig?.extra?.eas?.projectId
@@ -24,7 +25,7 @@ module.exports = ({ config } = {}) => {
     },
     extra: {
       ...(resolvedConfig.extra || {}),
-      ...(apiBaseUrl ? { apiBaseUrl } : {}),
+      apiUrl,
       eas: {
         ...(resolvedConfig.extra?.eas || {}),
         projectId,

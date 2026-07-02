@@ -1,42 +1,19 @@
 // SIARA mobile API configuration.
-// Prefer EXPO_PUBLIC_API_BASE_URL or runtime extra.apiBaseUrl for real devices.
-// If neither is set in development, we try to infer the Expo host machine LAN IP.
+// EAS and local Expo builds should set EXPO_PUBLIC_API_URL.
+// The hosted SIARA API remains the fallback so mobile builds never target a
+// development machine, emulator loopback address, or database directly.
 
 import Constants from 'expo-constants';
 
-const DEV_API_PORT = '5000';
+const DEFAULT_API_URL = 'https://siara-api.onrender.com';
 let didLogResolvedApiBaseUrl = false;
 
 function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
-function inferDevApiBaseUrl() {
-  const hostCandidates = [
-    Constants?.expoConfig?.hostUri,
-    Constants?.manifest2?.extra?.expoGo?.debuggerHost,
-    Constants?.manifest?.debuggerHost,
-  ];
-
-  for (const candidate of hostCandidates) {
-    const normalizedCandidate = normalizeBaseUrl(candidate);
-    if (!normalizedCandidate) {
-      continue;
-    }
-
-    const host = normalizedCandidate.split(':')[0];
-    if (!host) {
-      continue;
-    }
-
-    return `http://${host}:${DEV_API_PORT}`;
-  }
-
-  return '';
-}
-
 function resolveApiBaseUrlWithDiagnostics() {
-  const envBaseUrl = normalizeBaseUrl(process.env?.EXPO_PUBLIC_API_BASE_URL);
+  const envBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_URL);
   if (envBaseUrl) {
     return {
       apiBaseUrl: envBaseUrl,
@@ -44,7 +21,7 @@ function resolveApiBaseUrlWithDiagnostics() {
     };
   }
 
-  const runtimeBaseUrl = normalizeBaseUrl(Constants?.expoConfig?.extra?.apiBaseUrl);
+  const runtimeBaseUrl = normalizeBaseUrl(Constants?.expoConfig?.extra?.apiUrl);
   if (runtimeBaseUrl) {
     return {
       apiBaseUrl: runtimeBaseUrl,
@@ -52,19 +29,9 @@ function resolveApiBaseUrlWithDiagnostics() {
     };
   }
 
-  if (__DEV__) {
-    const inferredBaseUrl = inferDevApiBaseUrl();
-    if (inferredBaseUrl) {
-      return {
-        apiBaseUrl: inferredBaseUrl,
-        resolutionSource: 'expo-host',
-      };
-    }
-  }
-
   return {
-    apiBaseUrl: `http://localhost:${DEV_API_PORT}`,
-    resolutionSource: 'localhost-fallback',
+    apiBaseUrl: DEFAULT_API_URL,
+    resolutionSource: 'hosted-default',
   };
 }
 
@@ -77,7 +44,7 @@ export const API_ORIGIN = (() => {
     return API_BASE_URL.replace(/\/api\/?$/, '');
   }
 })();
-export const HEALTHCHECK_URL = `${API_ORIGIN}/health`;
+export const HEALTHCHECK_URL = `${API_ORIGIN}/api/auth/session`;
 
 export function getApiBaseUrlDiagnostics() {
   const usesLoopback = /localhost|127\.0\.0\.1/i.test(API_BASE_URL);
@@ -101,12 +68,12 @@ export function logResolvedApiBaseUrl() {
   const diagnostics = getApiBaseUrlDiagnostics();
   console.info('[config/api] resolved_api_base_url', {
     ...diagnostics,
-    guidance: 'Set EXPO_PUBLIC_API_BASE_URL for physical-device testing if the inferred host is not correct.',
+    guidance: `Set EXPO_PUBLIC_API_URL=${DEFAULT_API_URL} for local and EAS builds.`,
   });
 
-  if (__DEV__ && diagnostics.usesLoopback) {
+  if (diagnostics.usesLoopback) {
     console.warn(
-      '[config/api] loopback base URL detected. Physical devices cannot reach localhost/127.0.0.1 on your development machine.',
+      `[config/api] loopback base URL detected. Set EXPO_PUBLIC_API_URL=${DEFAULT_API_URL}.`,
     );
   }
 }

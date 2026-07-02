@@ -26,8 +26,10 @@ client/ios/build/
 *.log
 *.keystore
 *.jks
+before-prebuild-clean.patch
 .env
 .env.*
+!.env.example
 !example.env
 
 # firebase secrets

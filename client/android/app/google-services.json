@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "944652922057-fgjtdfvgcpur2ftvs76514922u8f9n9l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.siara.mobile",
+            "certificate_hash": "d2de727def542d6f18874ae8fdbb44ca936a08f5"
+          }
+        },
+        {
           "client_id": "944652922057-qah4q5s741vd1psm9gt08rudpfgukeeb.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

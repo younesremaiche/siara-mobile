@@ -247,7 +247,7 @@ export default function FullNavigationScreen({ navigation, route: navRoute }) {
       {/* ── MAP ── */}
       <WebView
         ref={webRef}
-        source={{ html, baseUrl: 'https://localhost' }}
+        source={{ html, baseUrl: 'https://siara.local' }}
         style={StyleSheet.absoluteFill}
         javaScriptEnabled domStorageEnabled mixedContentMode="always"
         allowUniversalAccessFromFileURLs allowFileAccess originWhitelist={['*']}

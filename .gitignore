@@ -19,6 +19,10 @@ client/android/app/.cxx/
 
 client/.expo/
 
+.env
+.env.*
+!.env.example
+
 *firebase-adminsdk*.json
 
 __pycache__/

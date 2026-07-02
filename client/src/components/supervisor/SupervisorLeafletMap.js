@@ -90,7 +90,7 @@ const SupervisorLeafletMap = forwardRef(function SupervisorLeafletMap(
     <View style={[styles.fill, style]}>
       <WebView
         ref={webRef}
-        source={{ html, baseUrl: 'https://localhost' }}
+        source={{ html, baseUrl: 'https://siara.local' }}
         style={StyleSheet.absoluteFill}
         javaScriptEnabled
         domStorageEnabled

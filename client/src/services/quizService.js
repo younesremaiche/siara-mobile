@@ -678,7 +678,7 @@ export function getQuizFriendlyErrorMessage(error) {
   }
 
   if (message.includes('Network request failed') || message.includes('Failed to fetch')) {
-    return 'Unable to reach the driver assessment service. Confirm EXPO_PUBLIC_API_BASE_URL points to a reachable backend and that Ollama is running on the backend machine.';
+    return 'Unable to reach the driver assessment service. Confirm EXPO_PUBLIC_API_URL points to the hosted SIARA backend.';
   }
 
   if (error?.status === 404) {

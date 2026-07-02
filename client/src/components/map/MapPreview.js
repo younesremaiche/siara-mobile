@@ -43,7 +43,7 @@ export default function MapPreview({ style, onPress }) {
   return (
     <TouchableOpacity style={[styles.container, style]} onPress={onPress} activeOpacity={0.95}>
       <WebView
-        source={{ html: PREVIEW_HTML, baseUrl: 'https://localhost' }}
+        source={{ html: PREVIEW_HTML, baseUrl: 'https://siara.local' }}
         style={StyleSheet.absoluteFill}
         javaScriptEnabled
         mixedContentMode="always"

@@ -55,7 +55,7 @@ export default function AdminLeafletMap({
     <View style={[styles.fill, style]} pointerEvents={interactive ? 'auto' : 'none'}>
       <WebView
         ref={webRef}
-        source={{ html, baseUrl: 'https://localhost' }}
+        source={{ html, baseUrl: 'https://siara.local' }}
         style={StyleSheet.absoluteFill}
         javaScriptEnabled
         domStorageEnabled

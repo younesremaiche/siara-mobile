@@ -1536,7 +1536,7 @@ const SiaraMap = React.forwardRef(function SiaraMap({
     <View style={[styles.container, style]}>
       <WebView
         ref={webViewRef}
-        source={{ html: leafletHTML, baseUrl: 'https://localhost' }}
+        source={{ html: leafletHTML, baseUrl: 'https://siara.local' }}
         style={StyleSheet.absoluteFill}
         javaScriptEnabled
         domStorageEnabled

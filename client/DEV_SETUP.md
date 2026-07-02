@@ -1,35 +1,34 @@
 # Mobile Dev Setup
 
-For Android push notification testing, use the LAN backend and a development build.
+For Android push notification testing, use the hosted SIARA backend and a development build.
 
-## Local LAN backend
+## Hosted backend
 
-- PC/backend URL: `http://YOUR_LAN_IP:5000`
-- Health check: `http://YOUR_LAN_IP:5000/health`
-- The phone must be on the same Wi-Fi as the PC.
-- Do not use `localhost` or `127.0.0.1` from the phone.
+- API URL: `https://siara-api.onrender.com`
+- Reachability check: `https://siara-api.onrender.com/api/auth/session`
+- Do not use localhost, `127.0.0.1`, a LAN IP, `10.0.2.2`, PostgreSQL/Aiven,
+  or a direct ML-service URL from the mobile app.
 
 Set local env in `client/.env.development`:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:5000
+EXPO_PUBLIC_API_URL=https://siara-api.onrender.com
 EXPO_PUBLIC_EAS_PROJECT_ID=your-eas-project-id
 ```
 
 ## Correct workflow for push testing
 
-1. Start the backend so it is reachable at `http://YOUR_LAN_IP:5000`.
-2. Build/install the development client on Android:
+1. Build/install the development client on Android:
    `npm run android`
-3. Start Metro for the dev client:
+2. Start Metro for the dev client:
    `npm run start:dev-client`
-4. Open the SIARA development build on the physical Android device.
-5. Log in, grant notification permission, and verify the app logs the Expo push token.
+3. Open the SIARA development build on the physical Android device.
+4. Log in, grant notification permission, and verify the app logs the Expo push token.
 
 ## Notes
 
 - In-app inbox notifications still use the normal `/api/notifications` and socket flow.
 - Phone push registration uses `POST /api/push/mobile/register`.
 - Logout unregisters the current token with `DELETE /api/push/mobile/unregister`.
-- If push token registration fails, check the LAN health endpoint first.
+- If push token registration fails, check the hosted health endpoint first.
 - If the app logs `missing_project_id`, set `EXPO_PUBLIC_EAS_PROJECT_ID`, rebuild the development client, and retry. Expo push tokens will not register without that project id.
